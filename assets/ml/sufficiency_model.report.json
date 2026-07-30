@@ -1,0 +1,202 @@
+{
+  "generatedFrom": "synthetic data only \u2014 no real candidate was involved",
+  "dataset": {
+    "count": 6000,
+    "groups": 300,
+    "seed": 100,
+    "trainFraction": 0.6,
+    "calibrationFraction": 0.2,
+    "trainRows": 3600,
+    "calibrationRows": 1200,
+    "testRows": 1200
+  },
+  "heldOutUncalibrated": {
+    "count": 1200,
+    "positiveCount": 557,
+    "auc": 0.8515235194094111,
+    "brier": 0.15777327133909827,
+    "logLoss": 0.4760671695257681,
+    "accuracy": 0.7591666666666667,
+    "expectedCalibrationError": 0.03212815070008339,
+    "reliabilityBins": [
+      {
+        "lowerEdge": 0.0,
+        "upperEdge": 0.1,
+        "count": 132,
+        "meanConfidence": 0.057970742900180845,
+        "observedAccuracy": 0.007575757575757576
+      },
+      {
+        "lowerEdge": 0.1,
+        "upperEdge": 0.2,
+        "count": 144,
+        "meanConfidence": 0.14860658561610776,
+        "observedAccuracy": 0.13194444444444445
+      },
+      {
+        "lowerEdge": 0.2,
+        "upperEdge": 0.3,
+        "count": 114,
+        "meanConfidence": 0.2524972378699253,
+        "observedAccuracy": 0.21929824561403508
+      },
+      {
+        "lowerEdge": 0.3,
+        "upperEdge": 0.4,
+        "count": 112,
+        "meanConfidence": 0.35128646513849454,
+        "observedAccuracy": 0.375
+      },
+      {
+        "lowerEdge": 0.4,
+        "upperEdge": 0.5,
+        "count": 110,
+        "meanConfidence": 0.452291384375975,
+        "observedAccuracy": 0.38181818181818183
+      },
+      {
+        "lowerEdge": 0.5,
+        "upperEdge": 0.6,
+        "count": 118,
+        "meanConfidence": 0.5467770170519247,
+        "observedAccuracy": 0.4576271186440678
+      },
+      {
+        "lowerEdge": 0.6,
+        "upperEdge": 0.7,
+        "count": 122,
+        "meanConfidence": 0.6462086940925214,
+        "observedAccuracy": 0.6311475409836066
+      },
+      {
+        "lowerEdge": 0.7,
+        "upperEdge": 0.8,
+        "count": 116,
+        "meanConfidence": 0.7518569620116738,
+        "observedAccuracy": 0.75
+      },
+      {
+        "lowerEdge": 0.8,
+        "upperEdge": 0.9,
+        "count": 115,
+        "meanConfidence": 0.8430935556029053,
+        "observedAccuracy": 0.8521739130434782
+      },
+      {
+        "lowerEdge": 0.9,
+        "upperEdge": 1.0,
+        "count": 117,
+        "meanConfidence": 0.9427962072213285,
+        "observedAccuracy": 0.9572649572649573
+      }
+    ]
+  },
+  "heldOutCalibrated": {
+    "count": 1200,
+    "positiveCount": 557,
+    "auc": 0.8492032690122322,
+    "brier": 0.1605744784294658,
+    "logLoss": 0.5240516290548449,
+    "accuracy": 0.7558333333333334,
+    "expectedCalibrationError": 0.04030608187259805,
+    "reliabilityBins": [
+      {
+        "lowerEdge": 0.0,
+        "upperEdge": 0.1,
+        "count": 181,
+        "meanConfidence": 0.06041450727931456,
+        "observedAccuracy": 0.04419889502762431
+      },
+      {
+        "lowerEdge": 0.1,
+        "upperEdge": 0.2,
+        "count": 147,
+        "meanConfidence": 0.15773809523809523,
+        "observedAccuracy": 0.14285714285714285
+      },
+      {
+        "lowerEdge": 0.2,
+        "upperEdge": 0.3,
+        "count": 62,
+        "meanConfidence": 0.2264150943396227,
+        "observedAccuracy": 0.25806451612903225
+      },
+      {
+        "lowerEdge": 0.3,
+        "upperEdge": 0.4,
+        "count": 157,
+        "meanConfidence": 0.3441738558136509,
+        "observedAccuracy": 0.35668789808917195
+      },
+      {
+        "lowerEdge": 0.4,
+        "upperEdge": 0.5,
+        "count": 39,
+        "meanConfidence": 0.41758241758241754,
+        "observedAccuracy": 0.4358974358974359
+      },
+      {
+        "lowerEdge": 0.5,
+        "upperEdge": 0.6,
+        "count": 71,
+        "meanConfidence": 0.5169014084507044,
+        "observedAccuracy": 0.39436619718309857
+      },
+      {
+        "lowerEdge": 0.6,
+        "upperEdge": 0.7,
+        "count": 39,
+        "meanConfidence": 0.6000000000000002,
+        "observedAccuracy": 0.6153846153846154
+      },
+      {
+        "lowerEdge": 0.7,
+        "upperEdge": 0.8,
+        "count": 247,
+        "meanConfidence": 0.7142600510677002,
+        "observedAccuracy": 0.6275303643724697
+      },
+      {
+        "lowerEdge": 0.8,
+        "upperEdge": 0.9,
+        "count": 131,
+        "meanConfidence": 0.8421986031467752,
+        "observedAccuracy": 0.8625954198473282
+      },
+      {
+        "lowerEdge": 0.9,
+        "upperEdge": 1.0,
+        "count": 126,
+        "meanConfidence": 0.9857881136950906,
+        "observedAccuracy": 0.9444444444444444
+      }
+    ]
+  },
+  "calibrationDecision": {
+    "shipped": false,
+    "eceGain": -0.008177931172514662,
+    "minGainRequired": 0.005,
+    "worsensLogLoss": true,
+    "note": "The calibrator is embedded only when it measurably improves held-out ECE without worsening log loss. A logistic model fit on a logistic process is already near-calibrated, so 'we calibrate' is not automatically an improvement \u2014 here it is measured, not assumed."
+  },
+  "groundTruthWeights": {
+    "graph.supportsEdgeCount": 1.4,
+    "graph.contradictsEdgeCount": -1.6,
+    "identity.verifiedShareOfMeasured": 1.2,
+    "identity.maxConsecutiveMismatches": -1.0,
+    "session.answeredToOpenedRatio": 0.8,
+    "editing.netToGrossRatio": 0.9,
+    "typing.veryFastKeystrokeRate": -1.1
+  },
+  "recoveredWeights": {
+    "editing.netToGrossRatio": 0.717190255659397,
+    "graph.contradictsEdgeCount": -1.5246795063791518,
+    "graph.supportsEdgeCount": 1.3375581862843138,
+    "identity.maxConsecutiveMismatches": -0.9879870615570241,
+    "identity.verifiedShareOfMeasured": 1.1962641962008997,
+    "session.answeredToOpenedRatio": 0.715939951183683,
+    "session.followUpCount": -0.026715375619274857,
+    "typing.backspaceRate": -0.0805605864871903,
+    "typing.veryFastKeystrokeRate": -1.0123989718688908
+  }
+}

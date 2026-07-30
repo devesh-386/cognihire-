@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 2,
+  "trainedOnSyntheticData": true,
+  "isValidatedOnRealData": false,
+  "bias": -0.13474502300514518,
+  "features": [
+    {
+      "name": "editing.netToGrossRatio",
+      "weight": 0.717190255659397,
+      "lo": 0.0,
+      "hi": 1.0
+    },
+    {
+      "name": "graph.contradictsEdgeCount",
+      "weight": -1.5246795063791518,
+      "lo": 0.0,
+      "hi": 6.0
+    },
+    {
+      "name": "graph.supportsEdgeCount",
+      "weight": 1.3375581862843138,
+      "lo": 0.0,
+      "hi": 10.0
+    },
+    {
+      "name": "identity.maxConsecutiveMismatches",
+      "weight": -0.9879870615570241,
+      "lo": 0.0,
+      "hi": 5.0
+    },
+    {
+      "name": "identity.verifiedShareOfMeasured",
+      "weight": 1.1962641962008997,
+      "lo": 0.0,
+      "hi": 1.0
+    },
+    {
+      "name": "session.answeredToOpenedRatio",
+      "weight": 0.715939951183683,
+      "lo": 0.0,
+      "hi": 1.5
+    },
+    {
+      "name": "session.followUpCount",
+      "weight": -0.026715375619274857,
+      "lo": 0.0,
+      "hi": 5.0
+    },
+    {
+      "name": "typing.backspaceRate",
+      "weight": -0.0805605864871903,
+      "lo": 0.0,
+      "hi": 0.4
+    },
+    {
+      "name": "typing.veryFastKeystrokeRate",
+      "weight": -1.0123989718688908,
+      "lo": 0.0,
+      "hi": 0.5
+    }
+  ]
+}
