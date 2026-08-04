@@ -1,0 +1,63 @@
+# CH-0.3.1: CI smoke test for the Postgres + pgvector Compose service.
+#
+# Scope is deliberately narrow — bring the database up via the same
+# docker-compose.yml a developer runs locally, and prove two things:
+#   1. It becomes reachable (connectivity).
+#   2. The pgvector extension is actually enabled (not just that Postgres
+#      started).
+# No schema, no migrations, no other services — those belong to later
+# tickets.
+name: Compose smoke test (Postgres + pgvector)
+
+on:
+  push:
+    paths:
+      - "docker-compose.yml"
+      - "infra/postgres/**"
+      - ".github/workflows/compose-smoke.yml"
+  pull_request:
+    paths:
+      - "docker-compose.yml"
+      - "infra/postgres/**"
+      - ".github/workflows/compose-smoke.yml"
+
+jobs:
+  postgres-up:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start postgres via docker compose
+        run: docker compose up -d postgres
+
+      - name: Wait for healthcheck
+        run: |
+          for i in $(seq 1 30); do
+            status="$(docker inspect -f '{{.State.Health.Status}}' cognihire-postgres 2>/dev/null || echo starting)"
+            if [ "$status" = "healthy" ]; then
+              echo "postgres is healthy"
+              exit 0
+            fi
+            echo "waiting for postgres ($i/30): $status"
+            sleep 2
+          done
+          echo "postgres did not become healthy in time"
+          docker compose logs postgres
+          exit 1
+
+      - name: Verify connectivity
+        run: docker compose exec -T postgres pg_isready -U cognihire -d cognihire
+
+      - name: Verify pgvector extension is enabled
+        run: |
+          result="$(docker compose exec -T postgres psql -U cognihire -d cognihire -tAc \
+            "SELECT 1 FROM pg_extension WHERE extname = 'vector';")"
+          if [ "$result" != "1" ]; then
+            echo "pgvector extension is not enabled"
+            exit 1
+          fi
+          echo "pgvector extension confirmed enabled"
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
