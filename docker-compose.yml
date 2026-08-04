@@ -72,6 +72,57 @@ services:
       timeout: 5s
       retries: 10
 
+  # CH-0.3.3 — Redis. Evidence-plane cache / session working set (Ch4 §13).
+  # On the `evidence` network only.
+  redis:
+    image: redis:7-alpine
+    container_name: cognihire-redis
+    restart: unless-stopped
+    networks:
+      - evidence
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # CH-0.3.3 — MinIO. S3-compatible object storage for resumes/artifacts
+  # (Ch4 Part B §12). Evidence-plane; on the `evidence` network only.
+  minio:
+    image: minio/minio:latest # digest-pinning is ED-70 (Sprint 6), not here
+    container_name: cognihire-minio
+    restart: unless-stopped
+    networks:
+      - evidence
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: cognihire
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-cognihire_dev_only}
+    ports:
+      - "9000:9000" # S3 API
+      - "9001:9001" # web console
+    volumes:
+      - minio-data:/data
+
+  # CH-0.3.3 — Caddy. Gateway + TLS terminator (Ch7 Part A §12). Scaffold
+  # config only; real reverse-proxy routes to app services are added when
+  # those services exist (later tickets). Evidence-plane network.
+  caddy:
+    image: caddy:2-alpine
+    container_name: cognihire-caddy
+    restart: unless-stopped
+    networks:
+      - evidence
+    ports:
+      - "8080:80" # host 8080 → gateway :80 (avoids clashing with other local :80)
+      - "8443:443"
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
 # Two disjoint networks. The evidence plane and the disposition plane share no
 # network, so there is no path from one store's container to the other — the
 # ED-14 boundary is structural, not a runtime check that could be forgotten.
@@ -84,3 +135,6 @@ networks:
 volumes:
   postgres-data:
   postgres-disposition-data:
+  minio-data:
+  caddy-data:
+  caddy-config:

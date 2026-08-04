@@ -1,0 +1,13 @@
+# CH-0.3.3 — Caddy gateway, scaffold configuration.
+#
+# T-MVP uses Caddy as the gateway + TLS terminator (Ch7 Part A §12). At this
+# point in the build no application service exists yet, so this only serves a
+# health response proving the gateway is up. Real `reverse_proxy` routes to the
+# API/session services are added by the tickets that introduce those services.
+#
+# Plain :80 only (no hostname) so Caddy does not attempt automatic HTTPS
+# certificate issuance in local/CI environments.
+:80 {
+	respond /health "ok" 200
+	respond "cognihire gateway (scaffold)" 200
+}

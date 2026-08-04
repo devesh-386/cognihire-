@@ -1,0 +1,65 @@
+# CH-0.3.3: proves the full T-MVP store/gateway stack starts from one
+# `docker compose up`. Postgres + disposition Postgres are covered in depth by
+# their own workflows; this one asserts all five services come up together and
+# that Redis, MinIO, and Caddy are each reachable.
+name: Full stack smoke (Postgres + Redis + MinIO + Caddy)
+
+on:
+  push:
+    paths:
+      - "docker-compose.yml"
+      - "infra/**"
+      - ".github/workflows/stack-smoke.yml"
+  pull_request:
+    paths:
+      - "docker-compose.yml"
+      - "infra/**"
+      - ".github/workflows/stack-smoke.yml"
+
+jobs:
+  stack-up:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start the full stack
+        run: docker compose up -d
+
+      - name: Wait for services with healthchecks
+        run: |
+          for svc in cognihire-postgres cognihire-postgres-disposition cognihire-redis; do
+            ok=""
+            for i in $(seq 1 30); do
+              status="$(docker inspect -f '{{.State.Health.Status}}' "$svc" 2>/dev/null || echo starting)"
+              if [ "$status" = "healthy" ]; then ok=1; echo "$svc healthy"; break; fi
+              echo "waiting for $svc ($i/30): $status"; sleep 2
+            done
+            if [ -z "$ok" ]; then echo "$svc never became healthy"; docker compose logs "$svc"; exit 1; fi
+          done
+
+      - name: Redis responds to PING
+        run: docker compose exec -T redis redis-cli ping | grep -q PONG
+
+      - name: MinIO health endpoint is live
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:9000/minio/health/live >/dev/null; then
+              echo "minio live"; exit 0
+            fi
+            echo "waiting for minio ($i/30)"; sleep 2
+          done
+          echo "minio did not become live"; docker compose logs minio; exit 1
+
+      - name: Caddy gateway serves the health response
+        run: |
+          for i in $(seq 1 30); do
+            if [ "$(curl -fsS -o /dev/null -w '%{http_code}' http://localhost:8080/health)" = "200" ]; then
+              echo "caddy up"; exit 0
+            fi
+            echo "waiting for caddy ($i/30)"; sleep 2
+          done
+          echo "caddy did not serve"; docker compose logs caddy; exit 1
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
