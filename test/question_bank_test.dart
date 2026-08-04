@@ -128,6 +128,70 @@ void main() {
         ClaimType.achievedOutcome);
   });
 
+  test('a verb ending in -led is not mistaken for leadership', () {
+    // Regression. `_rules` once matched with `contains` and guarded the
+    // dangerous entries with a trailing space, so 'led ' matched inside every
+    // one of these and each got a full leadership question ladder — silently,
+    // and about people who had led nothing. Found by running the LiveCareer
+    // resume corpus through `tool/corpus_eval.dart`, where it accounted for the
+    // majority of all non-null classifications.
+    const notLeadership = [
+      'Compiled monthly reports for the board.',
+      'Handled escalated customer complaints.',
+      'Scheduled staff shifts across three sites.',
+      'Controlled inventory levels in the stockroom.',
+      'Fulfilled orders during peak season.',
+      'Settled disputes between vendors.',
+      'Travelled to client sites weekly.',
+      'Cancelled the vendor contract.',
+    ];
+    for (final text in notLeadership) {
+      expect(QuestionBank.classify(claim(text)), isNot(ClaimType.heldRole),
+          reason: '"$text" contains no leadership claim');
+    }
+  });
+
+  test('other trailing-space guards are word-bounded too', () {
+    // 'cut ' and 'used ' had the same guard and the same weakness.
+    expect(QuestionBank.classify(claim('Executed the quarterly audit.')),
+        isNot(ClaimType.achievedOutcome));
+    expect(QuestionBank.classify(claim('Focused on client retention.')),
+        isNot(ClaimType.usedTool));
+    // ...and the words themselves still match, including at a sentence end.
+    expect(QuestionBank.classify(claim('Cut onboarding time in half')),
+        ClaimType.achievedOutcome);
+    expect(QuestionBank.classify(claim('Terraform is something I have used')),
+        ClaimType.usedTool);
+  });
+
+  test('classification covers the verb families real resumes use', () {
+    expect(QuestionBank.classify(claim('Oversaw a team of twelve')),
+        ClaimType.heldRole);
+    expect(QuestionBank.classify(claim('Established the intake process')),
+        ClaimType.builtArtifact);
+    expect(QuestionBank.classify(claim('Utilized SAP for reconciliation')),
+        ClaimType.usedTool);
+    expect(QuestionBank.classify(claim('Streamlined the approval workflow')),
+        ClaimType.achievedOutcome);
+  });
+
+  test('routine-duty bullets stay unclassified rather than being forced', () {
+    // These dominate the LiveCareer corpus and are none of the four types. A
+    // keyword added to capture them would produce a confident ladder aimed at
+    // the wrong thing; null lets a reviewer route them. If this population
+    // matters, the fix is a fifth claim type, not a longer list.
+    const routine = [
+      'Monitored balance sheet accounts.',
+      'Responded to customer inquiries and complaints.',
+      'Participates in weekly team meetings.',
+      'Documents and tracks all member contacts.',
+    ];
+    for (final text in routine) {
+      expect(QuestionBank.classify(claim(text)), isNull,
+          reason: '"$text" is a routine duty, not one of the four types');
+    }
+  });
+
   test('classification is deterministic and order-independent of casing', () {
     final c = claim('BUILT AN INTERNAL DEPLOY TOOL');
     expect(QuestionBank.classify(c), ClaimType.builtArtifact);

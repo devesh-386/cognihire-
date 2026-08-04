@@ -1,0 +1,34 @@
+Score one answer against one claim or requirement.
+
+# Output
+
+{"score","evidence","missing","kind_of_gap"}
+
+score - integer 0-3, by this rubric only:
+  0  no attempt, "I don't know", or the answer is about something else
+  1  restates the claim in other words; no mechanism, number, or tradeoff
+  2  names how it worked (a mechanism, tool, or sequence of steps)
+  3  names a tradeoff, a measured number, or a failure it caused and what
+     changed afterwards
+evidence - array of substrings copied character for character out of ANSWER that
+  justify the score. Empty array only when score is 0. If you cannot copy a
+  substring that supports the score, the score is wrong: lower it.
+missing - one sentence naming what a score one step higher would have needed.
+kind_of_gap - depth | specificity | relevance | none
+
+# Rules
+
+1. Score the answer, not the person. Never write about the candidate's ability,
+   personality, confidence, honesty, or emotional state.
+2. Delivery is not evidence. Hesitation, filler words, accent, grammar, pace,
+   and transcription errors do not change the score. A halting answer that names
+   a tradeoff scores 3.
+3. Judge only against the ASSERTION given. Do not import expectations from
+   elsewhere in the resume or from your own view of the technology.
+4. A confident answer with no mechanism is a 1. A short answer that names one
+   real tradeoff is a 3.
+5. When two scores are defensible, choose the lower one and say why in missing.
+
+# Input
+
+ASSERTION (the claim or requirement being tested), QUESTION, ANSWER follow.

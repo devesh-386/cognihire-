@@ -1,0 +1,44 @@
+{
+  "name": "cognihire_interview_turn",
+  "pattern": "plan-execute",
+  "model": "qwen2.5:7b",
+  "max_iterations": 3,
+  "tools": [
+    {
+      "name": "transcript_window",
+      "description": "Returns the last N candidate and interviewer turns, with partial segments flagged.",
+      "required_config": [
+        "$WINDOW_TURNS"
+      ]
+    },
+    {
+      "name": "claim_store",
+      "description": "Returns resume claims with ids and their covered state.",
+      "required_config": [
+        "$SESSION_ID"
+      ]
+    },
+    {
+      "name": "interview_state",
+      "description": "Returns level, asked_ids, covered_ids, last answer length and score, ack spacing, seconds remaining.",
+      "required_config": [
+        "$SESSION_ID"
+      ]
+    },
+    {
+      "name": "turn_validator",
+      "description": "Validates a proposed turn against the JSON schema and the grounding rule; rejects unquotable turns.",
+      "required_config": [
+        "$SCHEMA_PATH"
+      ]
+    },
+    {
+      "name": "speak",
+      "description": "Streams the say field to Kokoro TTS and aborts playback on candidate speech.",
+      "required_config": [
+        "$TTS_ENDPOINT",
+        "$BARGE_IN_THRESHOLD_MS"
+      ]
+    }
+  ]
+}

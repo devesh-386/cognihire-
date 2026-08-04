@@ -164,9 +164,17 @@ void main() {
       });
     });
 
-    testWidgets('offers no way to start an unverified session', (tester) async {
+    // The setup form now lives behind the shell's "New session" destination
+    // rather than being the whole app's home content.
+    Future<void> openSetup(WidgetTester tester) async {
       await tester.pumpWidget(home());
       await tester.pumpAndSettle();
+      await tester.tap(find.text('New session').last);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('offers no way to start an unverified session', (tester) async {
+      await openSetup(tester);
 
       // The product decision: a session cannot begin without an enrolled
       // reference. If someone reintroduces an "skip verification" affordance,
@@ -177,8 +185,7 @@ void main() {
     });
 
     testWidgets('the only start action leads through enrolment', (tester) async {
-      await tester.pumpWidget(home());
-      await tester.pumpAndSettle();
+      await openSetup(tester);
 
       expect(
         find.text('Enrol and start verified interview'),
@@ -188,8 +195,7 @@ void main() {
     });
 
     testWidgets('says plainly that there is no unverified mode', (tester) async {
-      await tester.pumpWidget(home());
-      await tester.pumpAndSettle();
+      await openSetup(tester);
 
       expect(find.textContaining('no unverified mode'), findsOneWidget);
     });

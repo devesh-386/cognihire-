@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InterviewTurn",
+  "description": "One spoken interviewer turn. Key order is significant: `say` must serialise first so the stream parser can forward it to TTS before the rest of the object arrives.",
+  "type": "object",
+  "properties": {
+    "say":    { "type": "string", "minLength": 1, "maxLength": 320 },
+    "kind":   { "enum": ["followup", "probe", "newtopic", "warmup", "clarify", "close"] },
+    "quote":  { "type": "string", "maxLength": 400 },
+    "difficulty_delta": { "type": "integer", "minimum": -1, "maximum": 1 },
+    "covered": { "type": "array", "items": { "type": "string" }, "maxItems": 4 },
+    "why":    { "type": "string", "minLength": 1, "maxLength": 240 }
+  },
+  "required": ["say", "kind", "quote", "difficulty_delta", "covered", "why"],
+  "additionalProperties": false
+}

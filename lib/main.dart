@@ -2,20 +2,27 @@ import 'package:flutter/material.dart';
 
 import 'core/claims/claim.dart';
 import 'core/claims/claim_audit.dart';
-import 'core/claims/claim_extractor.dart';
-import 'core/claims/ollama_claim_extractor.dart';
 import 'core/design/app_theme.dart';
 import 'core/persistence/audit_store.dart';
 import 'core/persistence/json_codec.dart';
 import 'core/persistence/store_factory.dart';
+import 'core/roles/role.dart';
+import 'core/roles/role_store.dart';
+import 'core/roles/role_store_factory.dart';
+import 'core/session/session_draft.dart';
 import 'core/verification/verification_result.dart';
+import 'core/workspace/workspace_loader.dart';
+import 'features/analysis/resume_analysis_screen.dart';
 import 'features/audit/claim_audit_screen.dart';
+import 'features/candidates/candidates_screen.dart';
 import 'features/common/empty_state.dart';
+import 'features/dashboard/dashboard_screen.dart';
 import 'features/enrolment/enrolment_screen.dart';
 import 'features/interview/interview_screen.dart';
-import 'features/resume/resume_pick.dart';
-import 'features/resume/resume_upload_card.dart';
+import 'features/reports/reports_screen.dart';
+import 'features/roles/roles_screen.dart';
 import 'features/sessions/session_history_screen.dart';
+import 'features/settings/settings_screen.dart';
 import 'features/task/task_screen.dart';
 import 'ui/app_shell.dart';
 import 'ui/components.dart';
@@ -28,36 +35,51 @@ Future<void> main() async {
   // all, the app still runs — it just says sessions will not be kept, rather
   // than accepting audits it is going to drop.
   AuditStore store;
+  RoleStore roleStore;
   String location;
   bool durable;
   try {
     store = await createAuditStore();
+    roleStore = await createRoleStore();
     location = await auditStorageLocation();
     durable = storageIsDurable;
   } catch (error) {
     store = InMemoryAuditStore();
+    roleStore = InMemoryRoleStore();
     location = 'Storage unavailable ($error) — sessions will not be kept.';
     durable = false;
   }
 
   runApp(CogniHireApp(
     store: store,
+    roleStore: roleStore,
     storageLocation: location,
     storageIsDurable: durable,
   ));
 }
 
-class CogniHireApp extends StatelessWidget {
+class CogniHireApp extends StatefulWidget {
   const CogniHireApp({
     super.key,
     required this.store,
+    required this.roleStore,
     required this.storageLocation,
     required this.storageIsDurable,
   });
 
   final AuditStore store;
+  final RoleStore roleStore;
   final String storageLocation;
   final bool storageIsDurable;
+
+  @override
+  State<CogniHireApp> createState() => _CogniHireAppState();
+}
+
+class _CogniHireAppState extends State<CogniHireApp> {
+  // Held above MaterialApp rather than read from system settings once, so
+  // Settings' light/dark/system control has something real to act on.
+  ThemeMode _themeMode = ThemeMode.system;
 
   @override
   Widget build(BuildContext context) {
@@ -66,10 +88,14 @@ class CogniHireApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
+      themeMode: _themeMode,
       home: HomeScreen(
-        store: store,
-        storageLocation: storageLocation,
-        storageIsDurable: storageIsDurable,
+        store: widget.store,
+        roleStore: widget.roleStore,
+        storageLocation: widget.storageLocation,
+        storageIsDurable: widget.storageIsDurable,
+        themeMode: _themeMode,
+        onThemeModeChanged: (mode) => setState(() => _themeMode = mode),
       ),
     );
   }
@@ -145,69 +171,67 @@ ClaimAudit _sampleAudit() {
   );
 }
 
-/// Entry point: enrol a reference face, then run a live verified session.
+/// Stands in for [RoleStore] when a caller has not supplied one — most
+/// existing test and preview call sites predate the Roles feature. Reports an
+/// empty list rather than throwing, and refuses writes with a message that
+/// says why, rather than silently discarding a role someone typed.
+class _NoRoleStore implements RoleStore {
+  const _NoRoleStore();
+
+  @override
+  Future<RoleIndex> listRoles() async => const RoleIndex(roles: [], problem: null);
+
+  @override
+  Future<void> saveRole(Role role) => throw UnsupportedError(
+        'No role store was supplied to this HomeScreen.',
+      );
+
+  @override
+  Future<void> deleteRole(String id) => throw UnsupportedError(
+        'No role store was supplied to this HomeScreen.',
+      );
+}
+
+/// Entry point: nine destinations behind one persistent rail. What exists is
+/// what is in the rail — see `ui/app_shell.dart` for why that rule exists and
+/// what it has already caught.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
     required this.store,
+    RoleStore? roleStore,
     required this.storageLocation,
     required this.storageIsDurable,
-  });
+    this.themeMode = ThemeMode.system,
+    this.onThemeModeChanged,
+  }) : roleStore = roleStore ?? const _NoRoleStore();
 
   final AuditStore store;
+
+  /// Defaults to an inert store when the caller does not supply one — most
+  /// existing call sites (tests, previews) predate the Roles feature and have
+  /// no opinion about role persistence.
+  final RoleStore roleStore;
+
   final String storageLocation;
   final bool storageIsDurable;
+  final ThemeMode themeMode;
+
+  /// Null when the caller has nowhere to persist a theme choice — Settings'
+  /// appearance control is then simply not wired to anything durable, rather
+  /// than the screen requiring a callback every test would otherwise have to
+  /// invent.
+  final ValueChanged<ThemeMode>? onThemeModeChanged;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  /// Demo claims, used only when no resume has been read. Kept so the app is
-  /// still demonstrable without a file to hand — but no longer the *only*
-  /// thing a session can run on, which is what they were before claim
-  /// extraction existed.
-  static const _demoClaims = [
-    Claim(
-      id: 'c1',
-      text: 'Built and shipped a React dashboard used by 200+ staff',
-      source: 'Demo claim — no resume read',
-      skill: 'React',
-    ),
-    Claim(
-      id: 'c2',
-      text: 'Optimised Postgres queries, cutting p95 latency by 60%',
-      source: 'Demo claim — no resume read',
-      skill: 'PostgreSQL',
-    ),
-  ];
-
-  /// Claims the candidate has reviewed and kept from their own resume. Empty
-  /// until a resume with readable text is picked and confirmed.
-  List<Claim> _extractedClaims = const [];
-
-  /// Candidates awaiting review, never used to run a session directly. Each is
-  /// editable and can be dropped before confirming; nothing here is trusted
-  /// until the candidate has looked at it. That human check stays load-bearing
-  /// whichever extractor ran — a local model is better than text rules at
-  /// finding assertions, and still not a substitute for the person confirming
-  /// these are their words.
-  List<_ClaimReviewItem> _reviewCandidates = const [];
-
-  /// The extraction behind [_reviewCandidates], kept for its provenance: which
-  /// mechanism actually ran, whether it degraded, and what it refused.
-  ClaimExtraction? _extraction;
-
-  bool _extracting = false;
-
-  final _extractor = OllamaClaimExtractor();
-
-  /// What the session will actually examine: the candidate's own reviewed
-  /// claims when there are any, otherwise the demo set.
-  List<Claim> get _claims =>
-      _extractedClaims.isNotEmpty ? _extractedClaims : _demoClaims;
-
-  final _labelController = TextEditingController();
+  /// Shared across the setup screen and the resume-analysis screen — see
+  /// `core/session/session_draft.dart` for why this has to be one object
+  /// rather than state duplicated in each screen.
+  final _draft = SessionDraft();
 
   EnrolmentProfile? _enrolment;
 
@@ -218,175 +242,44 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool _loadingEnrolment = true;
 
-  /// Attached for reference only until claim extraction exists — see the
-  /// note shown next to the upload card.
-  ResumePick? _resumePick;
+  /// Roles available to pick for the session being set up. Loaded once and
+  /// refreshed by [_refreshWorkspaceViews], same as the other workspace-derived
+  /// views — a role saved or deleted on the Roles screen should be reflected
+  /// here without the operator having to leave and come back.
+  RoleIndex? _roleIndex;
 
-  /// Opt-in, defaults to false. This is a second, separate consent from
-  /// identity verification (which is mandatory to run at all) — it governs
-  /// whether this session's data may be used in the research dataset
-  /// (`ML_REDESIGN.md` §5). Silence is not consent, so the box starts
-  /// unchecked and the choice is logged explicitly either way.
-  bool _researchConsent = false;
+  final _dashboardKey = GlobalKey<DashboardScreenState>();
+  final _candidatesKey = GlobalKey<CandidatesScreenState>();
+  final _reportsKey = GlobalKey<ReportsScreenState>();
+  final _rolesKey = GlobalKey<RolesScreenState>();
+  final _settingsKey = GlobalKey<SettingsScreenState>();
 
   @override
   void initState() {
     super.initState();
     _loadEnrolment();
-    // Fire-and-forget: loading the model's weights costs ~40s cold and ~0.3s
-    // warm, and the candidate is about to spend at least that long enrolling.
-    // Paying it here means extraction feels instant instead of broken. Nothing
-    // depends on the result, and a failure is handled at extraction time.
-    _extractor.warmUp();
+    _loadRoles();
+  }
+
+  Future<void> _loadRoles() async {
+    final index = await widget.roleStore.listRoles();
+    if (!mounted) return;
+    setState(() => _roleIndex = index);
+
+    // A role the draft was pointing at may have been deleted since this list
+    // last loaded — the session setup should not go on silently ordering
+    // claims against a role that no longer exists.
+    final current = _draft.targetRole;
+    if (current == null) return;
+    final stillExists = index.roles.any((r) => r.id == current.id);
+    if (!stillExists) _draft.targetRole = null;
   }
 
   @override
   void dispose() {
-    _labelController.dispose();
-    for (final item in _reviewCandidates) {
-      item.controller.dispose();
-    }
+    _draft.dispose();
     super.dispose();
   }
-
-  Future<void> _onResumePicked(ResumePick pick) async {
-    setState(() {
-      _resumePick = pick;
-      _extractedClaims = const [];
-      _extraction = null;
-      for (final item in _reviewCandidates) {
-        item.controller.dispose();
-      }
-      _reviewCandidates = const [];
-      _extracting = pick.hasText;
-    });
-
-    if (!pick.hasText) return;
-
-    final extraction = await _extractor.extract(
-      pick.text!,
-      source: 'Resume: ${pick.fileName}',
-    );
-
-    // The extractor takes seconds; the user can have picked another file or left
-    // the screen by now. Never setState on a dead widget, and never let a stale
-    // result overwrite a newer pick.
-    if (!mounted || _resumePick != pick) return;
-
-    setState(() {
-      _extracting = false;
-      _extraction = extraction;
-      _reviewCandidates = extraction.claims
-          .map((c) => _ClaimReviewItem(claim: c))
-          .toList();
-    });
-  }
-
-  /// Copies whatever the candidate has kept and possibly edited into the set
-  /// the session will actually run on. Discarded items and blanked-out text
-  /// contribute nothing — there is no fallback to the original extracted
-  /// wording once the candidate has removed it.
-  void _confirmReviewedClaims() {
-    setState(() {
-      _extractedClaims = [
-        for (final item in _reviewCandidates)
-          if (item.keep && item.controller.text.trim().isNotEmpty)
-            Claim(
-              id: item.claim.id,
-              text: item.controller.text.trim(),
-              source: item.claim.source,
-              skill: item.claim.skill,
-            ),
-      ];
-    });
-  }
-
-  Widget _claimReviewSection(ThemeData theme) => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(Spacing.lg),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Claims found in this resume — review before use',
-                style: theme.textTheme.titleSmall,
-              ),
-              const SizedBox(height: Spacing.xs),
-              // Says which mechanism actually produced this list. A model and a
-              // text rule have very different failure modes, and a reviewer
-              // cannot calibrate their reading of the list without knowing
-              // which one they are looking at.
-              Text(
-                '${_extraction?.kind.label ?? 'Unknown'} — '
-                '${_extraction?.kind.description ?? ''} Edit or remove anything '
-                'that is not a real claim before the interview uses it.',
-                style: theme.textTheme.bodySmall,
-              ),
-              if (_extraction?.degradedReason != null) ...[
-                const SizedBox(height: Spacing.sm),
-                Text(
-                  'The local model was not used: '
-                  '${_extraction!.degradedReason}. These claims came from text '
-                  'rules instead, which cannot read for meaning.',
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: theme.colorScheme.error),
-                ),
-              ],
-              if (_extraction != null &&
-                  _extraction!.rejectedUngrounded.isNotEmpty) ...[
-                const SizedBox(height: Spacing.sm),
-                Text(
-                  'Discarded ${_extraction!.rejectedUngrounded.length} line(s) '
-                  'the model produced that do not appear in your resume. A '
-                  'claim has to be in your own words to be used.',
-                  style: theme.textTheme.bodySmall,
-                ),
-              ],
-              const SizedBox(height: Spacing.md),
-              for (final item in _reviewCandidates)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: Spacing.sm),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Checkbox(
-                        value: item.keep,
-                        onChanged: (checked) => setState(
-                          () => item.keep = checked ?? false,
-                        ),
-                      ),
-                      Expanded(
-                        child: TextField(
-                          controller: item.controller,
-                          enabled: item.keep,
-                          maxLines: null,
-                          style: theme.textTheme.bodyMedium,
-                          decoration: InputDecoration(
-                            isDense: true,
-                            helperText: item.claim.skill != null
-                                ? 'Tagged: ${item.claim.skill}'
-                                : null,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: FilledButton.tonal(
-                  onPressed: _confirmReviewedClaims,
-                  child: Text(
-                    _extractedClaims.isEmpty
-                        ? 'Use these claims'
-                        : 'Update (${_extractedClaims.length} confirmed)',
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
 
   Future<void> _loadEnrolment() async {
     setState(() => _loadingEnrolment = true);
@@ -408,9 +301,17 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  String get _label => _labelController.text.trim().isEmpty
-      ? 'Unlabelled session'
-      : _labelController.text.trim();
+  /// Called after a session ends, or after data-changing actions in Settings,
+  /// so every other screen's numbers reflect what just happened rather than
+  /// what was true when they last loaded.
+  void _refreshWorkspaceViews() {
+    _dashboardKey.currentState?.reload();
+    _candidatesKey.currentState?.reload();
+    _reportsKey.currentState?.reload();
+    _rolesKey.currentState?.reload();
+    _settingsKey.currentState?.reload();
+    _loadRoles();
+  }
 
   /// Starts a session against an already-enrolled reference.
   ///
@@ -420,14 +321,14 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => InterviewScreen(
-          claims: _claims,
+          claims: _draft.effectiveClaims,
           enrolledEmbedding: embedding,
           store: widget.store,
-          candidateLabel: _label,
-          researchConsentGranted: _researchConsent,
+          candidateLabel: _draft.label,
+          researchConsentGranted: _draft.researchConsent,
         ),
       ),
-    );
+    ).then((_) => _refreshWorkspaceViews());
   }
 
   /// Capture a fresh reference face, keep it, then go straight into the
@@ -462,14 +363,14 @@ class _HomeScreenState extends State<HomeScreen> {
             Navigator.of(context).pushReplacement(
               MaterialPageRoute(
                 builder: (_) => InterviewScreen(
-                  claims: _claims,
+                  claims: _draft.effectiveClaims,
                   enrolledEmbedding: capture.embedding,
                   store: widget.store,
-                  candidateLabel: _label,
-                  researchConsentGranted: _researchConsent,
+                  candidateLabel: _draft.label,
+                  researchConsentGranted: _draft.researchConsent,
                 ),
               ),
-            );
+            ).then((_) => _refreshWorkspaceViews());
 
             if (saveError != null) {
               messenger.showSnackBar(SnackBar(
@@ -494,6 +395,9 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  void _goToNewSession() =>
+      AppShellController.of(context)?.goTo('New session');
+
   /// Built once. The sample audit is stamped with wall-clock times, so
   /// rebuilding it on every frame would make its timestamps drift and its
   /// widgets churn for no reason.
@@ -501,11 +405,75 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Every surface of the app is a destination in the rail. That is the point:
-    // a feature with no destination is visibly missing rather than silently
-    // unreachable, which is how finished work went unshipped here before.
+    final notices = <ShellNotice>[
+      if (!widget.storageIsDurable)
+        ShellNotice(
+          title: 'Storage is not durable',
+          detail: widget.storageLocation,
+          tone: ShellNoticeTone.caution,
+          onTap: () => AppShellController.of(context)?.goTo('Settings'),
+        ),
+      if (_enrolmentError != null)
+        ShellNotice(
+          title: 'Enrolled face is unreadable',
+          detail: _enrolmentError!,
+          tone: ShellNoticeTone.fault,
+          onTap: () => AppShellController.of(context)?.goTo('Settings'),
+        ),
+    ];
+
     return AppShell(
+      title: 'CogniHire',
+      tagline: 'Verified-claim interviewing',
+      primaryAction: ShellPrimaryAction(
+        label: 'New session',
+        icon: Icons.add,
+        onPressed: _goToNewSession,
+      ),
+      identity: ShellIdentity(
+        name: _draft.label,
+        role: 'Session operator',
+        onTap: () => AppShellController.of(context)?.goTo('Settings'),
+      ),
+      notices: notices,
+      onHelp: () => AppShellController.of(context)?.goTo('Settings'),
+      onSearch: (query) {
+        AppShellController.of(context)?.goTo('Candidates');
+        _candidatesKey.currentState?.applyQuery(query);
+      },
       destinations: [
+        ShellDestination(
+          icon: Icons.dashboard_outlined,
+          selectedIcon: Icons.dashboard,
+          label: 'Dashboard',
+          builder: (_) => DashboardScreen(
+            key: _dashboardKey,
+            store: widget.store,
+            storageLocation: widget.storageLocation,
+            storageIsDurable: widget.storageIsDurable,
+            onStartSession: _goToNewSession,
+          ),
+        ),
+        ShellDestination(
+          icon: Icons.people_outline,
+          selectedIcon: Icons.people,
+          label: 'Candidates',
+          builder: (_) => CandidatesScreen(
+            key: _candidatesKey,
+            store: widget.store,
+            onStartSession: _goToNewSession,
+          ),
+        ),
+        ShellDestination(
+          icon: Icons.work_outline,
+          selectedIcon: Icons.work,
+          label: 'Roles',
+          builder: (_) => RolesScreen(
+            key: _rolesKey,
+            roleStore: widget.roleStore,
+            loadSessions: () => loadWorkspace(widget.store),
+          ),
+        ),
         ShellDestination(
           icon: Icons.play_circle_outline,
           selectedIcon: Icons.play_circle_fill,
@@ -514,10 +482,16 @@ class _HomeScreenState extends State<HomeScreen> {
           builder: _setupPage,
         ),
         ShellDestination(
+          icon: Icons.document_scanner_outlined,
+          selectedIcon: Icons.document_scanner,
+          label: 'Resume analysis',
+          shortLabel: 'Resume',
+          builder: (_) => ResumeAnalysisScreen(draft: _draft),
+        ),
+        ShellDestination(
           icon: Icons.history_outlined,
           selectedIcon: Icons.history,
-          label: 'Past sessions',
-          shortLabel: 'Past',
+          label: 'Sessions',
           builder: (_) => SessionHistoryScreen(
             store: widget.store,
             storageLocation: widget.storageLocation,
@@ -525,13 +499,17 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         ShellDestination(
-          icon: Icons.fact_check_outlined,
-          selectedIcon: Icons.fact_check,
-          label: 'Sample audit',
-          shortLabel: 'Sample',
-          builder: (_) => ClaimAuditScreen(
-            audit: _sample,
-            label: 'Sample audit — illustrative data, not a real candidate',
+          icon: Icons.summarize_outlined,
+          selectedIcon: Icons.summarize,
+          label: 'Reports',
+          builder: (_) => ReportsScreen(
+            key: _reportsKey,
+            store: widget.store,
+            sampleAudit: () => ClaimAuditScreen(
+              audit: _sample,
+              label: 'Sample audit — illustrative data, not a real candidate',
+            ),
+            onStartSession: _goToNewSession,
           ),
         ),
         ShellDestination(
@@ -540,6 +518,23 @@ class _HomeScreenState extends State<HomeScreen> {
           label: 'Telemetry',
           builder: (_) => const TaskScreen(),
         ),
+        ShellDestination(
+          icon: Icons.settings_outlined,
+          selectedIcon: Icons.settings,
+          label: 'Settings',
+          builder: (_) => SettingsScreen(
+            key: _settingsKey,
+            store: widget.store,
+            storageLocation: widget.storageLocation,
+            storageIsDurable: widget.storageIsDurable,
+            themeMode: widget.themeMode,
+            onThemeModeChanged: widget.onThemeModeChanged ?? (_) {},
+            onDataChanged: () {
+              _loadEnrolment();
+              _refreshWorkspaceViews();
+            },
+          ),
+        ),
       ],
     );
   }
@@ -547,130 +542,169 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _setupPage(BuildContext context) {
     final theme = Theme.of(context);
 
-    return ShellPage(
-      title: 'New session',
-      subtitle: 'Continuous provenance for technical interviews — who did the '
-          'work, how, and what could not be checked.',
-      maxWidth: Measures.form,
-      children: [
-        SectionCard(
-          title: 'Candidate',
-          icon: Icons.badge_outlined,
-          description: 'How this session is filed in Past sessions.',
-          child: TextField(
-            controller: _labelController,
-            textInputAction: TextInputAction.done,
-            decoration: const InputDecoration(
-              labelText: 'Candidate reference',
-              hintText: 'e.g. Alice Nguyen — backend screen',
+    return AnimatedBuilder(
+      animation: _draft,
+      builder: (context, _) => ShellPage(
+        title: 'New session',
+        subtitle:
+            'Continuous provenance for technical interviews — who did the '
+            'work, how, and what could not be checked.',
+        maxWidth: Measures.form,
+        children: [
+          SectionCard(
+            title: 'Candidate',
+            icon: Icons.badge_outlined,
+            description: 'How this session is filed in Sessions and grouped in '
+                'Candidates.',
+            child: TextField(
+              onChanged: (value) => _draft.label = value,
+              textInputAction: TextInputAction.done,
+              decoration: const InputDecoration(
+                labelText: 'Candidate reference',
+                hintText: 'e.g. Alice Nguyen — backend screen',
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: Spacing.md),
-
-        // Two setup cards side by side when the window allows, stacked when it
-        // does not — a specified collapse rather than a Row that happens to fit.
-        ResponsiveColumns(
-          minColumnWidth: 300,
-          children: [
-            _enrolmentCard(theme),
-            ResumeUploadCard(onPicked: _onResumePicked),
-          ],
-        ),
-
-        if (_resumePick != null) ...[
           const SizedBox(height: Spacing.md),
-          if (_extracting)
-            const InlineNotice(
-              icon: Icons.hourglass_empty,
-              message: 'Reading this resume with a model running on this '
-                  'machine. Nothing is being uploaded.',
-            )
-          else if (_reviewCandidates.isNotEmpty)
-            _claimReviewSection(theme)
-          else
-            InlineNotice(
-              tone: _resumePick!.hasText ? NoticeTone.info : NoticeTone.caution,
-              message: _resumePick!.hasText
-                  ? 'No candidate claims found in this file — the interview '
-                      'will run on the demo claims until you attach a resume '
-                      'with readable assertions.'
-                  : (_resumePick!.extractionNote ??
-                      'This file could not be read.'),
-            ),
-        ],
-
-        const SizedBox(height: Spacing.md),
-        _researchConsentTile(theme),
-
-        const SizedBox(height: Spacing.xl),
-
-        // One action. Enrolment is a precondition, so there is no second,
-        // unverified way in.
-        SectionCard(
-          title: 'Start',
-          icon: Icons.verified_user_outlined,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              FilledButton.icon(
-                onPressed: _enrolment == null
-                    ? _enrolThenInterview
-                    : () => _startInterview(_enrolment!.embedding),
-                icon: const Icon(Icons.verified_user_outlined, size: 19),
-                label: Text(
-                  _enrolment == null
-                      ? 'Enrol and start verified interview'
-                      : 'Start verified interview',
-                ),
-              ),
-              const SizedBox(height: Spacing.sm),
-              Text(
-                _enrolment == null
-                    ? 'A reference face is captured first. Every session runs '
-                        'with identity verification — there is no unverified '
-                        'mode.'
-                    : 'Identity is re-checked throughout the session. Checks '
-                        'that cannot be performed are reported as unmeasured, '
-                        'never as passes.',
-                style: theme.textTheme.bodySmall,
-              ),
-            ],
-          ),
-        ),
-
-        if (_systemNotice(theme) != null) ...[
+          _enrolmentCard(theme),
+          const SizedBox(height: Spacing.md),
+          _rolePickerCard(theme),
+          const SizedBox(height: Spacing.md),
+          _claimsSummaryCard(context),
+          const SizedBox(height: Spacing.md),
+          _researchConsentTile(theme),
           const SizedBox(height: Spacing.xl),
-          _systemNotice(theme)!,
+
+          // One action. Enrolment is a precondition, so there is no second,
+          // unverified way in.
+          SectionCard(
+            title: 'Start',
+            icon: Icons.verified_user_outlined,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                FilledButton.icon(
+                  onPressed: _enrolment == null
+                      ? _enrolThenInterview
+                      : () => _startInterview(_enrolment!.embedding),
+                  icon: const Icon(Icons.verified_user_outlined, size: 19),
+                  label: Text(
+                    _enrolment == null
+                        ? 'Enrol and start verified interview'
+                        : 'Start verified interview',
+                  ),
+                ),
+                const SizedBox(height: Spacing.sm),
+                Text(
+                  _enrolment == null
+                      ? 'A reference face is captured first. Every session '
+                          'runs with identity verification — there is no '
+                          'unverified mode.'
+                      : 'Identity is re-checked throughout the session. '
+                          'Checks that cannot be performed are reported as '
+                          'unmeasured, never as passes.',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+
+          if (!widget.storageIsDurable) ...[
+            const SizedBox(height: Spacing.xl),
+            _storageNotice(theme),
+          ],
         ],
-      ],
-    );
-  }
-
-  /// Surfaced only when something needs attention — matches the rest of the
-  /// app's "report broken, stay quiet when fine" rule. The face-service URL
-  /// and its `--dart-define` override are build-time developer config; they
-  /// have no bearing on whether the product works and don't belong on a
-  /// screen shown to a recruiter or mentor. Storage durability is only worth
-  /// a line when it's *not* durable — the happy path needs no announcement.
-  Widget? _systemNotice(ThemeData theme) {
-    if (widget.storageIsDurable) return null;
-
-    return Card(
-      color: theme.colorScheme.errorContainer,
-      child: Padding(
-        padding: const EdgeInsets.all(Spacing.lg),
-        child: _statusRow(
-          theme,
-          icon: Icons.warning_amber,
-          label: 'Storage is not durable on this platform',
-          value: widget.storageLocation,
-          note: 'Sessions will not survive closing the app.',
-          tone: theme.colorScheme.error,
-        ),
       ),
     );
   }
+
+  /// Optional — a session runs without a role picked, same as before this
+  /// existed. Picking one only reorders which claim opens first (see
+  /// `orderClaimsForRole`'s doc); it adds nothing to the audit and changes no
+  /// verdict.
+  Widget _rolePickerCard(ThemeData theme) {
+    final roles = _roleIndex?.roles ?? const <Role>[];
+
+    return SectionCard(
+      title: 'Role this session is screening for',
+      icon: Icons.work_outline,
+      description: roles.isEmpty
+          ? 'No roles defined yet. Add one on the Roles screen to have this '
+              "session probe that role's required skills first."
+          : 'Optional. Reorders the claim queue so this role\'s required '
+              'skills are examined before the rest — every claim is still '
+              'asked about, nothing is dropped.',
+      child: roles.isEmpty
+          ? const SizedBox.shrink()
+          : DropdownButtonFormField<String>(
+              initialValue: _draft.targetRole?.id,
+              decoration: const InputDecoration(
+                labelText: 'Role (optional)',
+              ),
+              items: [
+                const DropdownMenuItem(value: null, child: Text('None')),
+                for (final role in roles)
+                  DropdownMenuItem(value: role.id, child: Text(role.title)),
+              ],
+              onChanged: (id) => setState(() {
+                _draft.targetRole =
+                    id == null ? null : roles.firstWhere((r) => r.id == id);
+              }),
+            ),
+    );
+  }
+
+  Widget _claimsSummaryCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final role = _draft.targetRole;
+
+    return SectionCard(
+      title: 'Claims this session will examine',
+      icon: Icons.fact_check_outlined,
+      trailing: TextButton(
+        onPressed: () => AppShellController.of(context)?.goTo('Resume analysis'),
+        child: Text(_draft.usingDemoClaims ? 'Add a resume' : 'Review'),
+      ),
+      description: [
+        if (_draft.usingDemoClaims)
+          'No resume has been confirmed yet, so this session would run on '
+              'two labelled demo claims.'
+        else
+          '${_draft.confirmedClaims.length} claim(s) confirmed from the '
+              "candidate's own resume on the Resume analysis screen.",
+        if (role != null)
+          'Ordered with "${role.title}"\'s required skills first.',
+      ].join(' '),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final claim in _draft.effectiveClaims)
+            Padding(
+              padding: const EdgeInsets.only(bottom: Spacing.xs),
+              child: Text(
+                '· ${claim.text}',
+                style: theme.textTheme.bodyMedium,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _storageNotice(ThemeData theme) => Card(
+        color: theme.colorScheme.errorContainer,
+        child: Padding(
+          padding: const EdgeInsets.all(Spacing.lg),
+          child: _statusRow(
+            theme,
+            icon: Icons.warning_amber,
+            label: 'Storage is not durable on this platform',
+            value: widget.storageLocation,
+            note: 'Sessions will not survive closing the app.',
+            tone: theme.colorScheme.error,
+          ),
+        ),
+      );
 
   Widget _statusRow(
     ThemeData theme, {
@@ -711,9 +745,8 @@ class _HomeScreenState extends State<HomeScreen> {
   /// mechanism, there is no "ask me later" state that quietly defaults to yes.
   Widget _researchConsentTile(ThemeData theme) => Card(
         child: CheckboxListTile(
-          value: _researchConsent,
-          onChanged: (checked) =>
-              setState(() => _researchConsent = checked ?? false),
+          value: _draft.researchConsent,
+          onChanged: (checked) => _draft.researchConsent = checked ?? false,
           controlAffinity: ListTileControlAffinity.leading,
           title: const Text('Allow this session for research release'),
           subtitle: Text(
@@ -868,18 +901,4 @@ class _HomeScreenState extends State<HomeScreen> {
     return '${local.year}-${two(local.month)}-${two(local.day)} '
         '${two(local.hour)}:${two(local.minute)}';
   }
-}
-
-/// One extracted-claim candidate under review: the original [claim] the
-/// heuristic produced, an editable [controller] seeded with its text, and
-/// whether the candidate has chosen to keep it. Nothing here is used by a
-/// session until [_HomeScreenState._confirmReviewedClaims] copies it across.
-class _ClaimReviewItem {
-  _ClaimReviewItem({required this.claim})
-      : controller = TextEditingController(text: claim.text),
-        keep = true;
-
-  final Claim claim;
-  final TextEditingController controller;
-  bool keep;
 }

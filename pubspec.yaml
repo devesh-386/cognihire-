@@ -44,6 +44,24 @@ dependencies:
   # to hash-chain its entries, so the dependency must be declared, not borrowed.
   crypto: ^3.0.0
 
+  # Resume text extraction. All three run entirely on-device: the product's
+  # promise is that a resume is never uploaded, so a cloud parsing API was never
+  # an option here regardless of how much easier it would have been.
+  #   syncfusion_flutter_pdf — real PDF text extraction, pure Dart.
+  #   archive + xml          — a .docx is a zip whose word/document.xml holds
+  #                            the text; these two read it without a converter.
+  syncfusion_flutter_pdf: ^31.1.17
+  archive: ^4.0.7
+  xml: ^6.5.0
+  # Stand-in for the Kokoro streaming TTS in the target architecture — speaks
+  # the OS/browser voice instead of a real spoken accent. Swap point: once a
+  # Kokoro server exists, replace the `speak()` call in
+  # `live_interview_screen.dart` with audio playback from that server; nothing
+  # else in the turn loop changes, since the turn's `say` field is already the
+  # thing being spoken either way.
+  flutter_tts: ^4.2.3
+  speech_to_text: ^7.4.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

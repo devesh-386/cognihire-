@@ -10,16 +10,19 @@
 /// does run ignores the upload and parses a hardcoded constant instead.
 ///
 /// So the one rule for this file: **never return text the file doesn't
-/// actually contain.** For `.txt`, the content is read directly — no
-/// parsing library, no failure mode to fabricate around. For `.pdf` and
-/// `.docx`, this project does not yet have a working text extractor, and
-/// [ResumePick.extractionNote] says so plainly rather than presenting a blank
-/// or guessed result as a successful read.
+/// actually contain.** For `.txt`, the content is read directly — no parsing
+/// library, no failure mode to fabricate around. For `.pdf` and `.docx`,
+/// `resume_text_extraction.dart` reads the real document on this device, and
+/// when it cannot — an encrypted PDF, or a scan with no text layer — the reason
+/// is reported in [ResumePick.extractionNote] rather than a blank result being
+/// presented as a successful read of an empty resume.
 library;
 
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+
+import 'resume_text_extraction.dart';
 
 /// What came back from picking a file.
 class ResumePick {
@@ -82,14 +85,40 @@ Future<ResumePick?> pickResume() async {
     }
   }
 
-  // .pdf / .docx: no extractor wired up yet. Say so — the alternative is
-  // exactly the failure mode this file exists to avoid.
+  if (extension == 'pdf' || extension == 'docx') {
+    final List<int> bytes;
+    try {
+      bytes = await File(path).readAsBytes();
+    } catch (e) {
+      return ResumePick(
+        fileName: picked.name,
+        filePath: path,
+        text: null,
+        extractionNote: 'Could not read this file: $e',
+      );
+    }
+
+    // Both extractors run on this device. Nothing is uploaded, which is the
+    // reason a cloud parsing service was never an option here.
+    final extracted = extension == 'pdf'
+        ? extractPdfText(bytes)
+        : extractDocxText(bytes);
+
+    return ResumePick(
+      fileName: picked.name,
+      filePath: path,
+      text: extracted.text,
+      extractionNote: extracted.reason,
+    );
+  }
+
+  // An extension the picker should not have allowed through. Reported rather
+  // than silently treated as unreadable, because it means the allow-list and
+  // this switch have drifted apart.
   return ResumePick(
     fileName: picked.name,
     filePath: path,
     text: null,
-    extractionNote: 'Text extraction for .$extension files isn\'t wired up '
-        'yet in this build — only .txt is read directly right now. The file '
-        'is attached, but its content is not shown or used.',
+    extractionNote: 'This build does not read .$extension files.',
   );
 }

@@ -1,17 +1,28 @@
 /// The app's design system: colour tokens, type scale, and component themes.
 ///
-/// ## Why navy and not the original indigo
+/// ## Golden Taupe — the third palette, and why
 ///
-/// The first build seeded Material 3 from `0xFF4F46E5` — an indigo-violet that
-/// reads as "AI startup". That is precisely the wrong signal for this product.
-/// CogniHire's whole argument is that it is *not* another AI interview tool: it
-/// is an evidence record a reviewer is meant to trust and, if challenged,
-/// defend. Audit, compliance, and verification products earn that read with
-/// deep neutrals and a single restrained accent — not a violet gradient.
+/// The first build seeded Material 3 from `0xFF4F46E5`, an indigo-violet that
+/// read as "AI startup" — precisely the wrong signal for a product whose whole
+/// argument is that it is *not* another AI interview tool. That was replaced by
+/// a slate navy, which was sober but generic: it read as "enterprise dashboard"
+/// and said nothing.
 ///
-/// So: slate navy as the primary, a sober sky-blue for actions, and warm-free
-/// neutrals with a slight blue bias so greys read as chosen rather than
-/// defaulted.
+/// This palette is **Golden Taupe**, from `design/golden_taupe.md`: warm
+/// near-white surfaces, a muted-gold accent, and taupe structure. The brief
+/// calls it "understated luxury" and it earns something the navy did not — it
+/// looks like a *document* rather than a console, which is what an audit record
+/// is. Warm neutrals also separate this product from every blue-grey AI tool it
+/// will be compared against.
+///
+/// ### One deliberate deviation from the source palette
+///
+/// The brief specifies `#C5A059` as the primary button fill with off-white
+/// text. That pairing measures about 2.4:1, which fails the WCAG AA floor the
+/// same document mandates two paragraphs earlier. Where the two rules conflict
+/// the contrast rule wins: solid actions use the darker `#775A19` (≈6.6:1 on
+/// white) and `#C5A059` is kept for accents, rings, underlines, and fills that
+/// never carry text. The gold reads the same; it is simply legible.
 ///
 /// ## Evidence colours are a separate axis from the accent
 ///
@@ -40,13 +51,23 @@ abstract final class Spacing {
   static const double xl = 24;
   static const double xxl = 32;
   static const double xxxl = 48;
+
+  /// Between major sections of a page. The Golden Taupe brief mandates 48px and
+  /// 80px vertical rhythm between top-level regions so the interface reads as
+  /// "airy and deliberate"; these two names exist so that intent is stated
+  /// rather than approximated by stacking [xxxl] twice.
+  static const double section = 48;
+  static const double hero = 80;
 }
 
-/// Corner radii. Two values, used consistently, rather than a different
-/// rounding on every surface.
+/// Corner radii.
+///
+/// [surface] is 16 rather than 12 because the brief treats cards as "primary
+/// content buckets" and gives them `rounded-lg`. Controls stay at 8 so a button
+/// inside a card is visibly a different class of object.
 abstract final class Radii {
   static const double control = 8;
-  static const double surface = 12;
+  static const double surface = 16;
   static const double pill = 999;
 }
 
@@ -84,26 +105,31 @@ class EvidenceColors extends ThemeExtension<EvidenceColors> {
   final Color notExamined;
   final Color notExaminedContainer;
 
+  /// Warm-shifted for the Golden Taupe surfaces: the greens and reds carry a
+  /// touch of yellow so they sit on `#FCF9F8` as chosen colours rather than as
+  /// imports from a cooler palette. "Unmeasured" moved further from the brand
+  /// gold than it was from the old blue accent — on a gold-accented page an
+  /// amber caution would otherwise read as decoration.
   static const light = EvidenceColors(
-    verified: Color(0xFF15803D),
-    verifiedContainer: Color(0xFFDCFCE7),
-    disputed: Color(0xFFB91C1C),
-    disputedContainer: Color(0xFFFEE2E2),
-    unmeasured: Color(0xFFB45309),
-    unmeasuredContainer: Color(0xFFFEF3C7),
-    notExamined: Color(0xFF64748B),
-    notExaminedContainer: Color(0xFFF1F5F9),
+    verified: Color(0xFF2F6B41),
+    verifiedContainer: Color(0xFFE1EFE4),
+    disputed: Color(0xFFBA1A1A),
+    disputedContainer: Color(0xFFFFDAD6),
+    unmeasured: Color(0xFF8A5A12),
+    unmeasuredContainer: Color(0xFFF7EBD6),
+    notExamined: Color(0xFF7F7667),
+    notExaminedContainer: Color(0xFFF0EDED),
   );
 
   static const dark = EvidenceColors(
-    verified: Color(0xFF4ADE80),
-    verifiedContainer: Color(0xFF14532D),
-    disputed: Color(0xFFF87171),
-    disputedContainer: Color(0xFF7F1D1D),
-    unmeasured: Color(0xFFFBBF24),
-    unmeasuredContainer: Color(0xFF78350F),
-    notExamined: Color(0xFF94A3B8),
-    notExaminedContainer: Color(0xFF1E293B),
+    verified: Color(0xFF86D29B),
+    verifiedContainer: Color(0xFF23402C),
+    disputed: Color(0xFFFFB4AB),
+    disputedContainer: Color(0xFF5A1B18),
+    unmeasured: Color(0xFFE9C176),
+    unmeasuredContainer: Color(0xFF43331A),
+    notExamined: Color(0xFFB5AB9B),
+    notExaminedContainer: Color(0xFF2C2823),
   );
 
   @override
@@ -155,53 +181,157 @@ extension EvidenceColorsX on BuildContext {
       Theme.of(this).extension<EvidenceColors>() ?? EvidenceColors.light;
 }
 
+/// The gold accents, kept off the [ColorScheme] on purpose.
+///
+/// [accent] is `#C5A059` — the brief's headline gold. It fails AA against both
+/// white and near-black, so it must never be a text or fill-behind-text colour.
+/// Putting it here rather than in the scheme means Material can never
+/// accidentally pick it for a label: everything that uses it uses it knowingly,
+/// for rings, underlines, hairlines, and chart marks.
+class BrandAccents extends ThemeExtension<BrandAccents> {
+  const BrandAccents({
+    required this.accent,
+    required this.accentSoft,
+    required this.cream,
+    required this.railSurface,
+  });
+
+  /// Decorative gold. Rings, bar fills, active underlines, focus glows.
+  final Color accent;
+
+  /// The same gold at low intensity, for tinted backgrounds behind dark text.
+  final Color accentSoft;
+
+  /// Soft cream layering colour — hover states and subtle background shifts.
+  final Color cream;
+
+  /// The navigation column's own surface. The brief anchors structure by giving
+  /// the sidebar a different value from the content area rather than a border.
+  final Color railSurface;
+
+  static const light = BrandAccents(
+    accent: Color(0xFFC5A059),
+    accentSoft: Color(0xFFF6ECD9),
+    cream: Color(0xFFF6F3F2),
+    railSurface: Color(0xFFF8F5F3),
+  );
+
+  static const dark = BrandAccents(
+    accent: Color(0xFFE9C176),
+    accentSoft: Color(0xFF3A2F1B),
+    cream: Color(0xFF262220),
+    railSurface: Color(0xFF17140F),
+  );
+
+  @override
+  BrandAccents copyWith({
+    Color? accent,
+    Color? accentSoft,
+    Color? cream,
+    Color? railSurface,
+  }) =>
+      BrandAccents(
+        accent: accent ?? this.accent,
+        accentSoft: accentSoft ?? this.accentSoft,
+        cream: cream ?? this.cream,
+        railSurface: railSurface ?? this.railSurface,
+      );
+
+  @override
+  BrandAccents lerp(ThemeExtension<BrandAccents>? other, double t) {
+    if (other is! BrandAccents) return this;
+    return BrandAccents(
+      accent: Color.lerp(accent, other.accent, t)!,
+      accentSoft: Color.lerp(accentSoft, other.accentSoft, t)!,
+      cream: Color.lerp(cream, other.cream, t)!,
+      railSurface: Color.lerp(railSurface, other.railSurface, t)!,
+    );
+  }
+}
+
+extension BrandAccentsX on BuildContext {
+  BrandAccents get brand =>
+      Theme.of(this).extension<BrandAccents>() ?? BrandAccents.light;
+}
+
 abstract final class AppTheme {
-  // Trust & Authority palette — deep slate navy, sober sky accent.
-  static const _navy = Color(0xFF0F172A);
-  static const _accent = Color(0xFF0369A1);
-  static const _accentDark = Color(0xFF38BDF8);
+  // Golden Taupe. `_gold` is the *action* gold: dark enough to carry white text
+  // at AA. The decorative `#C5A059` lives on [BrandAccents.accent].
+  static const _gold = Color(0xFF775A19);
+  static const _goldDark = Color(0xFFE9C176);
+  static const _taupe = Color(0xFF6C5B4E);
 
   static ThemeData get light {
     final scheme = ColorScheme.fromSeed(
-      seedColor: _navy,
+      seedColor: _gold,
       brightness: Brightness.light,
     ).copyWith(
-      primary: _navy,
+      primary: _gold,
       onPrimary: Colors.white,
-      secondary: const Color(0xFF334155),
-      tertiary: _accent,
-      surface: const Color(0xFFFCFDFE),
-      // Slight blue bias rather than a pure neutral, so the greys read as
-      // chosen rather than inherited.
-      surfaceContainerHighest: const Color(0xFFEEF2F6),
-      outlineVariant: const Color(0xFFDDE3EA),
-      error: const Color(0xFFDC2626),
+      primaryContainer: const Color(0xFFFFDEA5),
+      onPrimaryContainer: const Color(0xFF4E3700),
+      secondary: _taupe,
+      onSecondary: Colors.white,
+      secondaryContainer: const Color(0xFFF2DCCB),
+      onSecondaryContainer: const Color(0xFF3F3428),
+      // Actions resolve through `tertiary` throughout this app, so pointing it
+      // at the same action gold is what makes every existing button, focus
+      // ring, and rail indicator adopt the palette without being touched.
+      tertiary: _gold,
+      onTertiary: Colors.white,
+      surface: const Color(0xFFFCF9F8),
+      onSurface: const Color(0xFF1C1B1B),
+      // Warm, not neutral: on a `#FCF9F8` page a grey container reads as dirty.
+      surfaceContainerHighest: const Color(0xFFEAE7E7),
+      onSurfaceVariant: const Color(0xFF4E4639),
+      outline: const Color(0xFF7F7667),
+      outlineVariant: const Color(0xFFD1C5B4),
+      error: const Color(0xFFBA1A1A),
+      errorContainer: const Color(0xFFFFDAD6),
+      onErrorContainer: const Color(0xFF93000A),
     );
 
-    return _base(scheme, EvidenceColors.light)
-        .copyWith(scaffoldBackgroundColor: const Color(0xFFF6F8FA));
+    return _base(scheme, EvidenceColors.light, BrandAccents.light)
+        .copyWith(scaffoldBackgroundColor: const Color(0xFFF6F3F2));
   }
 
+  /// The brief's "Deep Taupe" dark variant: warm near-black surfaces and soft
+  /// cream ink, rather than the palette's light values naively inverted.
   static ThemeData get dark {
     final scheme = ColorScheme.fromSeed(
-      seedColor: _navy,
+      seedColor: _gold,
       brightness: Brightness.dark,
     ).copyWith(
-      primary: const Color(0xFFCBD5E1),
-      onPrimary: const Color(0xFF0B1220),
-      secondary: const Color(0xFF94A3B8),
-      tertiary: _accentDark,
-      surface: const Color(0xFF141C26),
-      surfaceContainerHighest: const Color(0xFF1E2937),
-      outlineVariant: const Color(0xFF2D3B4D),
-      error: const Color(0xFFF87171),
+      primary: _goldDark,
+      onPrimary: const Color(0xFF261900),
+      primaryContainer: const Color(0xFF5D4201),
+      onPrimaryContainer: const Color(0xFFFFDEA5),
+      secondary: const Color(0xFFD8C3B3),
+      onSecondary: const Color(0xFF25190F),
+      secondaryContainer: const Color(0xFF534438),
+      onSecondaryContainer: const Color(0xFFF5DECE),
+      tertiary: _goldDark,
+      onTertiary: const Color(0xFF261900),
+      surface: const Color(0xFF1F1B18),
+      onSurface: const Color(0xFFF3F0EF),
+      surfaceContainerHighest: const Color(0xFF322D28),
+      onSurfaceVariant: const Color(0xFFD4C9BA),
+      outline: const Color(0xFF9C9083),
+      outlineVariant: const Color(0xFF3E3830),
+      error: const Color(0xFFFFB4AB),
+      errorContainer: const Color(0xFF5A1B18),
+      onErrorContainer: const Color(0xFFFFDAD6),
     );
 
-    return _base(scheme, EvidenceColors.dark)
-        .copyWith(scaffoldBackgroundColor: const Color(0xFF0B1220));
+    return _base(scheme, EvidenceColors.dark, BrandAccents.dark)
+        .copyWith(scaffoldBackgroundColor: const Color(0xFF14110E));
   }
 
-  static ThemeData _base(ColorScheme scheme, EvidenceColors evidence) {
+  static ThemeData _base(
+    ColorScheme scheme,
+    EvidenceColors evidence,
+    BrandAccents brand,
+  ) {
     final onSurfaceMuted = scheme.onSurfaceVariant;
 
     // Explicit type scale rather than Material's defaults. The point is a
@@ -288,7 +418,7 @@ abstract final class AppTheme {
       useMaterial3: true,
       colorScheme: scheme,
       textTheme: text,
-      extensions: [evidence],
+      extensions: [evidence, brand],
       visualDensity: VisualDensity.standard,
 
       appBarTheme: AppBarTheme(
@@ -329,7 +459,9 @@ abstract final class AppTheme {
           minimumSize: const Size(0, 48),
           padding: const EdgeInsets.symmetric(horizontal: Spacing.xl),
           backgroundColor: scheme.tertiary,
-          foregroundColor: Colors.white,
+          // Not hardcoded white: the dark theme's action gold is light, and
+          // white-on-light-gold was unreadable while it was a literal.
+          foregroundColor: scheme.onTertiary,
           textStyle: text.labelLarge,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(Radii.control),
@@ -412,7 +544,9 @@ abstract final class AppTheme {
       // competes with the data next to it is a rail the reader has to look past
       // on every glance.
       navigationRailTheme: NavigationRailThemeData(
-        backgroundColor: scheme.surface,
+        // A different value from the content area, which is how the brief
+        // anchors structure — no border needed to say "this column is chrome".
+        backgroundColor: brand.railSurface,
         indicatorColor: scheme.tertiary.withValues(alpha: 0.12),
         selectedIconTheme: IconThemeData(size: 21, color: scheme.tertiary),
         unselectedIconTheme: IconThemeData(size: 21, color: onSurfaceMuted),
@@ -448,6 +582,39 @@ abstract final class AppTheme {
                 : onSurfaceMuted,
           ),
         ),
+      ),
+
+      // Chips are pills by the brief, and are never actions — a chip that looked
+      // like a button would invite a click that does nothing.
+      chipTheme: ChipThemeData(
+        backgroundColor: brand.cream,
+        side: BorderSide(color: scheme.outlineVariant),
+        labelStyle: text.labelMedium?.copyWith(color: onSurfaceMuted),
+        padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.sm,
+          vertical: Spacing.xs,
+        ),
+        shape: const StadiumBorder(),
+      ),
+
+      tooltipTheme: TooltipThemeData(
+        decoration: BoxDecoration(
+          color: scheme.inverseSurface,
+          borderRadius: BorderRadius.circular(Radii.control),
+        ),
+        textStyle: text.bodySmall?.copyWith(color: scheme.onInverseSurface),
+        waitDuration: const Duration(milliseconds: 400),
+      ),
+
+      popupMenuTheme: PopupMenuThemeData(
+        color: scheme.surface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 3,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Radii.control),
+          side: BorderSide(color: scheme.outlineVariant),
+        ),
+        textStyle: text.bodyMedium,
       ),
 
       dialogTheme: DialogThemeData(

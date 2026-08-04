@@ -294,23 +294,79 @@ class QuestionBank {
   /// Keyword rules per type, in priority order. Outcome is checked before the
   /// others because "reduced build times" is an outcome that also contains a
   /// verb the role and tool rules would happily match.
+  ///
+  /// ## These are matched on word boundaries, and that is not a detail
+  ///
+  /// An earlier version matched with plain `contains`, guarding the dangerous
+  /// entries with a trailing space (`'led '`). That does not work: `'led '` is
+  /// a substring of "compiled ", "handled ", "scheduled ", "controlled ",
+  /// "settled ", "fulfilled " and "travelled ". Every one of those was
+  /// classified [ClaimType.heldRole] and handed a leadership question ladder —
+  /// silently, and confidently, about people who had led nothing. Measured on
+  /// the LiveCareer corpus, this was the majority of all non-null
+  /// classifications. See `question_bank_test.dart`, which pins each of those
+  /// words to something other than a false leadership match.
+  ///
+  /// Word boundaries also mean an entry no longer needs its trailing-space
+  /// guard, so `'cut '` and `'used '` are now `'cut'` and `'used'` and match
+  /// "cut costs" and "used" at the end of a sentence alike.
+  ///
+  /// ## Coverage is deliberately not exhaustive
+  ///
+  /// The original lists were written against software resumes. The verbs below
+  /// add the families that dominate real ones. What is *not* here is the large
+  /// class of routine-duty bullets — "Monitored balance sheet accounts",
+  /// "Responded to customer inquiries", "Participates in team meetings". Those
+  /// are none of these four types, and forcing them into one would be exactly
+  /// the invisible wrong guess this classifier exists to avoid. They return
+  /// null on purpose. If that population matters, the honest fix is a fifth
+  /// claim type with its own ladder, not a longer keyword list.
   static const List<(ClaimType, List<String>)> _rules = [
     (ClaimType.achievedOutcome, [
-      'reduced', 'improved', 'increased', 'grew', 'cut ', 'saved',
+      'reduced', 'improved', 'increased', 'grew', 'cut', 'saved',
       'raised', 'lowered', 'scaled', 'sped up', 'decreased',
+      'achieved', 'exceeded', 'boosted', 'streamlined', 'optimized',
+      'optimised', 'accelerated', 'eliminated', 'generated', 'won',
     ]),
     (ClaimType.builtArtifact, [
-      'built', 'created', 'designed and', 'developed', 'shipped',
+      'built', 'created', 'designed', 'developed', 'shipped',
       'implemented', 'wrote', 'authored', 'launched',
+      'established', 'instituted', 'introduced', 'drafted', 'produced',
+      'deployed', 'configured', 'assembled', 'set up',
     ]),
     (ClaimType.heldRole, [
-      'led ', 'lead ', 'managed', 'owned', 'headed', 'worked as',
+      'led', 'lead', 'managed', 'owned', 'headed', 'worked as',
       'served as', 'mentored', 'supervised', 'was the',
+      'directed', 'oversaw', 'overseeing', 'coordinated', 'chaired',
+      'staffed', 'recruited', 'responsible for', 'reported to',
     ]),
     (ClaimType.usedTool, [
-      'proficient', 'experienced with', 'used ', 'skilled in',
+      'proficient', 'experienced with', 'used', 'skilled in',
       'familiar with', 'expert in', 'fluent in', 'working knowledge',
+      'operated', 'utilized', 'utilised', 'leveraged', 'administered',
+      'programmed', 'certified in',
     ]),
+  ];
+
+  /// One compiled matcher per rule, in the same priority order. Built once:
+  /// [classify] runs for every claim on every resume, and recompiling a few
+  /// dozen patterns per call would make a batch evaluation needlessly slow.
+  ///
+  /// `\b` on both sides is what makes "reconciled" stop matching "led". The
+  /// keywords are escaped rather than trusted as patterns — they are data, and
+  /// a future entry containing a regex metacharacter should match literally
+  /// rather than quietly become a wildcard.
+  static final List<(ClaimType, RegExp)> _matchers = [
+    for (final (type, keywords) in _rules)
+      (
+        type,
+        RegExp(
+          r'\b(?:' +
+              keywords.map(RegExp.escape).join('|') +
+              r')\b',
+          caseSensitive: false,
+        )
+      ),
   ];
 
   /// Classify [claim], or return null when no rule matches.
@@ -320,12 +376,10 @@ class QuestionBank {
   /// classified" can route it themselves. A wrong guess is invisible; an
   /// admitted gap is actionable.
   static ClaimType? classify(Claim claim) {
-    final text = claim.text.toLowerCase().trim();
+    final text = claim.text.trim();
     if (text.isEmpty) return null;
-    for (final (type, keywords) in _rules) {
-      for (final k in keywords) {
-        if (text.contains(k)) return type;
-      }
+    for (final (type, matcher) in _matchers) {
+      if (matcher.hasMatch(text)) return type;
     }
     return null;
   }

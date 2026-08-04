@@ -1,0 +1,89 @@
+{
+  "token_count": 461,
+  "estimated_cost": null,
+  "model": "default",
+  "clarity_score": 64,
+  "structure_score": 90,
+  "issues": [
+    {
+      "type": "ambiguity",
+      "line": 9,
+      "text": "analyze",
+      "message": "Vague verb - specify the exact action",
+      "context": "Your job is to analyze the candidate's last answer and handle the next turn of"
+    },
+    {
+      "type": "ambiguity",
+      "line": 9,
+      "text": "handle",
+      "message": "Vague verb - specify the exact action",
+      "context": "Your job is to analyze the candidate's last answer and handle the next turn of"
+    },
+    {
+      "type": "ambiguity",
+      "line": 19,
+      "text": "appropriate",
+      "message": "Subjective term - define specific criteria",
+      "context": "- Use natural acknowledgments like \"I see\" or \"Interesting\" where appropriate."
+    },
+    {
+      "type": "ambiguity",
+      "line": 24,
+      "text": "appropriate",
+      "message": "Subjective term - define specific criteria",
+      "context": "- Keep it appropriate for the seniority level in the job description."
+    },
+    {
+      "type": "ambiguity",
+      "line": 32,
+      "text": "good",
+      "message": "Subjective term - define specific criteria",
+      "context": "probe their depth here. Reasoning: authentication is a good depth probe for a"
+    },
+    {
+      "type": "ambiguity",
+      "line": 33,
+      "text": "handle",
+      "message": "Vague verb - specify the exact action",
+      "context": "Django project. Question: \"You mentioned Django. How did you handle"
+    },
+    {
+      "type": "redundancy",
+      "line": 7,
+      "text": "about the candidate",
+      "message": "Phrase repeated from line 3",
+      "context": "signals about the candidate."
+    },
+    {
+      "type": "redundancy",
+      "line": 24,
+      "text": "the job description",
+      "message": "Phrase repeated from line 5",
+      "context": "- Keep it appropriate for the seniority level in the job description."
+    }
+  ],
+  "suggestions": [
+    "Add 1-2 more examples to improve consistency",
+    "Improve clarity: replace vague terms with specific instructions",
+    "Consider adding role context: \"You are an expert...\""
+  ],
+  "sections": [
+    {
+      "name": "Introduction",
+      "lines": "1-13"
+    },
+    {
+      "name": "Guidelines",
+      "lines": "14-28"
+    },
+    {
+      "name": "Output",
+      "lines": "31-37"
+    }
+  ],
+  "has_examples": true,
+  "example_count": 1,
+  "has_output_format": true,
+  "word_count": 290,
+  "line_count": 37
+}

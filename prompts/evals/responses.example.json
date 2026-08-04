@@ -1,0 +1,79 @@
+{
+  "_comment": "Hand-authored reference outputs: the target behaviour for each eval case. Use as the gate's own fixture (it must score 15/15) and as the contrastive examples to reach for if a real model clusters failures on a case.",
+
+  "depth-probe-django": {
+    "say": "You mentioned Django there. How did you handle authentication for the shelter accounts?",
+    "kind": "followup", "quote": "using Django", "difficulty_delta": 0,
+    "covered": ["c1"], "why": "Answer named the framework but no mechanism; auth is the cheapest depth probe."
+  },
+  "one-word-answer": {
+    "say": "Which part of it did the permissions - groups, or something you wrote yourself?",
+    "kind": "probe", "quote": "I used Django auth.", "difficulty_delta": 0,
+    "covered": ["c1"], "why": "Four-word answer; asking for one concrete detail rather than moving on."
+  },
+  "two-short-answers-lowers": {
+    "say": "Let's step back a little. What was making those writes fail?",
+    "kind": "warmup", "quote": "We just retried them.", "difficulty_delta": -1,
+    "covered": ["c1"], "why": "Second consecutive short answer, so easing off one level."
+  },
+  "dont-know-warmup": {
+    "say": "No problem at all. Staying with that table, what did you index on?",
+    "kind": "warmup", "quote": "I don't know that.", "difficulty_delta": -1,
+    "covered": ["c2"], "why": "Refusal at level 4; dropping to a question the resume claim supports."
+  },
+  "tradeoff-raises": {
+    "say": "So how did you decide which rows counted as active?",
+    "kind": "probe", "quote": "cut it from 900ms to 40ms", "difficulty_delta": 1,
+    "covered": ["c2"], "why": "Named a measured tradeoff, so raising one level."
+  },
+  "no-fabricated-quote": {
+    "say": "What did that single box struggle with first as traffic grew?",
+    "kind": "followup", "quote": "a Django monolith on one box", "difficulty_delta": 0,
+    "covered": [], "why": "Kafka is on the resume but was never spoken, so it is not attributed here."
+  },
+  "newtopic-empty-quote": {
+    "say": "Let's move to something else. Tell me about the event pipelines you built.",
+    "kind": "newtopic", "quote": "", "difficulty_delta": 0,
+    "covered": ["c3"], "why": "Django claim is covered; opening the next uncovered claim with no quote."
+  },
+  "partial-transcript-clarify": {
+    "say": "Sorry, I lost you there. Which database was it?",
+    "kind": "clarify", "quote": "", "difficulty_delta": 0,
+    "covered": [], "why": "Last transcript entry was partial, so nothing is scored from it."
+  },
+  "time-up-close": {
+    "say": "That's our time. Thank you for walking me through all of that.",
+    "kind": "close", "quote": "", "difficulty_delta": 0,
+    "covered": [], "why": "Under 60 seconds remaining; closing even though the thread was open."
+  },
+  "no-repeat-question": {
+    "say": "What did nginx serve differently from the app itself?",
+    "kind": "followup", "quote": "with nginx in front", "difficulty_delta": 0,
+    "covered": ["c1"], "why": "Deploy question is already in asked_ids, so following the detail instead."
+  },
+  "ack-spacing": {
+    "say": "Why a nightly batch rather than matching at request time?",
+    "kind": "probe", "quote": "doing it with a nightly batch job", "difficulty_delta": 0,
+    "covered": ["c1"], "why": "Acknowledged last turn already, so opening straight with the question."
+  },
+  "no-emotion-inference": {
+    "say": "What would the other approach have cost you at the time?",
+    "kind": "probe", "quote": "it seemed easier at the time", "difficulty_delta": 0,
+    "covered": ["c1"], "why": "Vague rationale; probing the alternative without reading anything into delivery."
+  },
+  "no-double-question": {
+    "say": "How did you pick the request key?",
+    "kind": "probe", "quote": "made the writes idempotent on a request key", "difficulty_delta": 1,
+    "covered": ["c1"], "why": "Named a failure and the fix, so raising one level; one question only."
+  },
+  "verbatim-quote-not-tidied": {
+    "say": "What was filling the disk up fastest?",
+    "kind": "followup", "quote": "we was putting them in s3", "difficulty_delta": 0,
+    "covered": ["c4"], "why": "Quote copied as spoken, including the grammar, per the grounding rule."
+  },
+  "requirement-not-on-resume": {
+    "say": "Let's switch to testing. How do you decide what to cover with tests?",
+    "kind": "newtopic", "quote": "", "difficulty_delta": 0,
+    "covered": [], "why": "Testing is a job requirement with no matching claim, so covered stays empty."
+  }
+}

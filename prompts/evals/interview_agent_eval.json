@@ -1,0 +1,128 @@
+{
+  "prompt": "prompts/interview_agent.v2.txt",
+  "schema": "prompts/schemas/interview_turn.schema.json",
+  "notes": "Each case is a full turn input plus declarative assertions the output must satisfy. Assertion kinds: kind_in, quote_in_transcript, quote_empty, delta, no_repeat_asked, max_words, forbid_substrings, covered_subset, single_question.",
+  "cases": [
+    {
+      "id": "depth-probe-django",
+      "why": "Canonical case from the design sketch: answer names a tool, so probe mechanism.",
+      "state": { "level": 3, "asked_ids": ["q1"], "covered_ids": [], "last_answer_words": 24, "last_answer_score": 1, "turns_since_ack": 3, "seconds_remaining": 1500 },
+      "transcript": [ { "role": "interviewer", "text": "Tell me about your Django project." }, { "role": "candidate", "text": "I built a food donation platform using Django and it connected restaurants with shelters." } ],
+      "claims": [ { "id": "c1", "text": "Built a food donation platform using Django", "skill": "Django" } ],
+      "assert": { "kind_in": ["followup", "probe"], "quote_in_transcript": true, "delta": 0, "covered_subset": ["c1"], "single_question": true }
+    },
+    {
+      "id": "one-word-answer",
+      "why": "Rule 4: short non-empty answer must be probed, not moved past.",
+      "state": { "level": 3, "asked_ids": ["q1", "q2"], "covered_ids": ["c1"], "last_answer_words": 4, "last_answer_score": 1, "turns_since_ack": 1, "seconds_remaining": 1200 },
+      "transcript": [ { "role": "interviewer", "text": "How did you handle authentication?" }, { "role": "candidate", "text": "I used Django auth." } ],
+      "claims": [ { "id": "c1", "text": "Built a food donation platform using Django", "skill": "Django" } ],
+      "assert": { "kind_in": ["probe"], "quote_in_transcript": true, "single_question": true }
+    },
+    {
+      "id": "two-short-answers-lowers",
+      "why": "Rule 3: two consecutive sub-15-word answers force -1.",
+      "state": { "level": 4, "asked_ids": ["q1", "q2", "q3"], "covered_ids": ["c1"], "last_answer_words": 6, "last_answer_score": 1, "turns_since_ack": 2, "seconds_remaining": 1100, "consecutive_short": 2 },
+      "transcript": [ { "role": "interviewer", "text": "What did you do when writes started failing?" }, { "role": "candidate", "text": "We just retried them." } ],
+      "claims": [ { "id": "c1", "text": "Built a food donation platform using Django", "skill": "Django" } ],
+      "assert": { "delta": -1, "quote_in_transcript": true }
+    },
+    {
+      "id": "dont-know-warmup",
+      "why": "Rule 3 + warmup: a refusal must lower difficulty, not punish.",
+      "state": { "level": 4, "asked_ids": ["q1", "q2"], "covered_ids": ["c2"], "last_answer_words": 4, "last_answer_score": 0, "turns_since_ack": 4, "seconds_remaining": 900 },
+      "transcript": [ { "role": "interviewer", "text": "How would you shard that Postgres table?" }, { "role": "candidate", "text": "I don't know that." } ],
+      "claims": [ { "id": "c2", "text": "Optimised Postgres queries for a 2M row table", "skill": "Postgres" } ],
+      "assert": { "kind_in": ["warmup"], "delta": -1, "max_words": 45 }
+    },
+    {
+      "id": "tradeoff-raises",
+      "why": "Rule 3: a named tradeoff with a number is the only thing that earns +1.",
+      "state": { "level": 2, "asked_ids": ["q1", "q2"], "covered_ids": [], "last_answer_words": 41, "last_answer_score": 3, "turns_since_ack": 2, "seconds_remaining": 1300 },
+      "transcript": [ { "role": "interviewer", "text": "How did you speed up that query?" }, { "role": "candidate", "text": "I added a partial index which cut it from 900ms to 40ms, but writes got about 15 percent slower so I only indexed the active rows." } ],
+      "claims": [ { "id": "c2", "text": "Optimised Postgres queries for a 2M row table", "skill": "Postgres" } ],
+      "assert": { "delta": 1, "quote_in_transcript": true, "covered_subset": ["c2"] }
+    },
+    {
+      "id": "no-fabricated-quote",
+      "why": "Rule 1, the load-bearing case: Kafka is on the resume but was never spoken. The turn must not attribute it.",
+      "state": { "level": 3, "asked_ids": ["q1"], "covered_ids": [], "last_answer_words": 19, "last_answer_score": 2, "turns_since_ack": 2, "seconds_remaining": 1400 },
+      "transcript": [ { "role": "interviewer", "text": "Walk me through your backend." }, { "role": "candidate", "text": "It was a Django monolith on one box with Postgres behind it." } ],
+      "claims": [ { "id": "c3", "text": "Built event pipelines with Kafka", "skill": "Kafka" } ],
+      "assert": { "forbid_substrings": ["you mentioned Kafka", "you said Kafka", "as you mentioned, Kafka"], "quote_in_transcript": true }
+    },
+    {
+      "id": "newtopic-empty-quote",
+      "why": "Rule 1's escape hatch: opening an unspoken claim requires an empty quote.",
+      "state": { "level": 3, "asked_ids": ["q1", "q2", "q3"], "covered_ids": ["c1"], "last_answer_words": 30, "last_answer_score": 3, "turns_since_ack": 1, "seconds_remaining": 1000 },
+      "transcript": [ { "role": "interviewer", "text": "Anything else on the donation platform?" }, { "role": "candidate", "text": "No, that covers it, we shipped it and it ran for a year with about four hundred users." } ],
+      "claims": [ { "id": "c1", "text": "Built a food donation platform using Django", "skill": "Django" }, { "id": "c3", "text": "Built event pipelines with Kafka", "skill": "Kafka" } ],
+      "assert": { "kind_in": ["newtopic"], "quote_empty": true, "covered_subset": ["c3"] }
+    },
+    {
+      "id": "partial-transcript-clarify",
+      "why": "Rule 8: never guess through a bad ASR segment.",
+      "state": { "level": 3, "asked_ids": ["q1"], "covered_ids": [], "last_answer_words": 5, "last_answer_score": 0, "turns_since_ack": 2, "seconds_remaining": 1200 },
+      "transcript": [ { "role": "interviewer", "text": "Which database did you use?" }, { "role": "candidate", "text": "we used [inaudible] for the", "partial": true } ],
+      "claims": [ { "id": "c2", "text": "Optimised Postgres queries for a 2M row table", "skill": "Postgres" } ],
+      "assert": { "kind_in": ["clarify"], "delta": 0, "max_words": 45 }
+    },
+    {
+      "id": "time-up-close",
+      "why": "Rule 6 beats every other impulse, including an open thread.",
+      "state": { "level": 4, "asked_ids": ["q1", "q2", "q3", "q4"], "covered_ids": ["c1", "c2"], "last_answer_words": 33, "last_answer_score": 3, "turns_since_ack": 3, "seconds_remaining": 40 },
+      "transcript": [ { "role": "interviewer", "text": "And the index tradeoff?" }, { "role": "candidate", "text": "Right, writes got slower, so I scoped the index to the active rows only and measured it again." } ],
+      "claims": [ { "id": "c1", "text": "Built a food donation platform using Django", "skill": "Django" } ],
+      "assert": { "kind_in": ["close"], "quote_empty": true, "max_words": 45 }
+    },
+    {
+      "id": "no-repeat-question",
+      "why": "Rule 2: asked_ids is binding.",
+      "state": { "level": 3, "asked_ids": ["q_auth", "q_deploy"], "covered_ids": ["c1"], "last_answer_words": 22, "last_answer_score": 2, "turns_since_ack": 2, "seconds_remaining": 1100, "asked_texts": ["How did you handle authentication and authorization?", "How did you deploy it?"] },
+      "transcript": [ { "role": "interviewer", "text": "How did you deploy it?" }, { "role": "candidate", "text": "On a single DigitalOcean droplet with nginx in front and I deployed by pulling the repo." } ],
+      "claims": [ { "id": "c1", "text": "Built a food donation platform using Django", "skill": "Django" } ],
+      "assert": { "no_repeat_asked": true, "quote_in_transcript": true }
+    },
+    {
+      "id": "ack-spacing",
+      "why": "Rule 7: acknowledgments are rationed so the interviewer does not sound like a bot with a tic.",
+      "state": { "level": 3, "asked_ids": ["q1", "q2"], "covered_ids": ["c1"], "last_answer_words": 28, "last_answer_score": 2, "turns_since_ack": 0, "seconds_remaining": 1200 },
+      "transcript": [ { "role": "interviewer", "text": "I see. What was the hardest part?" }, { "role": "candidate", "text": "Matching shelters to restaurants by pickup window, we ended up doing it with a nightly batch job." } ],
+      "claims": [ { "id": "c1", "text": "Built a food donation platform using Django", "skill": "Django" } ],
+      "assert": { "forbid_substrings": ["I see", "Interesting", "Got it", "Great"], "quote_in_transcript": true }
+    },
+    {
+      "id": "no-emotion-inference",
+      "why": "Rule 5: the state deliberately carries no affect signal and the model must not invent one.",
+      "state": { "level": 3, "asked_ids": ["q1", "q2"], "covered_ids": ["c1"], "last_answer_words": 12, "last_answer_score": 1, "turns_since_ack": 2, "seconds_remaining": 1000 },
+      "transcript": [ { "role": "interviewer", "text": "Why that design?" }, { "role": "candidate", "text": "Um, I mean, it just, it seemed easier at the time." } ],
+      "claims": [ { "id": "c1", "text": "Built a food donation platform using Django", "skill": "Django" } ],
+      "assert": { "forbid_substrings": ["nervous", "you seem", "you sound", "relax", "don't worry", "confident", "uncomfortable", "take a breath"], "kind_in": ["probe"] }
+    },
+    {
+      "id": "no-double-question",
+      "why": "Rule 4: two questions in one spoken turn is unanswerable over voice.",
+      "state": { "level": 4, "asked_ids": ["q1"], "covered_ids": [], "last_answer_words": 46, "last_answer_score": 3, "turns_since_ack": 2, "seconds_remaining": 1400 },
+      "transcript": [ { "role": "interviewer", "text": "Tell me about the pipeline." }, { "role": "candidate", "text": "We ran a nightly batch job, it took about twenty minutes, and when it failed halfway the shelters got duplicate offers, so I made the writes idempotent on a request key." } ],
+      "claims": [ { "id": "c1", "text": "Built a food donation platform using Django", "skill": "Django" } ],
+      "assert": { "single_question": true, "delta": 1, "max_words": 45 }
+    },
+    {
+      "id": "verbatim-quote-not-tidied",
+      "why": "Grounding gate parity with OllamaClaimExtractor: the quote is selected, never authored.",
+      "state": { "level": 3, "asked_ids": ["q1"], "covered_ids": [], "last_answer_words": 21, "last_answer_score": 2, "turns_since_ack": 2, "seconds_remaining": 1300 },
+      "transcript": [ { "role": "interviewer", "text": "How did you store the images?" }, { "role": "candidate", "text": "we was putting them in s3 and then serving thru cloudfront cuz the droplet disk filled up" } ],
+      "claims": [ { "id": "c4", "text": "Served static assets from S3 and CloudFront", "skill": "S3" } ],
+      "assert": { "quote_in_transcript": true, "covered_subset": ["c4"] }
+    },
+    {
+      "id": "requirement-not-on-resume",
+      "why": "A job requirement with no matching claim must still be reachable, with covered empty.",
+      "state": { "level": 3, "asked_ids": ["q1", "q2", "q3"], "covered_ids": ["c1", "c2", "c4"], "last_answer_words": 27, "last_answer_score": 3, "turns_since_ack": 1, "seconds_remaining": 800 },
+      "transcript": [ { "role": "interviewer", "text": "Anything left on storage?" }, { "role": "candidate", "text": "That's about it, the CloudFront bill was small and it fixed the disk problem for good." } ],
+      "claims": [ { "id": "c4", "text": "Served static assets from S3 and CloudFront", "skill": "S3" } ],
+      "job_requirements": [ { "id": "r7", "text": "Writes and reviews automated tests" } ],
+      "assert": { "kind_in": ["newtopic"], "quote_empty": true, "covered_subset": [] }
+    }
+  ]
+}

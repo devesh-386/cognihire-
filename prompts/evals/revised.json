@@ -1,0 +1,45 @@
+{
+  "token_count": 626,
+  "estimated_cost": null,
+  "model": "default",
+  "clarity_score": 92,
+  "structure_score": 75,
+  "issues": [
+    {
+      "type": "redundancy",
+      "line": 34,
+      "text": "under 15 words",
+      "message": "Phrase repeated from line 33",
+      "context": "4. Non-empty answer under 15 words -> probe for one concrete detail. Never two"
+    }
+  ],
+  "suggestions": [
+    "Add explicit output format: \"Respond in JSON with keys: ...\"",
+    "Consider adding 2-3 few-shot examples for consistent outputs",
+    "Consider adding role context: \"You are an expert...\"",
+    "Add explicit output format specification (e.g., \"Respond in JSON with keys: ...\")"
+  ],
+  "sections": [
+    {
+      "name": "Introduction",
+      "lines": "1-2"
+    },
+    {
+      "name": "Output",
+      "lines": "3-24"
+    },
+    {
+      "name": "Rules",
+      "lines": "25-44"
+    },
+    {
+      "name": "Input",
+      "lines": "45-50"
+    }
+  ],
+  "has_examples": false,
+  "example_count": 0,
+  "has_output_format": false,
+  "word_count": 388,
+  "line_count": 50
+}
