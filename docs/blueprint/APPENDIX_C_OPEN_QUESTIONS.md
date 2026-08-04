@@ -17,7 +17,7 @@ Every unresolved decision across Chapters 1–7. The **chapter is the source of 
 | OQ-18 | Enrolment mandatory vs declinable (consent validity) | **P0 — RESOLVED** | COMP | whole candidate journey; GDPR | **Confirmed: ED-23** (aggregate non-existence — declining enrolment means no evidential path exists, not a soft warning), implemented structurally via CH-2.3.3's route gate. **Additionally decided:** consent is **captured before every session's camera activation**, not once per candidate — biometric processing is session-scoped, so consent is too. |
 | OQ-81 | Certification timeline vs the hard EU AI Act floor | **P0 — RESOLVED** | COMP | EU market operation | **Decided:** CogniHire self-classifies as a **high-risk AI system** under EU AI Act Annex III (employment/HR use). T-MVP **ships EU-market-excluded** until the conformity assessment (technical documentation, risk-management system per Ch6, human-oversight evidence per ED-63) is complete and reviewed — EU market entry is gated behind that assessment, never shipped ahead of it and retrofitted. |
 | OQ-02 | Wire existing RBAC as-is, or does a real backend change roles? | **P1** | SEC | V1-02, all role work | Wire it (→ R-64), but reconcile the 2-role model §6 calls wrong for V1 |
-| OQ-03 | What replaces `InMemoryAuthStore`? | **P1** | SEC | V1-01 and everything downstream | IdP-delegated (Ch5 §14); no local password store |
+| OQ-03 | What replaces `InMemoryAuthStore`? | **P1 — RESOLVED** | SEC | V1-01 and everything downstream | **Decided: Supabase Auth, self-hosted (ED-86)** — `SupabaseAuthStore`, confirming the successor already named in `in_memory_auth_store.dart`'s own doc comment. |
 | OQ-05 | Keep LLM report summarisation, given deterministic design? | P2 | ML | an unwired prompt on disk | Delete the unwired prompt or wire it deliberately |
 | OQ-07 | Is liveness in scope, or is "we don't defend against this" the stance? | **P1** | SEC | R-03 | State the honest stance in-product; evaluate passive liveness in V2 |
 | OQ-09 | May a candidate be interviewed >once for a role, tracked? | P1 | DATA | audit identity / uniqueness | Track within-tenant (see OQ-38) |
@@ -59,7 +59,7 @@ Every unresolved decision across Chapters 1–7. The **chapter is the source of 
 | OQ-46 | When does Organization:Tenant become >1:1? | P2 | ARCH | multi-org tenants | 1:1 for V1 |
 | OQ-47 | Enterprise: promote RLS → schema/DB-per-tenant? | P2 | INFRA | isolation tier | RLS for T-SaaS; DB-per-tenant at T-ENT |
 | OQ-48 | Cross-tenant users (recruiter serving multiple orgs)? | P2 | SEC | user model | One tenant per user for V1 |
-| OQ-49 | Credential storage: fully IdP-delegated vs local fallback? | P1 | SEC | auth model | Fully IdP-delegated |
+| OQ-49 | Credential storage: fully IdP-delegated vs local fallback? | P1 — RESOLVED | SEC | auth model | **Decided: fully IdP-delegated to Supabase Auth (ED-86)**, no local password fallback — `InMemoryAuthStore` remains dev/test-only, gated by its existing `assertNotProduction()` check. |
 | OQ-50 | Are inference records evidence or ops telemetry? | P1 | ML | retention of inference logs | Ops telemetry; short retention |
 | OQ-51 | Snapshot cadence (every N events / T seconds)? | P1 | DATA | rehydration latency | Same decision as OQ-33 |
 | OQ-52 | Event-store migration trigger Postgres → dedicated log | P2 | DATA | throughput | On measured contention (R-46) |
