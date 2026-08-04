@@ -1,6 +1,26 @@
 import 'principal.dart';
 import 'user_role.dart';
 
+/// The password policy, stated once so every [AuthStore] implementation
+/// cannot disagree about what it accepts (see the "Implementations must not
+/// throw" note below — the same discipline applies to policy). Returns null
+/// when the password is fine, or a message safe to show the user.
+///
+/// Length is the only rule. Composition rules (a digit, a symbol, mixed case)
+/// measurably push people toward `Password1!` and away from length, which is
+/// the property that actually matters.
+///
+/// Moved here from `InMemoryAuthStore` (CH-1.1.2) when a second
+/// implementation ([SupabaseAuthStore]) needed the same rule — the type
+/// documenting this contract is the type that should own it.
+String? describePasswordWeakness(String password) {
+  if (password.length < 12) {
+    return 'Use at least 12 characters. Length matters more than symbols — '
+        'a short phrase of ordinary words is stronger than P@ssw0rd.';
+  }
+  return null;
+}
+
 /// Why a sign-in or registration attempt did not succeed.
 ///
 /// ## Why the enum is coarse on purpose

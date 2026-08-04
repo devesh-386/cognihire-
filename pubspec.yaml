@@ -43,6 +43,10 @@ dependencies:
   # Promoted from transitive: the session event log depends on SHA-256 directly
   # to hash-chain its entries, so the dependency must be declared, not borrowed.
   crypto: ^3.0.0
+  # Backs SupabaseAuthStore (CH-1.1.2, ED-86) — the hosted AuthStore that
+  # ships, replacing InMemoryAuthStore in production. Self-hostable, so it
+  # fits the T-MVP single-box shape without adding a new managed dependency.
+  supabase_flutter: ^2.8.0
 
   # Resume text extraction. All three run entirely on-device: the product's
   # promise is that a resume is never uploaded, so a cloud parsing API was never

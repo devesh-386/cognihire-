@@ -1,6 +1,10 @@
 import 'dart:async';
 
 import 'auth_store.dart';
+// Imported a second time, prefixed, purely to reach the top-level
+// describePasswordWeakness function below without ambiguity against this
+// class's own static method of the same name.
+import 'auth_store.dart' as shared;
 import 'principal.dart';
 import 'user_role.dart';
 
@@ -165,20 +169,13 @@ class InMemoryAuthStore implements AuthStore {
   /// person to register finds the address mysteriously free.
   static String _key(String email) => email.trim().toLowerCase();
 
-  /// The password policy, stated once so the in-memory and hosted stores cannot
-  /// disagree about what they accept. Returns null when the password is fine,
-  /// or a message safe to show the user.
-  ///
-  /// Length is the only rule. Composition rules (a digit, a symbol, mixed case)
-  /// measurably push people toward `Password1!` and away from length, which is
-  /// the property that actually matters.
-  static String? describePasswordWeakness(String password) {
-    if (password.length < 12) {
-      return 'Use at least 12 characters. Length matters more than symbols — '
-          'a short phrase of ordinary words is stronger than P@ssw0rd.';
-    }
-    return null;
-  }
+  /// The password policy. Delegates to the shared top-level
+  /// [describePasswordWeakness] in `auth_store.dart` (CH-1.1.2) so this store
+  /// and `SupabaseAuthStore` cannot drift apart — kept as a static method
+  /// here too since existing call sites use
+  /// `InMemoryAuthStore.describePasswordWeakness(...)`.
+  static String? describePasswordWeakness(String password) =>
+      shared.describePasswordWeakness(password);
 }
 
 class _Account {
