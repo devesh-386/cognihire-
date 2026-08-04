@@ -1,0 +1,34 @@
+# CH-0.2.1 / CH-0.2.2 / CH-0.2.3 — release-blocking guardrail gate.
+#
+# Per the Handbook's five defining decisions and ED-65/ED-71: product-
+# guarantee regression tests are security tests, and a red guardrail build
+# blocks release. This single job runs both linters and both of their
+# self-tests (proving the linters themselves still correctly catch a planted
+# violation, not just that today's code happens to be clean).
+name: Guardrails (ED-45 / ED-46 / ED-65 / ED-71)
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  guardrails:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Vocabulary-ban self-test (ED-46 / ED-03 / ED-04)
+        run: python tools/lint/test_vocab_ban.py
+
+      - name: Evidence<->Disposition schema self-test (ED-45 / ED-14)
+        run: python tools/lint/test_evidence_disposition_schema.py
+
+      - name: Vocabulary-ban linter — real lib/ tree
+        run: python tools/lint/vocab_ban.py
+
+      - name: Evidence<->Disposition schema linter — real infra/ tree
+        run: python tools/lint/evidence_disposition_schema.py
