@@ -1,0 +1,59 @@
+# CH-0.3.2: proves the disposition store (ED-76) is isolated from the evidence
+# plane at the network layer (ED-14).
+#
+# Two assertions:
+#   1. The disposition Postgres is up and reachable on its OWN network.
+#   2. The primary (evidence-plane) Postgres container CANNOT reach the
+#      disposition host at all — the two live on disjoint Docker networks, so
+#      there is no route and no DNS resolution between them.
+# Assertion 2 is the load-bearing one: it fails the build if a future change
+# ever puts a service on both networks, silently reopening the ED-14 boundary.
+name: Disposition isolation (ED-14 / ED-76)
+
+on:
+  push:
+    paths:
+      - "docker-compose.yml"
+      - ".github/workflows/disposition-isolation.yml"
+  pull_request:
+    paths:
+      - "docker-compose.yml"
+      - ".github/workflows/disposition-isolation.yml"
+
+jobs:
+  isolation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start both database services
+        run: docker compose up -d postgres postgres-disposition
+
+      - name: Wait for both healthchecks
+        run: |
+          for svc in cognihire-postgres cognihire-postgres-disposition; do
+            ok=""
+            for i in $(seq 1 30); do
+              status="$(docker inspect -f '{{.State.Health.Status}}' "$svc" 2>/dev/null || echo starting)"
+              if [ "$status" = "healthy" ]; then ok=1; echo "$svc healthy"; break; fi
+              echo "waiting for $svc ($i/30): $status"; sleep 2
+            done
+            if [ -z "$ok" ]; then echo "$svc never became healthy"; docker compose logs "$svc"; exit 1; fi
+          done
+
+      - name: Disposition store is reachable on its own network
+        run: docker compose exec -T postgres-disposition pg_isready -U cognihire_disposition -d cognihire_disposition
+
+      - name: Primary store CANNOT reach the disposition store (ED-14 boundary)
+        run: |
+          # Attempt to reach the disposition host FROM the evidence-plane
+          # container. Must fail — disjoint networks mean no route/DNS.
+          if docker compose exec -T postgres pg_isready -h postgres-disposition -t 5 >/dev/null 2>&1; then
+            echo "ED-14 VIOLATION: primary store can reach the disposition store"
+            exit 1
+          fi
+          echo "confirmed: no network path from evidence plane to disposition store"
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

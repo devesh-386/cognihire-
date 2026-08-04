@@ -5,15 +5,22 @@
 # the Engineering Blueprint, T-MVP's datastore shape is "1 managed Postgres
 # (+pgvector)" — a single instance, no clustering, no Kubernetes.
 #
-# The disposition database (ED-76: physically separate even at T-MVP) is a
-# distinct ticket (CH-0.3.2) and is deliberately not defined here — adding it
-# to this file would pre-empt that ticket's own review of network/credential
-# isolation.
+# The disposition database (ED-76: physically separate even at T-MVP) is added
+# by CH-0.3.2 as `postgres-disposition` below. It is a second, physically
+# separate Postgres instance with its own credentials, on its own Docker
+# network (`disposition`), with NO service joining both networks — so there is
+# no route between the evidence-plane store and the disposition store. This
+# enforces ED-14 (Evidence ⟂ Disposition) at the network layer and is
+# tier-invariant: the separation exists even at the single-box MVP because it
+# cannot be "added later" without a migration that reintroduces the forbidden
+# join (ED-76).
 services:
   postgres:
     image: pgvector/pgvector:pg16
     container_name: cognihire-postgres
     restart: unless-stopped
+    networks:
+      - evidence
     environment:
       POSTGRES_USER: cognihire
       # Local-dev-only default. Override with a real secret via a .env file
@@ -36,5 +43,44 @@ services:
       timeout: 5s
       retries: 10
 
+  # CH-0.3.2 — Disposition store (ED-76). Physically separate instance, own
+  # credentials, own network. No pgvector: disposition records carry no
+  # embeddings and must never be joinable to the evidence plane. Deliberately
+  # isolated from `postgres` above — no service is a member of both `evidence`
+  # and `disposition`, so nothing can route between them.
+  postgres-disposition:
+    image: postgres:16
+    container_name: cognihire-postgres-disposition
+    restart: unless-stopped
+    networks:
+      - disposition
+    environment:
+      POSTGRES_USER: cognihire_disposition
+      # Separate credential from the primary store on purpose (ED-14): a leak
+      # of one credential must not grant the other. Dev-only default; override
+      # as with POSTGRES_PASSWORD above.
+      POSTGRES_PASSWORD: ${POSTGRES_DISPOSITION_PASSWORD:-disposition_dev_only}
+      POSTGRES_DB: cognihire_disposition
+    ports:
+      # Different host port so both instances can run side by side locally.
+      - "5433:5432"
+    volumes:
+      - postgres-disposition-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cognihire_disposition -d cognihire_disposition"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+# Two disjoint networks. The evidence plane and the disposition plane share no
+# network, so there is no path from one store's container to the other — the
+# ED-14 boundary is structural, not a runtime check that could be forgotten.
+networks:
+  evidence:
+    driver: bridge
+  disposition:
+    driver: bridge
+
 volumes:
   postgres-data:
+  postgres-disposition-data:
