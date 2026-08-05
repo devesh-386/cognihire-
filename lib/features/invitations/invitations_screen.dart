@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/design/app_theme.dart';
+import '../../core/invitations/bulk_invite_csv.dart';
 import '../../core/invitations/invitation.dart';
 import '../../core/invitations/invitation_store.dart';
 import '../../core/roles/role.dart';
@@ -16,6 +17,7 @@ import '../../core/workspace/workspace_stats.dart';
 import '../../ui/app_shell.dart';
 import '../audit/claim_audit_screen.dart';
 import '../common/empty_state.dart';
+import 'bulk_invite_csv_pick.dart';
 
 class InvitationsScreen extends StatefulWidget {
   const InvitationsScreen({
@@ -93,6 +95,50 @@ class InvitationsScreenState extends State<InvitationsScreen> {
     await reload();
   }
 
+  Future<void> _bulkInvite() async {
+    final roles = _roles?.roles ?? const <Role>[];
+    if (roles.isEmpty) return;
+
+    final picked = await pickCandidateCsv();
+    if (picked == null) return; // cancelled
+    if (!mounted) return;
+
+    if (picked.text == null) {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Could not read that file'),
+          content: Text(picked.error ?? 'Unknown error.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final parsed = parseBulkInviteCsv(picked.text!);
+    if (!mounted) return;
+
+    final invitations = await showDialog<List<Invitation>>(
+      context: context,
+      builder: (context) => _BulkInviteReviewDialog(
+        fileName: picked.fileName,
+        parsed: parsed,
+        roles: roles,
+      ),
+    );
+    if (invitations == null || invitations.isEmpty) return;
+
+    for (final invitation in invitations) {
+      await widget.invitationStore.saveInvitation(invitation);
+    }
+    await reload();
+  }
+
   Role? _roleFor(String id, List<Role> roles) {
     for (final role in roles) {
       if (role.id == id) return role;
@@ -115,6 +161,11 @@ class InvitationsScreenState extends State<InvitationsScreen> {
           onPressed: _loading ? null : reload,
           tooltip: 'Refresh',
           icon: const Icon(Icons.refresh, size: 20),
+        ),
+        OutlinedButton.icon(
+          onPressed: roles.isEmpty ? null : _bulkInvite,
+          icon: const Icon(Icons.upload_file_outlined, size: 18),
+          label: const Text('Bulk invite (CSV)'),
         ),
         FilledButton.icon(
           onPressed: roles.isEmpty ? null : _create,
@@ -269,21 +320,6 @@ class _InviteDialogState extends State<_InviteDialog> {
     super.dispose();
   }
 
-  /// Six characters, unambiguous alphabet (no 0/O/1/I) — short enough to read
-  /// aloud, distinct enough not to collide by typo.
-  String _generateCode() {
-    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    final seed = DateTime.now().microsecondsSinceEpoch;
-    final buffer = StringBuffer();
-    var n = seed;
-    for (var i = 0; i < 6; i++) {
-      buffer.write(alphabet[n % alphabet.length]);
-      n ~/= alphabet.length;
-      if (n == 0) n = seed ~/ (i + 7);
-    }
-    return buffer.toString();
-  }
-
   void _save() {
     final name = _name.text.trim();
     if (name.isEmpty) {
@@ -300,7 +336,7 @@ class _InviteDialogState extends State<_InviteDialog> {
       candidateName: name,
       candidateEmail: _email.text.trim(),
       roleId: roleId,
-      code: _generateCode(),
+      code: generateInvitationCode(),
       createdAt: DateTime.now(),
     ));
   }
@@ -352,6 +388,112 @@ class _InviteDialogState extends State<_InviteDialog> {
           child: const Text('Cancel'),
         ),
         FilledButton(onPressed: _save, child: const Text('Create invitation')),
+      ],
+    );
+  }
+}
+
+/// Shows what came out of parsing HR's CSV — every valid row, every row that
+/// needs fixing and why — before anything is actually created. Returns the
+/// built [Invitation]s on confirm, or null if HR cancelled.
+class _BulkInviteReviewDialog extends StatefulWidget {
+  const _BulkInviteReviewDialog({
+    required this.fileName,
+    required this.parsed,
+    required this.roles,
+  });
+
+  final String fileName;
+  final BulkInviteParseResult parsed;
+  final List<Role> roles;
+
+  @override
+  State<_BulkInviteReviewDialog> createState() =>
+      _BulkInviteReviewDialogState();
+}
+
+class _BulkInviteReviewDialogState extends State<_BulkInviteReviewDialog> {
+  late String _roleId = widget.roles.first.id;
+
+  void _confirm() {
+    final invitations = buildInvitationsFromRows(widget.parsed.rows, _roleId);
+    Navigator.of(context).pop(invitations);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final rows = widget.parsed.rows;
+    final errors = widget.parsed.errors;
+
+    return AlertDialog(
+      title: Text('Bulk invite — ${widget.fileName}'),
+      content: SizedBox(
+        width: 460,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (rows.isEmpty && errors.isEmpty)
+              const Text('The file has no rows to import.')
+            else ...[
+              Text(
+                errors.isEmpty
+                    ? '${rows.length} candidate(s) ready to invite.'
+                    : '${rows.length} ready, ${errors.length} need fixing:',
+                style: theme.textTheme.bodyMedium,
+              ),
+              if (errors.isNotEmpty) ...[
+                const SizedBox(height: Spacing.sm),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 160),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (final error in errors)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: Spacing.xs),
+                            child: Text(
+                              'Line ${error.lineNumber}: ${error.reason}',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.error,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+              if (rows.isNotEmpty) ...[
+                const SizedBox(height: Spacing.md),
+                DropdownButtonFormField<String>(
+                  initialValue: _roleId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Role for all'),
+                  items: [
+                    for (final role in widget.roles)
+                      DropdownMenuItem(value: role.id, child: Text(role.title)),
+                  ],
+                  onChanged: (value) =>
+                      setState(() => _roleId = value ?? _roleId),
+                ),
+              ],
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        if (rows.isNotEmpty)
+          FilledButton(
+            onPressed: _confirm,
+            child: Text('Invite ${rows.length}'),
+          ),
       ],
     );
   }

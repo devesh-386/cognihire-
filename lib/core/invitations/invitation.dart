@@ -37,6 +37,28 @@ enum InvitationStatus {
   }
 }
 
+// Six characters, unambiguous alphabet (no 0/O/1/I) — short enough to read
+// aloud, distinct enough not to collide by typo. Shared by every place an
+// Invitation gets created (single invite, bulk CSV import) so the shape of a
+// code is defined once.
+const _codeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+/// [salt] distinguishes codes generated in the same batch (bulk CSV import
+/// can create dozens in a tight loop, faster than the clock's actual
+/// resolution advances) — pass the row index so two candidates in one file
+/// never land on the same code even if their timestamps read identical.
+String generateInvitationCode({int salt = 0}) {
+  final seed = DateTime.now().microsecondsSinceEpoch + salt * 104729;
+  final buffer = StringBuffer();
+  var n = seed;
+  for (var i = 0; i < 6; i++) {
+    buffer.write(_codeAlphabet[n % _codeAlphabet.length]);
+    n ~/= _codeAlphabet.length;
+    if (n == 0) n = seed ~/ (i + 7);
+  }
+  return buffer.toString();
+}
+
 class Invitation {
   const Invitation({
     required this.id,

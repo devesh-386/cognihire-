@@ -46,6 +46,27 @@ void main() {
     });
   });
 
+  group('generateInvitationCode', () {
+    test('is always 6 characters from the unambiguous alphabet', () {
+      final code = generateInvitationCode();
+      expect(code.length, 6);
+      expect(RegExp(r'^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$').hasMatch(code),
+          isTrue);
+    });
+
+    test('a batch of salted codes generated in one tick are all distinct',
+        () {
+      // The real risk this guards: bulk CSV import calls this in a tight
+      // loop, faster than the clock's actual resolution advances, so relying
+      // on the timestamp alone risks two candidates in one file landing on
+      // the same code.
+      final codes = {
+        for (var i = 0; i < 200; i++) generateInvitationCode(salt: i),
+      };
+      expect(codes, hasLength(200));
+    });
+  });
+
   group('InMemoryInvitationStore', () {
     test('lists newest first', () async {
       final store = InMemoryInvitationStore();

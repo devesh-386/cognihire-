@@ -10,6 +10,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  // Flutter's default test surface is 800x600, which is narrower than the
+  // real app's minimum window (1280x720) and trips ShellPage's compact
+  // (stacked title-over-actions) layout — a layout the header, with three
+  // actions since bulk invite, genuinely does not fit in 600px of height.
+  // Matches the size other full-screen tests in this suite already use.
+  void setRealisticSize(WidgetTester tester) {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+  }
+
   Widget screenWith(
     RoleStore roleStore,
     InvitationStore invitationStore, {
@@ -34,6 +46,7 @@ void main() {
 
   testWidgets('prompts to define a role first when there are none',
       (tester) async {
+    setRealisticSize(tester);
     await tester.pumpWidget(
       screenWith(InMemoryRoleStore(), InMemoryInvitationStore()),
     );
@@ -44,6 +57,7 @@ void main() {
 
   testWidgets('invites a candidate and shows their redeemable code',
       (tester) async {
+    setRealisticSize(tester);
     final roleStore = InMemoryRoleStore();
     await roleStore.saveRole(Role(
       id: 'r1',
@@ -75,6 +89,7 @@ void main() {
 
   testWidgets('a pending invitation shows its code, not a report link',
       (tester) async {
+    setRealisticSize(tester);
     final roleStore = InMemoryRoleStore();
     await roleStore.saveRole(Role(
       id: 'r1',
@@ -101,6 +116,7 @@ void main() {
   testWidgets(
       'an accepted invitation with no session yet shows a waiting status',
       (tester) async {
+    setRealisticSize(tester);
     final roleStore = InMemoryRoleStore();
     await roleStore.saveRole(Role(
       id: 'r1',
@@ -128,6 +144,7 @@ void main() {
   testWidgets(
       'once the candidate has a stored session, HR gets a direct link to it',
       (tester) async {
+    setRealisticSize(tester);
     final roleStore = InMemoryRoleStore();
     await roleStore.saveRole(Role(
       id: 'r1',

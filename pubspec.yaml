@@ -55,6 +55,12 @@ dependencies:
   #   archive + xml          — a .docx is a zip whose word/document.xml holds
   #                            the text; these two read it without a converter.
   syncfusion_flutter_pdf: ^31.1.17
+
+  # Bulk invitations: parsing HR's CSV of candidates, and sending each their
+  # code by email. Real CSVs (quoted fields, embedded commas, BOM) and real
+  # SMTP are both worth using a maintained library for rather than hand-rolling.
+  csv: ^6.0.0
+  mailer: ^6.4.1
   archive: ^4.0.7
   xml: ^6.5.0
   # Stand-in for the Kokoro streaming TTS in the target architecture — speaks
