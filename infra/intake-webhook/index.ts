@@ -43,12 +43,31 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const organizationId = Deno.env.get("INTAKE_ORGANIZATION_ID");
+  const client = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+
+  // INTAKE_ORGANIZATION_ID is optional: for the common single-organisation
+  // demo deployment, there's exactly one row in organizations and no secret
+  // needs setting at all. Only ambiguous (multi-org) or empty (no HR account
+  // registered yet) deployments require the explicit secret.
+  let organizationId = Deno.env.get("INTAKE_ORGANIZATION_ID");
   if (!organizationId) {
-    return new Response(
-      JSON.stringify({ error: "server misconfigured: no INTAKE_ORGANIZATION_ID" }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
-    );
+    const { data: orgs, error: orgsError } = await client
+      .from("organizations")
+      .select("id");
+    if (orgsError || !orgs || orgs.length !== 1) {
+      return new Response(
+        JSON.stringify({
+          error: orgs && orgs.length > 1
+            ? "multiple organisations exist — set INTAKE_ORGANIZATION_ID explicitly"
+            : "no organisation registered yet — an HR account must sign up first",
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    organizationId = orgs[0].id;
   }
 
   const { name, email, roleTitle, preferredTimeIso, resumeBase64, resumeFilename } = body;
@@ -66,11 +85,6 @@ Deno.serve(async (req: Request) => {
       headers: { "Content-Type": "application/json" },
     });
   }
-
-  const client = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-  );
 
   const { data: role, error: roleError } = await client
     .from("roles")

@@ -60,15 +60,51 @@ runs on the same box. Supabase (Ticket 8) is free tier.
 
 ---
 
-# Ticket 11 — Google Form intake → Supabase
+# Ticket 11 — candidate intake → Supabase
 
-`intake-webhook` (deployed, `supabase functions deploy intake-webhook` if you ever
-need to redeploy manually — see `infra/intake-webhook/index.ts`) turns one Google
-Form response into a candidate + a scheduled invitation, with `code_send_at`/
-`reminder_send_at` already computed from the candidate's requested time (T-60/T-30
-minutes) — Ticket 12 only has to poll and send, not do the scheduling math.
+**Reworked 2026-08-06**: Devesh has no way to act on Google-account-gated or
+paid-account-gated setup steps right now (out of everyone's control at this
+moment — those genuinely need his own accounts). So the **default path is now
+a self-hosted "Apply" page** (`lib/main_apply.dart`, `ApplyScreen`) that needs
+*zero* external accounts — no Google, no Apps Script, nothing for anyone to
+sign up for. It posts straight to a new public `apply-webhook` Edge Function.
+The original Google Form path (`intake-webhook`) still exists below as an
+alternative for later, if a real Google Form is ever wanted instead/as well —
+both write to the same `candidates`/`invitations` tables, so either or both
+can run at once.
 
-## 1. Create the Google Form
+## Self-hosted apply page (recommended, no setup needed)
+
+Already built and deployed:
+- `apply-webhook` Edge Function — public, no shared secret (anything shipped
+  in a Flutter *web build* is visible via view-source, so a client-side
+  "secret" wouldn't secure anything anyway — accepted tradeoff for a
+  demo-scoped deployment). Validates the role exists, uploads the résumé,
+  creates the candidate + a scheduled invitation exactly like the Google Form
+  path does.
+- `list_open_roles()` — a public read-only RPC so the page can populate a role
+  dropdown without needing a signed-in HR session.
+- `lib/features/apply/apply_screen.dart` + `lib/main_apply.dart` — the page
+  itself: name, email, role dropdown, preferred time, optional résumé upload.
+
+Run it locally: `flutter run -d chrome -t lib/main_apply.dart` (or via
+`.claude/launch.json`'s `cognihire-apply` config, port 8768). Once an HR
+account exists and has created at least one role, this page works standalone
+— share its URL with candidates, no further setup.
+
+Sanity-checked live against the deployed function:
+```
+curl -s -X POST https://foffzvwmxnsmbixkilxt.supabase.co/functions/v1/apply-webhook \
+  -H "Content-Type: application/json" -d '{}'
+# {"error":"missing name, email, roleId, or preferredTimeIso"}
+```
+
+## Google Form alternative (optional, needs a Google account)
+
+If a real Google Form is wanted instead or as well, `intake-webhook` (already
+deployed) supports it — same result, different intake surface.
+
+### 1. Create the Google Form
 
 Fields, exact titles (the Apps Script matches on these):
 - **Full name** — short answer
@@ -79,7 +115,7 @@ Fields, exact titles (the Apps Script matches on these):
 - **Preferred interview time** — Date question with "Include time" on
 - **Resume** — File upload, restrict to PDF/DOC/DOCX, max 1 file
 
-## 2. Wire the Apps Script
+### 2. Wire the Apps Script
 
 1. In the Form, **⋮ → Script editor** (or Extensions → Apps Script).
 2. Paste in `infra/google-form-apps-script.gs`.
@@ -90,32 +126,27 @@ Fields, exact titles (the Apps Script matches on these):
    `onFormSubmit`, event source **From form**, event type **On form submit**.
    Authorize when prompted (it needs Drive access to read the uploaded résumé).
 
-## 3. Set the Edge Function's secrets
+### 3. Set the Edge Function's secret (optional)
 
-Needs the Supabase CLI (`npm install -g supabase`, then `supabase login`):
+`INTAKE_WEBHOOK_SECRET` is already set. `INTAKE_ORGANIZATION_ID` is now
+**optional** — `intake-webhook` auto-resolves to the sole row in
+`organizations` once one HR account has registered, so for a single-org demo
+there's nothing left to set here at all. Only needed if more than one
+organisation ever exists on this project:
 
 ```bash
 supabase secrets set --project-ref foffzvwmxnsmbixkilxt \
-  INTAKE_WEBHOOK_SECRET=wauVZueHxrCg-_ezPuqrZEjaildmrh_AGl-jdJmkxYg
+  INTAKE_ORGANIZATION_ID=<the id you want>
 ```
 
-`INTAKE_ORGANIZATION_ID` can't be set until you've registered your HR account
-(Ticket 10 — `flutter run` → "New organisation? Create an account"), since that's
-what creates the `organizations` row. Once you have, find your org id:
+Find an org's id if you ever need it:
 
 ```bash
 supabase --project-ref foffzvwmxnsmbixkilxt db query \
   "select id, name from organizations;"
 ```
 
-then:
-
-```bash
-supabase secrets set --project-ref foffzvwmxnsmbixkilxt \
-  INTAKE_ORGANIZATION_ID=<the id from above>
-```
-
-## 4. Verify
+### 4. Verify
 
 Submit the Google Form once with a role title that matches a real role you created.
 Check it landed:
