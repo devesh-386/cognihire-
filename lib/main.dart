@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'core/auth/principal.dart';
+import 'core/auth/user_role.dart';
 import 'core/claims/claim.dart';
 import 'core/claims/claim_audit.dart';
 import 'core/design/app_theme.dart';
@@ -454,6 +455,22 @@ class _HomeScreenState extends State<HomeScreen> {
   /// widgets churn for no reason.
   late final ClaimAudit _sample = _sampleAudit();
 
+  /// Whether a destination for [roles] should appear for the signed-in person.
+  ///
+  /// A null principal means the shell was mounted directly (tests, previews)
+  /// without going through the sign-in gate — those call sites expect the whole
+  /// destination set, so nothing is filtered. Once someone has signed in, each
+  /// role sees only its own navigation.
+  bool _showFor(Set<UserRole> roles) {
+    final role = widget.principal?.role;
+    return role == null || roles.contains(role);
+  }
+
+  // Which experience each destination belongs to.
+  static const _hr = {UserRole.recruiter};
+  static const _candidate = {UserRole.candidate};
+  static const _both = {UserRole.recruiter, UserRole.candidate};
+
   @override
   Widget build(BuildContext context) {
     final notices = <ShellNotice>[
@@ -476,11 +493,16 @@ class _HomeScreenState extends State<HomeScreen> {
     return AppShell(
       title: 'CogniHire',
       tagline: 'Verified-claim interviewing',
-      primaryAction: ShellPrimaryAction(
-        label: 'New session',
-        icon: Icons.add,
-        onPressed: _goToNewSession,
-      ),
+      // "New session" is the candidate's action (they run the interview); it is
+      // not offered to HR, who has no New session destination. Null principal
+      // (direct-mount call sites) keeps the action, preserving prior behaviour.
+      primaryAction: _showFor(_candidate)
+          ? ShellPrimaryAction(
+              label: 'New session',
+              icon: Icons.add,
+              onPressed: _goToNewSession,
+            )
+          : null,
       identity: ShellIdentity(
         name: widget.principal?.displayName ??
             widget.principal?.email ??
@@ -492,12 +514,16 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       notices: notices,
       onHelp: () => AppShellController.of(context)?.goTo('Settings'),
-      onSearch: (query) {
-        AppShellController.of(context)?.goTo('Candidates');
-        _candidatesKey.currentState?.applyQuery(query);
-      },
+      // Search jumps to the Candidates directory, which only HR has.
+      onSearch: _showFor(_hr)
+          ? (query) {
+              AppShellController.of(context)?.goTo('Candidates');
+              _candidatesKey.currentState?.applyQuery(query);
+            }
+          : null,
       destinations: [
-        ShellDestination(
+        if (_showFor(_hr))
+          ShellDestination(
           icon: Icons.dashboard_outlined,
           selectedIcon: Icons.dashboard,
           label: 'Dashboard',
@@ -509,7 +535,8 @@ class _HomeScreenState extends State<HomeScreen> {
             onStartSession: _goToNewSession,
           ),
         ),
-        ShellDestination(
+        if (_showFor(_hr))
+          ShellDestination(
           icon: Icons.people_outline,
           selectedIcon: Icons.people,
           label: 'Candidates',
@@ -519,7 +546,8 @@ class _HomeScreenState extends State<HomeScreen> {
             onStartSession: _goToNewSession,
           ),
         ),
-        ShellDestination(
+        if (_showFor(_hr))
+          ShellDestination(
           icon: Icons.work_outline,
           selectedIcon: Icons.work,
           label: 'Roles',
@@ -529,21 +557,24 @@ class _HomeScreenState extends State<HomeScreen> {
             loadSessions: () => loadWorkspace(widget.store),
           ),
         ),
-        ShellDestination(
+        if (_showFor(_candidate))
+          ShellDestination(
           icon: Icons.play_circle_outline,
           selectedIcon: Icons.play_circle_fill,
           label: 'New session',
           shortLabel: 'New',
           builder: _setupPage,
         ),
-        ShellDestination(
+        if (_showFor(_candidate))
+          ShellDestination(
           icon: Icons.document_scanner_outlined,
           selectedIcon: Icons.document_scanner,
           label: 'Resume analysis',
           shortLabel: 'Resume',
           builder: (_) => ResumeAnalysisScreen(draft: _draft),
         ),
-        ShellDestination(
+        if (_showFor(_hr))
+          ShellDestination(
           icon: Icons.history_outlined,
           selectedIcon: Icons.history,
           label: 'Sessions',
@@ -553,7 +584,8 @@ class _HomeScreenState extends State<HomeScreen> {
             storageIsDurable: widget.storageIsDurable,
           ),
         ),
-        ShellDestination(
+        if (_showFor(_both))
+          ShellDestination(
           icon: Icons.summarize_outlined,
           selectedIcon: Icons.summarize,
           label: 'Reports',
@@ -567,13 +599,15 @@ class _HomeScreenState extends State<HomeScreen> {
             onStartSession: _goToNewSession,
           ),
         ),
-        ShellDestination(
+        if (_showFor(_hr))
+          ShellDestination(
           icon: Icons.monitor_heart_outlined,
           selectedIcon: Icons.monitor_heart,
           label: 'Telemetry',
           builder: (_) => const TaskScreen(),
         ),
-        ShellDestination(
+        if (_showFor(_both))
+          ShellDestination(
           icon: Icons.settings_outlined,
           selectedIcon: Icons.settings,
           label: 'Settings',
