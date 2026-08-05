@@ -104,6 +104,15 @@ class SessionDraft extends ChangeNotifier {
 
   String get rawLabel => _label;
 
+  /// The saved report's title. When a role has been picked, it names the role
+  /// the candidate was screened for, so a finished report reads as one case
+  /// ("Jane Doe — Senior Backend") rather than an unattached session. The role
+  /// only ever appends to the human-entered [label]; it never invents a name.
+  String get sessionTitle {
+    final role = _targetRole;
+    return role == null ? label : '$label — ${role.title}';
+  }
+
   /// What a session started now would actually examine: the candidate's own
   /// confirmed claims when there are any, otherwise the demo set — reordered
   /// so [targetRole]'s required skills are probed first when a role has been
