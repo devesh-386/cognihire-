@@ -862,58 +862,65 @@ class TimelineEntry extends StatelessWidget {
     final theme = Theme.of(context);
     final colour = tone ?? context.brand.accent;
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 20,
-          child: Column(
-            children: [
-              const SizedBox(height: 4),
-              Container(
-                width: 10,
-                height: 10,
-                decoration: BoxDecoration(color: colour, shape: BoxShape.circle),
-              ),
-              if (!isLast)
-                Expanded(
-                  child: Container(
-                    width: 1,
-                    margin: const EdgeInsets.symmetric(vertical: Spacing.xs),
-                    color: theme.colorScheme.outlineVariant,
-                  ),
-                ),
-            ],
-          ),
-        ),
-        const SizedBox(width: Spacing.md),
-        Expanded(
-          child: Padding(
-            padding: EdgeInsets.only(bottom: isLast ? 0 : Spacing.xl),
+    // IntrinsicHeight so the Row has a real, bounded height for the connecting
+    // rule's Expanded to size against — a timeline entry in a vertical scroll
+    // view otherwise hands this Row unbounded height, which is exactly what
+    // Expanded cannot lay out into ("non-zero flex but incoming height
+    // constraints are unbounded"). Hit live on the Reports screen.
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 20,
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Wrap, not Row: a long title and a long timestamp on a narrow
-                // window need to fall onto two lines, not compete for one.
-                Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: Spacing.sm,
-                  children: [
-                    Text(title, style: theme.textTheme.titleSmall),
-                    Text(meta, style: context.numeric.copyWith(
-                      color: theme.textTheme.bodySmall?.color,
-                    )),
-                  ],
+                const SizedBox(height: 4),
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(color: colour, shape: BoxShape.circle),
                 ),
-                if (body.isNotEmpty) ...[
-                  const SizedBox(height: Spacing.xs),
-                  Text(body, style: theme.textTheme.bodyMedium),
-                ],
+                if (!isLast)
+                  Expanded(
+                    child: Container(
+                      width: 1,
+                      margin: const EdgeInsets.symmetric(vertical: Spacing.xs),
+                      color: theme.colorScheme.outlineVariant,
+                    ),
+                  ),
               ],
             ),
           ),
-        ),
-      ],
+          const SizedBox(width: Spacing.md),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(bottom: isLast ? 0 : Spacing.xl),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Wrap, not Row: a long title and a long timestamp on a narrow
+                  // window need to fall onto two lines, not compete for one.
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: Spacing.sm,
+                    children: [
+                      Text(title, style: theme.textTheme.titleSmall),
+                      Text(meta, style: context.numeric.copyWith(
+                        color: theme.textTheme.bodySmall?.color,
+                      )),
+                    ],
+                  ),
+                  if (body.isNotEmpty) ...[
+                    const SizedBox(height: Spacing.xs),
+                    Text(body, style: theme.textTheme.bodyMedium),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
