@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'core/auth/principal.dart';
 import 'core/claims/claim.dart';
 import 'core/claims/claim_audit.dart';
 import 'core/design/app_theme.dart';
@@ -13,6 +14,7 @@ import 'core/session/session_draft.dart';
 import 'core/verification/verification_result.dart';
 import 'core/workspace/workspace_loader.dart';
 import 'features/analysis/resume_analysis_screen.dart';
+import 'features/auth/sign_in_screen.dart';
 import 'features/audit/claim_audit_screen.dart';
 import 'features/candidates/candidates_screen.dart';
 import 'features/common/empty_state.dart';
@@ -81,6 +83,11 @@ class _CogniHireAppState extends State<CogniHireApp> {
   // Settings' light/dark/system control has something real to act on.
   ThemeMode _themeMode = ThemeMode.system;
 
+  /// The signed-in person, or null when nobody has chosen a role yet. This is
+  /// the single gate between the sign-in chooser and the app: null shows the
+  /// chooser, non-null mounts that role's experience.
+  Principal? _principal;
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -89,14 +96,21 @@ class _CogniHireAppState extends State<CogniHireApp> {
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: _themeMode,
-      home: HomeScreen(
-        store: widget.store,
-        roleStore: widget.roleStore,
-        storageLocation: widget.storageLocation,
-        storageIsDurable: widget.storageIsDurable,
-        themeMode: _themeMode,
-        onThemeModeChanged: (mode) => setState(() => _themeMode = mode),
-      ),
+      home: _principal == null
+          ? SignInScreen(onSignIn: (p) => setState(() => _principal = p))
+          : HomeScreen(
+              // Keyed by principal id so switching accounts rebuilds the shell
+              // from scratch rather than leaking the previous person's state.
+              key: ValueKey(_principal!.id),
+              store: widget.store,
+              roleStore: widget.roleStore,
+              storageLocation: widget.storageLocation,
+              storageIsDurable: widget.storageIsDurable,
+              themeMode: _themeMode,
+              onThemeModeChanged: (mode) => setState(() => _themeMode = mode),
+              principal: _principal,
+              onSignOut: () => setState(() => _principal = null),
+            ),
     );
   }
 }
@@ -204,9 +218,20 @@ class HomeScreen extends StatefulWidget {
     required this.storageIsDurable,
     this.themeMode = ThemeMode.system,
     this.onThemeModeChanged,
+    this.principal,
+    this.onSignOut,
   }) : roleStore = roleStore ?? const _NoRoleStore();
 
   final AuditStore store;
+
+  /// The signed-in person, when the app was entered through the sign-in
+  /// chooser. Optional because most existing call sites (tests, previews)
+  /// mount the shell directly without an auth gate; the shell falls back to its
+  /// generic operator identity when this is null.
+  final Principal? principal;
+
+  /// Returns to the sign-in chooser. Null for the direct-mount call sites above.
+  final VoidCallback? onSignOut;
 
   /// Defaults to an inert store when the caller does not supply one — most
   /// existing call sites (tests, previews) predate the Roles feature and have
@@ -398,6 +423,32 @@ class _HomeScreenState extends State<HomeScreen> {
   void _goToNewSession() =>
       AppShellController.of(context)?.goTo('New session');
 
+  /// Confirms, then returns to the sign-in chooser. Confirmed because signing
+  /// out is a context switch a stray tap on the identity chip should not cause
+  /// mid-session.
+  Future<void> _confirmSignOut() async {
+    final signOut = widget.onSignOut;
+    if (signOut == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Sign out?'),
+        content: const Text('You will return to the sign-in screen.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Sign out'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) signOut();
+  }
+
   /// Built once. The sample audit is stamped with wall-clock times, so
   /// rebuilding it on every frame would make its timestamps drift and its
   /// widgets churn for no reason.
@@ -431,9 +482,13 @@ class _HomeScreenState extends State<HomeScreen> {
         onPressed: _goToNewSession,
       ),
       identity: ShellIdentity(
-        name: _draft.label,
-        role: 'Session operator',
-        onTap: () => AppShellController.of(context)?.goTo('Settings'),
+        name: widget.principal?.displayName ??
+            widget.principal?.email ??
+            _draft.label,
+        role: widget.principal?.role.label ?? 'Session operator',
+        onTap: widget.onSignOut == null
+            ? () => AppShellController.of(context)?.goTo('Settings')
+            : _confirmSignOut,
       ),
       notices: notices,
       onHelp: () => AppShellController.of(context)?.goTo('Settings'),
