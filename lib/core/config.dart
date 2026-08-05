@@ -28,4 +28,19 @@ class AppConfig {
   /// Below this the face is too small for a dependable embedding, and we say
   /// so rather than enrolling a weak reference that causes mismatches later.
   static const minEnrolmentFaceSize = 15000;
+
+  /// Supabase project URL. The anon/publishable key is safe to ship in the
+  /// client by design — every table it can reach is RLS-scoped by
+  /// organization_id (see the `cognihire` project's `cognihire_minimal_schema`
+  /// migration), so the key alone grants no cross-tenant access.
+  static const supabaseUrl = String.fromEnvironment(
+    'SUPABASE_URL',
+    defaultValue: 'https://foffzvwmxnsmbixkilxt.supabase.co',
+  );
+
+  static const supabaseAnonKey = String.fromEnvironment(
+    'SUPABASE_ANON_KEY',
+    defaultValue:
+        'sb_publishable_UKR2UuhjY3--RhlvZbGt8A_L3_Mf_dN',
+  );
 }
