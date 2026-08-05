@@ -11,7 +11,10 @@ import '../../core/invitations/invitation.dart';
 import '../../core/invitations/invitation_store.dart';
 import '../../core/roles/role.dart';
 import '../../core/roles/role_store.dart';
+import '../../core/workspace/workspace_loader.dart';
+import '../../core/workspace/workspace_stats.dart';
 import '../../ui/app_shell.dart';
+import '../audit/claim_audit_screen.dart';
 import '../common/empty_state.dart';
 
 class InvitationsScreen extends StatefulWidget {
@@ -19,10 +22,16 @@ class InvitationsScreen extends StatefulWidget {
     super.key,
     required this.invitationStore,
     required this.roleStore,
+    required this.loadSessions,
   });
 
   final InvitationStore invitationStore;
   final RoleStore roleStore;
+
+  /// Supplied rather than an `AuditStore` directly, so this screen shares the
+  /// same snapshot the rest of the app already loaded — same pattern as
+  /// `RolesScreen.loadSessions`.
+  final Future<WorkspaceSnapshot> Function() loadSessions;
 
   @override
   State<InvitationsScreen> createState() => InvitationsScreenState();
@@ -31,6 +40,7 @@ class InvitationsScreen extends StatefulWidget {
 class InvitationsScreenState extends State<InvitationsScreen> {
   InvitationIndex? _index;
   RoleIndex? _roles;
+  WorkspaceSnapshot? _snapshot;
   bool _loading = true;
 
   @override
@@ -43,12 +53,32 @@ class InvitationsScreenState extends State<InvitationsScreen> {
     setState(() => _loading = true);
     final index = await widget.invitationStore.listInvitations();
     final roles = await widget.roleStore.listRoles();
+    final snapshot = await widget.loadSessions();
     if (!mounted) return;
     setState(() {
       _index = index;
       _roles = roles;
+      _snapshot = snapshot;
       _loading = false;
     });
+  }
+
+  /// The session this invitation's candidate produced, if their interview has
+  /// been recorded. Matched by label rather than a stored session id, because
+  /// nothing on the session side references the invitation — the connective
+  /// tissue here is the candidate name both sides already share (see
+  /// `SessionDraft.sessionTitle`, which is exactly `"name"` or
+  /// `"name — role"`).
+  SessionRecord? _resultFor(Invitation invitation) {
+    final snapshot = _snapshot;
+    if (snapshot == null) return null;
+    final needle = invitation.candidateName.trim().toLowerCase();
+    if (needle.isEmpty) return null;
+    for (final record in snapshot.records) {
+      final label = record.label.trim().toLowerCase();
+      if (label == needle || label.startsWith('$needle —')) return record;
+    }
+    return null;
   }
 
   Future<void> _create() async {
@@ -122,6 +152,7 @@ class InvitationsScreenState extends State<InvitationsScreen> {
               child: _InvitationCard(
                 invitation: invitation,
                 role: _roleFor(invitation.roleId, roles),
+                result: _resultFor(invitation),
               ),
             ),
       ],
@@ -130,10 +161,18 @@ class InvitationsScreenState extends State<InvitationsScreen> {
 }
 
 class _InvitationCard extends StatelessWidget {
-  const _InvitationCard({required this.invitation, required this.role});
+  const _InvitationCard({
+    required this.invitation,
+    required this.role,
+    required this.result,
+  });
 
   final Invitation invitation;
   final Role? role;
+
+  /// This candidate's finished session, once one exists. Null before they
+  /// have completed an interview — see `InvitationsScreenState._resultFor`.
+  final SessionRecord? result;
 
   @override
   Widget build(BuildContext context) {
@@ -179,10 +218,21 @@ class _InvitationCard extends StatelessWidget {
                 onPressed: () =>
                     Clipboard.setData(ClipboardData(text: invitation.code)),
               ),
-            ] else
+            ] else if (result != null)
+              OutlinedButton.icon(
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => ClaimAuditScreen(
+                    audit: result!.audit,
+                    label: result!.label,
+                  ),
+                )),
+                icon: const Icon(Icons.fact_check_outlined, size: 18),
+                label: const Text('View report'),
+              )
+            else
               Chip(
-                avatar: const Icon(Icons.check_circle_outline, size: 16),
-                label: const Text('Redeemed'),
+                avatar: const Icon(Icons.hourglass_empty, size: 16),
+                label: const Text('Redeemed — awaiting interview'),
               ),
           ],
         ),

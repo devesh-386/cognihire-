@@ -417,6 +417,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _candidatesKey.currentState?.reload();
     _reportsKey.currentState?.reload();
     _rolesKey.currentState?.reload();
+    _invitationsKey.currentState?.reload();
     _settingsKey.currentState?.reload();
     _loadRoles();
   }
@@ -648,6 +649,7 @@ class _HomeScreenState extends State<HomeScreen> {
             key: _invitationsKey,
             invitationStore: widget.invitationStore,
             roleStore: widget.roleStore,
+            loadSessions: () => loadWorkspace(widget.store),
           ),
         ),
         if (_showFor(_candidate))
