@@ -16,12 +16,15 @@ import 'core/verification/verification_result.dart';
 import 'core/workspace/workspace_loader.dart';
 import 'features/analysis/resume_analysis_screen.dart';
 import 'features/auth/sign_in_screen.dart';
+import 'core/invitations/invitation.dart';
+import 'core/invitations/invitation_store.dart';
 import 'features/audit/claim_audit_screen.dart';
 import 'features/candidates/candidates_screen.dart';
 import 'features/common/empty_state.dart';
 import 'features/dashboard/dashboard_screen.dart';
 import 'features/enrolment/enrolment_screen.dart';
 import 'features/interview/interview_screen.dart';
+import 'features/invitations/invitations_screen.dart';
 import 'features/reports/reports_screen.dart';
 import 'features/roles/roles_screen.dart';
 import 'features/sessions/session_history_screen.dart';
@@ -53,9 +56,15 @@ Future<void> main() async {
     durable = false;
   }
 
+  // In-memory for this slice — durable persistence is a later ticket. Enough
+  // for HR to issue an invitation and a candidate to redeem it in one run,
+  // which is what the demo needs.
+  final invitationStore = InMemoryInvitationStore();
+
   runApp(CogniHireApp(
     store: store,
     roleStore: roleStore,
+    invitationStore: invitationStore,
     storageLocation: location,
     storageIsDurable: durable,
   ));
@@ -66,12 +75,14 @@ class CogniHireApp extends StatefulWidget {
     super.key,
     required this.store,
     required this.roleStore,
+    required this.invitationStore,
     required this.storageLocation,
     required this.storageIsDurable,
   });
 
   final AuditStore store;
   final RoleStore roleStore;
+  final InvitationStore invitationStore;
   final String storageLocation;
   final bool storageIsDurable;
 
@@ -105,6 +116,7 @@ class _CogniHireAppState extends State<CogniHireApp> {
               key: ValueKey(_principal!.id),
               store: widget.store,
               roleStore: widget.roleStore,
+              invitationStore: widget.invitationStore,
               storageLocation: widget.storageLocation,
               storageIsDurable: widget.storageIsDurable,
               themeMode: _themeMode,
@@ -207,6 +219,25 @@ class _NoRoleStore implements RoleStore {
       );
 }
 
+/// Stands in for [InvitationStore] when a caller has not supplied one, for the
+/// same reason [_NoRoleStore] does: pre-Invitations call sites (tests,
+/// previews) have no opinion about it.
+class _NoInvitationStore implements InvitationStore {
+  const _NoInvitationStore();
+
+  @override
+  Future<InvitationIndex> listInvitations() async =>
+      const InvitationIndex(invitations: [], problem: null);
+
+  @override
+  Future<void> saveInvitation(Invitation invitation) => throw UnsupportedError(
+        'No invitation store was supplied to this HomeScreen.',
+      );
+
+  @override
+  Future<Invitation?> findRedeemable(String code) async => null;
+}
+
 /// Entry point: nine destinations behind one persistent rail. What exists is
 /// what is in the rail — see `ui/app_shell.dart` for why that rule exists and
 /// what it has already caught.
@@ -215,13 +246,15 @@ class HomeScreen extends StatefulWidget {
     super.key,
     required this.store,
     RoleStore? roleStore,
+    InvitationStore? invitationStore,
     required this.storageLocation,
     required this.storageIsDurable,
     this.themeMode = ThemeMode.system,
     this.onThemeModeChanged,
     this.principal,
     this.onSignOut,
-  }) : roleStore = roleStore ?? const _NoRoleStore();
+  })  : roleStore = roleStore ?? const _NoRoleStore(),
+        invitationStore = invitationStore ?? const _NoInvitationStore();
 
   final AuditStore store;
 
@@ -238,6 +271,10 @@ class HomeScreen extends StatefulWidget {
   /// existing call sites (tests, previews) predate the Roles feature and have
   /// no opinion about role persistence.
   final RoleStore roleStore;
+
+  /// Defaults to an inert store when the caller does not supply one, for the
+  /// same reason [roleStore] does.
+  final InvitationStore invitationStore;
 
   final String storageLocation;
   final bool storageIsDurable;
@@ -278,6 +315,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final _candidatesKey = GlobalKey<CandidatesScreenState>();
   final _reportsKey = GlobalKey<ReportsScreenState>();
   final _rolesKey = GlobalKey<RolesScreenState>();
+  final _invitationsKey = GlobalKey<InvitationsScreenState>();
   final _settingsKey = GlobalKey<SettingsScreenState>();
 
   @override
@@ -555,6 +593,17 @@ class _HomeScreenState extends State<HomeScreen> {
             key: _rolesKey,
             roleStore: widget.roleStore,
             loadSessions: () => loadWorkspace(widget.store),
+          ),
+        ),
+        if (_showFor(_hr))
+          ShellDestination(
+          icon: Icons.person_add_alt_1_outlined,
+          selectedIcon: Icons.person_add_alt_1,
+          label: 'Invitations',
+          builder: (_) => InvitationsScreen(
+            key: _invitationsKey,
+            invitationStore: widget.invitationStore,
+            roleStore: widget.roleStore,
           ),
         ),
         if (_showFor(_candidate))
