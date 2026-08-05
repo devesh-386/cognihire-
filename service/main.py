@@ -17,6 +17,7 @@ Run:
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional
 
 import cv2
@@ -29,9 +30,13 @@ logger = logging.getLogger("cognihire.face")
 
 app = FastAPI(title="CogniHire Face Service", version="0.1.0")
 
+# "*" only for local dev. Once this runs on a public VM (Ticket 9), set
+# ALLOWED_ORIGINS to the HR app's and candidate web app's actual origins.
+_allowed_origins = os.environ.get("ALLOWED_ORIGINS", "*")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten before any non-local deployment
+    allow_origins=["*"] if _allowed_origins == "*" else _allowed_origins.split(","),
     allow_methods=["POST", "GET"],
     allow_headers=["*"],
 )
