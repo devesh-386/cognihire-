@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/auth/auth_store.dart';
 import '../../core/auth/principal.dart';
 import '../../core/auth/user_role.dart';
 import '../../core/design/app_theme.dart';
@@ -31,25 +32,31 @@ class SignInScreen extends StatelessWidget {
   const SignInScreen({
     super.key,
     required this.invitationStore,
+    required this.authStore,
     required this.onSignIn,
+    this.provisionOrganization,
   });
 
   final InvitationStore invitationStore;
+
+  /// Real credential verification (Ticket 10) — [InMemoryAuthStore] in tests
+  /// and local dev, `SupabaseAuthStore` in the running app.
+  final AuthStore authStore;
 
   /// Called once someone has signed in. [invitation] is non-null only for a
   /// candidate who entered through a redeemed code — the caller uses it to
   /// bind the session that follows to that invitation's role.
   final void Function(Principal principal, Invitation? invitation) onSignIn;
 
-  // "Meridian Health", not "Acme" — a named, specific company reads as a real
-  // deployment; "Acme" reads as the placeholder it conventionally is.
-  static const _hrPrincipal = Principal(
-    id: 'demo-hr',
-    email: 'priya.shah@meridianhealth.example',
-    role: UserRole.recruiter,
-    displayName: 'Priya Shah — Meridian Health',
-    organisationId: 'org-meridian-health',
-  );
+  /// Creates an organisation for a freshly-registered recruiter and returns
+  /// their [Principal] with `organisationId` now set, or null on failure. A
+  /// brand new account has no organisation yet — see
+  /// `provision_organization` in the `cognihire` Supabase project for why
+  /// this has to be a separate post-registration step rather than part of
+  /// [AuthStore.register] itself. Null in contexts (tests, previews) that
+  /// never register a fresh recruiter.
+  final Future<Principal?> Function(String organizationName)?
+      provisionOrganization;
 
   @override
   Widget build(BuildContext context) {
@@ -95,8 +102,10 @@ class SignInScreen extends StatelessWidget {
                     builder: (context, constraints) {
                       final wide = constraints.maxWidth > 560;
                       final cards = [
-                        _RecruiterCard(
-                          onTap: () => onSignIn(_hrPrincipal, null),
+                        _RecruiterAuthCard(
+                          authStore: authStore,
+                          provisionOrganization: provisionOrganization,
+                          onSignedIn: (principal) => onSignIn(principal, null),
                         ),
                         _CandidateCodeCard(
                           invitationStore: invitationStore,
@@ -186,10 +195,122 @@ class _CardIcon extends StatelessWidget {
   }
 }
 
-class _RecruiterCard extends StatelessWidget {
-  const _RecruiterCard({required this.onTap});
+/// Real HR sign-in (Ticket 10) — replaces the earlier one-tap demo button.
+/// Two modes: sign in to an existing account, or register a new one, which
+/// also creates that account's organisation via [provisionOrganization].
+class _RecruiterAuthCard extends StatefulWidget {
+  const _RecruiterAuthCard({
+    required this.authStore,
+    required this.onSignedIn,
+    this.provisionOrganization,
+  });
 
-  final VoidCallback onTap;
+  final AuthStore authStore;
+  final void Function(Principal principal) onSignedIn;
+  final Future<Principal?> Function(String organizationName)?
+      provisionOrganization;
+
+  @override
+  State<_RecruiterAuthCard> createState() => _RecruiterAuthCardState();
+}
+
+class _RecruiterAuthCardState extends State<_RecruiterAuthCard> {
+  final _email = TextEditingController();
+  final _password = TextEditingController();
+  final _orgName = TextEditingController();
+  bool _registering = false;
+  bool _submitting = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _email.dispose();
+    _password.dispose();
+    _orgName.dispose();
+    super.dispose();
+  }
+
+  String _messageFor(AuthFailure failure, String? detail) {
+    switch (failure) {
+      case AuthFailure.invalidCredentials:
+        return 'Incorrect email or password.';
+      case AuthFailure.wrongRole:
+        return detail ?? 'This account is not registered as a recruiter.';
+      case AuthFailure.emailAlreadyRegistered:
+        return 'An account already exists for that email — sign in instead.';
+      case AuthFailure.weakPassword:
+        return detail ?? 'Choose a stronger password.';
+      case AuthFailure.unavailable:
+        return 'Could not reach the sign-in service. Check your connection.';
+      case AuthFailure.unrecognisedRole:
+        return 'This account is not set up correctly. Contact support.';
+    }
+  }
+
+  Future<void> _submit() async {
+    final email = _email.text.trim();
+    final password = _password.text;
+    final orgName = _orgName.text.trim();
+
+    if (email.isEmpty || password.isEmpty) {
+      setState(() => _error = 'Enter your email and password.');
+      return;
+    }
+    if (_registering && orgName.isEmpty) {
+      setState(() => _error = 'Enter your organisation\'s name.');
+      return;
+    }
+
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+
+    final result = _registering
+        ? await widget.authStore.register(
+            email: email,
+            password: password,
+            asRole: UserRole.recruiter,
+          )
+        : await widget.authStore.signIn(
+            email: email,
+            password: password,
+            asRole: UserRole.recruiter,
+          );
+    if (!mounted) return;
+
+    switch (result) {
+      case AuthRejected(:final failure, :final message):
+        setState(() {
+          _submitting = false;
+          _error = _messageFor(failure, message);
+        });
+      case AuthSuccess(:final principal):
+        if (!_registering || principal.organisationId != null) {
+          widget.onSignedIn(principal);
+          return;
+        }
+        final provision = widget.provisionOrganization;
+        if (provision == null) {
+          setState(() {
+            _submitting = false;
+            _error = 'Account created, but organisation setup is unavailable.';
+          });
+          return;
+        }
+        final withOrg = await provision(orgName);
+        if (!mounted) return;
+        if (withOrg == null) {
+          setState(() {
+            _submitting = false;
+            _error = 'Account created, but setting up your organisation '
+                'failed. Try signing in.';
+          });
+          return;
+        }
+        widget.onSignedIn(withOrg);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -199,36 +320,81 @@ class _RecruiterCard extends StatelessWidget {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(Radii.surface),
       ),
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(Spacing.xl),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _CardIcon(
-                icon: Icons.business_center_outlined,
-                colour: theme.colorScheme.tertiary,
-              ),
-              const SizedBox(height: Spacing.lg),
-              Text('Continue as ${UserRole.recruiter.label}',
-                  style: theme.textTheme.titleLarge),
+      child: Padding(
+        padding: const EdgeInsets.all(Spacing.xl),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _CardIcon(
+              icon: Icons.business_center_outlined,
+              colour: theme.colorScheme.tertiary,
+            ),
+            const SizedBox(height: Spacing.lg),
+            Text('Continue as ${UserRole.recruiter.label}',
+                style: theme.textTheme.titleLarge),
+            const SizedBox(height: Spacing.sm),
+            Text(
+              UserRole.recruiter.description,
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: Spacing.lg),
+            TextField(
+              controller: _email,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(labelText: 'Work email'),
+            ),
+            const SizedBox(height: Spacing.sm),
+            TextField(
+              controller: _password,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: 'Password'),
+              onSubmitted: (_) => _submit(),
+            ),
+            if (_registering) ...[
               const SizedBox(height: Spacing.sm),
-              Text(
-                UserRole.recruiter.description,
-                style: theme.textTheme.bodyMedium
-                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-              ),
-              const SizedBox(height: Spacing.lg),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: onTap,
-                  child: Text('Enter as ${UserRole.recruiter.label}'),
-                ),
+              TextField(
+                controller: _orgName,
+                decoration:
+                    const InputDecoration(labelText: 'Organisation name'),
+                onSubmitted: (_) => _submit(),
               ),
             ],
-          ),
+            if (_error != null) ...[
+              const SizedBox(height: Spacing.sm),
+              Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
+            ],
+            const SizedBox(height: Spacing.lg),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: _submitting ? null : _submit,
+                child: _submitting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(_registering
+                        ? 'Create account'
+                        : 'Enter as ${UserRole.recruiter.label}'),
+              ),
+            ),
+            const SizedBox(height: Spacing.sm),
+            Center(
+              child: TextButton(
+                onPressed: _submitting
+                    ? null
+                    : () => setState(() {
+                          _registering = !_registering;
+                          _error = null;
+                        }),
+                child: Text(_registering
+                    ? 'Already have an account? Sign in'
+                    : "New organisation? Create an account"),
+              ),
+            ),
+          ],
         ),
       ),
     );

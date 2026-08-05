@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
+import 'core/auth/auth_store.dart';
 import 'core/auth/principal.dart';
+import 'core/auth/supabase_auth_store.dart';
 import 'core/auth/user_role.dart';
 import 'core/claims/claim.dart';
+import 'core/config.dart';
 import 'core/email/email_sender.dart';
 import 'core/email/gmail_smtp_email_sender.dart';
 import 'core/claims/claim_audit.dart';
@@ -12,7 +16,7 @@ import 'core/persistence/json_codec.dart';
 import 'core/persistence/store_factory.dart';
 import 'core/roles/role.dart';
 import 'core/roles/role_store.dart';
-import 'core/roles/role_store_factory.dart';
+import 'core/roles/role_store_supabase.dart';
 import 'core/session/session_draft.dart';
 import 'core/verification/verification_result.dart';
 import 'core/workspace/workspace_loader.dart';
@@ -20,6 +24,7 @@ import 'features/analysis/resume_analysis_screen.dart';
 import 'features/auth/sign_in_screen.dart';
 import 'core/invitations/invitation.dart';
 import 'core/invitations/invitation_store.dart';
+import 'core/invitations/invitation_store_supabase.dart';
 import 'features/audit/claim_audit_screen.dart';
 import 'features/candidates/candidates_screen.dart';
 import 'features/common/empty_state.dart';
@@ -39,31 +44,33 @@ import 'ui/tokens.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Resolved once at startup and passed down. If storage cannot be opened at
-  // all, the app still runs — it just says sessions will not be kept, rather
-  // than accepting audits it is going to drop.
+  // Ticket 10: roles and invitations now live in the shared `cognihire`
+  // Supabase project (org-scoped by RLS) instead of local JSON/in-memory —
+  // see role_store_supabase.dart / invitation_store_supabase.dart for why the
+  // interfaces themselves didn't need to change.
+  await supabase.Supabase.initialize(
+    url: AppConfig.supabaseUrl,
+    publishableKey: AppConfig.supabaseAnonKey,
+  );
+  final client = supabase.Supabase.instance.client;
+  final authStore = SupabaseAuthStore(client);
+  final roleStore = SupabaseRoleStore(client);
+  final invitationStore = SupabaseInvitationStore(client);
+
+  // Claim audits (interview reports) are unaffected by this ticket and stay
+  // local/durable-JSON for now — that migration is a later ticket.
   AuditStore store;
-  RoleStore roleStore;
   String location;
   bool durable;
   try {
     store = await createAuditStore();
-    roleStore = await createRoleStore();
     location = await auditStorageLocation();
     durable = storageIsDurable;
   } catch (error) {
     store = InMemoryAuditStore();
-    roleStore = InMemoryRoleStore();
     location = 'Storage unavailable ($error) — sessions will not be kept.';
     durable = false;
   }
-
-  // In-memory for this slice — durable persistence is a later ticket. Enough
-  // for HR to issue an invitation and a candidate to redeem it in one run,
-  // which is what the demo needs.
-  final invitationStore = InMemoryInvitationStore();
-
-  await seedDemoDataIfEmpty(roleStore, invitationStore);
 
   final emailSender = _createEmailSender();
 
@@ -71,10 +78,37 @@ Future<void> main() async {
     store: store,
     roleStore: roleStore,
     invitationStore: invitationStore,
+    authStore: authStore,
+    provisionOrganization: (name) =>
+        _provisionOrganization(client, authStore, name),
     emailSender: emailSender,
     storageLocation: location,
     storageIsDurable: durable,
   ));
+}
+
+/// Calls the `provision_organization` RPC (Ticket 8's
+/// `role_delete_policy_and_org_provisioning` migration) for a freshly
+/// registered recruiter, then refreshes the session so the client's JWT
+/// picks up the `organization_id` the RPC just stamped into
+/// `auth.users.raw_user_meta_data` — see `SupabaseAuthStore`'s doc comment
+/// on why role/org live in `user_metadata` rather than a separate profile
+/// table. Returns null on any failure rather than throwing, matching every
+/// other [AuthStore] failure path's "never crash the sign-in screen" rule.
+Future<Principal?> _provisionOrganization(
+  supabase.SupabaseClient client,
+  SupabaseAuthStore authStore,
+  String organizationName,
+) async {
+  try {
+    await client.rpc('provision_organization', params: {
+      'org_name': organizationName,
+    });
+    await client.auth.refreshSession();
+    return authStore.current;
+  } catch (_) {
+    return null;
+  }
 }
 
 /// A real [GmailSmtpEmailSender] when launched with both dart-defines set,
@@ -90,80 +124,25 @@ EmailSender _createEmailSender() {
   return GmailSmtpEmailSender(address: address, appPassword: appPassword);
 }
 
-/// The seeded role's fixed id — used to recognise it again on a later launch,
-/// since [RoleStore] is durable but [InvitationStore] is not (see below).
-const _seedRoleId = 'seed-role-backend';
-
-/// Seeds one realistic role and one pending invitation so signing in lands on
-/// an actual case rather than every list on screen being empty.
-///
-/// ## Why this cannot just check "is either store empty"
-///
-/// `RoleStore` is durable (JSON on disk); `InvitationStore` is in-memory only
-/// (see the comment at its call site). A naive "seed once, when both are
-/// empty" guard breaks the demo on the *second* launch: the role from launch
-/// one still exists, so the guard trips and skips re-seeding the invitation —
-/// but the in-memory invitation store is empty again, so the demo code from
-/// the docs/pitch would silently stop working. Instead the role and the
-/// invitation are gated independently: the role only if no seed (or other)
-/// role exists yet; the invitation whenever no *real* role exists — i.e. every
-/// launch, until an operator adds a role of their own, at which point seeding
-/// stops entirely so a real deployment never gets demo noise injected into it.
-Future<void> seedDemoDataIfEmpty(
-  RoleStore roleStore,
-  InvitationStore invitationStore,
-) async {
-  final roles = await roleStore.listRoles();
-  final hasRealRole = roles.roles.any((r) => r.id != _seedRoleId);
-  if (hasRealRole) return;
-
-  Role? existingSeedRole;
-  for (final r in roles.roles) {
-    if (r.id == _seedRoleId) existingSeedRole = r;
-  }
-
-  final role = existingSeedRole ??
-      Role(
-        id: _seedRoleId,
-        title: 'Senior Backend Engineer',
-        requiredSkills: const ['Go', 'PostgreSQL', 'Distributed systems'],
-        desirableSkills: const ['Kubernetes'],
-        notes: 'Platform team. Owns the payments service.',
-        createdAt: DateTime.now(),
-      );
-  if (existingSeedRole == null) {
-    await roleStore.saveRole(role);
-  }
-
-  final invitations = await invitationStore.listInvitations();
-  if (invitations.invitations.isNotEmpty) return;
-
-  await invitationStore.saveInvitation(Invitation(
-    id: 'seed-invitation-1',
-    candidateName: 'Alicia Kim',
-    candidateEmail: 'alicia.kim@example.com',
-    roleId: role.id,
-    // Fixed and pronounceable, not random — someone demoing this live reads
-    // it off screen once and does not want a fresh code every launch.
-    code: 'DEMO01',
-    createdAt: DateTime.now(),
-  ));
-}
-
 class CogniHireApp extends StatefulWidget {
   const CogniHireApp({
     super.key,
     required this.store,
     required this.roleStore,
     required this.invitationStore,
+    required this.authStore,
     required this.emailSender,
     required this.storageLocation,
     required this.storageIsDurable,
+    this.provisionOrganization,
   });
 
   final AuditStore store;
   final RoleStore roleStore;
   final InvitationStore invitationStore;
+  final AuthStore authStore;
+  final Future<Principal?> Function(String organizationName)?
+      provisionOrganization;
   final EmailSender emailSender;
   final String storageLocation;
   final bool storageIsDurable;
@@ -199,6 +178,8 @@ class _CogniHireAppState extends State<CogniHireApp> {
       home: _principal == null
           ? SignInScreen(
               invitationStore: widget.invitationStore,
+              authStore: widget.authStore,
+              provisionOrganization: widget.provisionOrganization,
               onSignIn: (p, invitation) => setState(() {
                 _principal = p;
                 _redeemedInvitation = invitation;
