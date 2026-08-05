@@ -61,12 +61,50 @@ Future<void> main() async {
   // which is what the demo needs.
   final invitationStore = InMemoryInvitationStore();
 
+  await seedDemoDataIfEmpty(roleStore, invitationStore);
+
   runApp(CogniHireApp(
     store: store,
     roleStore: roleStore,
     invitationStore: invitationStore,
     storageLocation: location,
     storageIsDurable: durable,
+  ));
+}
+
+/// Seeds one realistic role and one pending invitation on first run, so
+/// signing in lands on an actual case to walk through rather than every list
+/// on screen being empty. Only runs when both stores are genuinely empty —
+/// never overwrites or duplicates against real work someone has already done,
+/// including on a later run of the same durable role store.
+Future<void> seedDemoDataIfEmpty(
+  RoleStore roleStore,
+  InvitationStore invitationStore,
+) async {
+  final roles = await roleStore.listRoles();
+  if (roles.roles.isNotEmpty) return;
+  final invitations = await invitationStore.listInvitations();
+  if (invitations.invitations.isNotEmpty) return;
+
+  final role = Role(
+    id: 'seed-role-backend',
+    title: 'Senior Backend Engineer',
+    requiredSkills: const ['Go', 'PostgreSQL', 'Distributed systems'],
+    desirableSkills: const ['Kubernetes'],
+    notes: 'Platform team. Owns the payments service.',
+    createdAt: DateTime.now(),
+  );
+  await roleStore.saveRole(role);
+
+  await invitationStore.saveInvitation(Invitation(
+    id: 'seed-invitation-1',
+    candidateName: 'Alicia Kim',
+    candidateEmail: 'alicia.kim@example.com',
+    roleId: role.id,
+    // Fixed and pronounceable, not random — someone demoing this live reads
+    // it off screen once and does not want a fresh code every launch.
+    code: 'DEMO01',
+    createdAt: DateTime.now(),
   ));
 }
 

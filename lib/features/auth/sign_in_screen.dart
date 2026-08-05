@@ -41,12 +41,14 @@ class SignInScreen extends StatelessWidget {
   /// bind the session that follows to that invitation's role.
   final void Function(Principal principal, Invitation? invitation) onSignIn;
 
+  // "Meridian Health", not "Acme" — a named, specific company reads as a real
+  // deployment; "Acme" reads as the placeholder it conventionally is.
   static const _hrPrincipal = Principal(
     id: 'demo-hr',
-    email: 'hr@acme.example',
+    email: 'priya.shah@meridianhealth.example',
     role: UserRole.recruiter,
-    displayName: 'Acme Talent',
-    organisationId: 'org-acme',
+    displayName: 'Priya Shah — Meridian Health',
+    organisationId: 'org-meridian-health',
   );
 
   @override
