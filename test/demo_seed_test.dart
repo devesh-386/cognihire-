@@ -45,7 +45,11 @@ void main() {
       expect(roles.roles.single.id, 'real-role');
     });
 
-    test('does not seed when an invitation already exists', () async {
+    test('never touches an existing invitation, even a mismatched one',
+        () async {
+      // Edge case, not a real user flow (the UI requires a role to exist
+      // before an invitation can be created), but the function must not
+      // clobber real data regardless of how it got into this shape.
       final roleStore = InMemoryRoleStore();
       final invitationStore = InMemoryInvitationStore();
       await invitationStore.saveInvitation(Invitation(
@@ -58,8 +62,40 @@ void main() {
 
       await seedDemoDataIfEmpty(roleStore, invitationStore);
 
-      final roles = await roleStore.listRoles();
-      expect(roles.roles, isEmpty);
+      final invitations = await invitationStore.listInvitations();
+      expect(invitations.invitations, hasLength(1));
+      expect(invitations.invitations.single.id, 'real-invitation');
+      expect(invitations.invitations.single.code, 'REAL01');
+    });
+
+    test(
+        'a second launch re-seeds the invitation, because InvitationStore is '
+        'not durable, without duplicating the durable seed role', () async {
+      // Simulates the real bug this contract exists to prevent: RoleStore
+      // persists across launches, InvitationStore does not. A guard that only
+      // checked "is the role store empty" would seed the role once and then
+      // silently stop seeding the invitation on every later launch — the demo
+      // code from the pitch would go dead after the very first run.
+      final roleStore = InMemoryRoleStore();
+      final invitationStore = InMemoryInvitationStore();
+
+      await seedDemoDataIfEmpty(roleStore, invitationStore); // launch 1
+      final rolesAfterFirst = await roleStore.listRoles();
+      expect(rolesAfterFirst.roles, hasLength(1));
+
+      final freshInvitationStore = InMemoryInvitationStore(); // new process
+      await seedDemoDataIfEmpty(roleStore, freshInvitationStore); // launch 2
+
+      final rolesAfterSecond = await roleStore.listRoles();
+      expect(rolesAfterSecond.roles, hasLength(1),
+          reason: 'the durable seed role must not be duplicated');
+      expect(rolesAfterSecond.roles.single.id, rolesAfterFirst.roles.single.id);
+
+      final invitationsAfterSecond =
+          await freshInvitationStore.listInvitations();
+      expect(invitationsAfterSecond.invitations, hasLength(1),
+          reason: 'the code must work again on a fresh launch');
+      expect(invitationsAfterSecond.invitations.single.code, 'DEMO01');
     });
   });
 }

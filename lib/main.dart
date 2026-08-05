@@ -72,29 +72,53 @@ Future<void> main() async {
   ));
 }
 
-/// Seeds one realistic role and one pending invitation on first run, so
-/// signing in lands on an actual case to walk through rather than every list
-/// on screen being empty. Only runs when both stores are genuinely empty —
-/// never overwrites or duplicates against real work someone has already done,
-/// including on a later run of the same durable role store.
+/// The seeded role's fixed id — used to recognise it again on a later launch,
+/// since [RoleStore] is durable but [InvitationStore] is not (see below).
+const _seedRoleId = 'seed-role-backend';
+
+/// Seeds one realistic role and one pending invitation so signing in lands on
+/// an actual case rather than every list on screen being empty.
+///
+/// ## Why this cannot just check "is either store empty"
+///
+/// `RoleStore` is durable (JSON on disk); `InvitationStore` is in-memory only
+/// (see the comment at its call site). A naive "seed once, when both are
+/// empty" guard breaks the demo on the *second* launch: the role from launch
+/// one still exists, so the guard trips and skips re-seeding the invitation —
+/// but the in-memory invitation store is empty again, so the demo code from
+/// the docs/pitch would silently stop working. Instead the role and the
+/// invitation are gated independently: the role only if no seed (or other)
+/// role exists yet; the invitation whenever no *real* role exists — i.e. every
+/// launch, until an operator adds a role of their own, at which point seeding
+/// stops entirely so a real deployment never gets demo noise injected into it.
 Future<void> seedDemoDataIfEmpty(
   RoleStore roleStore,
   InvitationStore invitationStore,
 ) async {
   final roles = await roleStore.listRoles();
-  if (roles.roles.isNotEmpty) return;
+  final hasRealRole = roles.roles.any((r) => r.id != _seedRoleId);
+  if (hasRealRole) return;
+
+  Role? existingSeedRole;
+  for (final r in roles.roles) {
+    if (r.id == _seedRoleId) existingSeedRole = r;
+  }
+
+  final role = existingSeedRole ??
+      Role(
+        id: _seedRoleId,
+        title: 'Senior Backend Engineer',
+        requiredSkills: const ['Go', 'PostgreSQL', 'Distributed systems'],
+        desirableSkills: const ['Kubernetes'],
+        notes: 'Platform team. Owns the payments service.',
+        createdAt: DateTime.now(),
+      );
+  if (existingSeedRole == null) {
+    await roleStore.saveRole(role);
+  }
+
   final invitations = await invitationStore.listInvitations();
   if (invitations.invitations.isNotEmpty) return;
-
-  final role = Role(
-    id: 'seed-role-backend',
-    title: 'Senior Backend Engineer',
-    requiredSkills: const ['Go', 'PostgreSQL', 'Distributed systems'],
-    desirableSkills: const ['Kubernetes'],
-    notes: 'Platform team. Owns the payments service.',
-    createdAt: DateTime.now(),
-  );
-  await roleStore.saveRole(role);
 
   await invitationStore.saveInvitation(Invitation(
     id: 'seed-invitation-1',

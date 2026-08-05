@@ -1,11 +1,11 @@
 {
-    "name": "cognihire",
-    "short_name": "cognihire",
+    "name": "CogniHire",
+    "short_name": "CogniHire",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#FCF9F8",
+    "theme_color": "#775A19",
+    "description": "CogniHire — verified-claim interviewing. Continuous identity checks and adaptive follow-ups, with a transparent evidence trail instead of a hidden score.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
