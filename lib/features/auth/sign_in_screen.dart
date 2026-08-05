@@ -35,9 +35,17 @@ class SignInScreen extends StatelessWidget {
     required this.authStore,
     required this.onSignIn,
     this.provisionOrganization,
+    this.showRecruiterOption = true,
   });
 
   final InvitationStore invitationStore;
+
+  /// False on the candidate web build (Ticket 13) — that deployment is
+  /// candidate-only, so there is no reason to expose an HR sign-in/register
+  /// form on a link that gets shared with candidates. `authStore` is still
+  /// required in that build (the constructor needs *something*), it's just
+  /// never exercised.
+  final bool showRecruiterOption;
 
   /// Real credential verification (Ticket 10) — [InMemoryAuthStore] in tests
   /// and local dev, `SupabaseAuthStore` in the running app.
@@ -92,50 +100,62 @@ class SignInScreen extends StatelessWidget {
                       textAlign: TextAlign.center),
                   const SizedBox(height: Spacing.sm),
                   Text(
-                    'Verified-claim interviewing. Choose how you are signing in.',
+                    showRecruiterOption
+                        ? 'Verified-claim interviewing. Choose how you are signing in.'
+                        : 'Enter the invitation code your interviewer gave you.',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodyLarge
                         ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                   ),
                   const SizedBox(height: Spacing.section),
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final wide = constraints.maxWidth > 560;
-                      final cards = [
-                        _RecruiterAuthCard(
-                          authStore: authStore,
-                          provisionOrganization: provisionOrganization,
-                          onSignedIn: (principal) => onSignIn(principal, null),
-                        ),
-                        _CandidateCodeCard(
-                          invitationStore: invitationStore,
-                          onRedeemed: (principal, invitation) =>
-                              onSignIn(principal, invitation),
-                        ),
-                      ];
-                      return wide
-                          // IntrinsicHeight so the two cards match height
-                          // without being handed the scroll view's unbounded
-                          // height.
-                          ? IntrinsicHeight(
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                  if (!showRecruiterOption)
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 420),
+                      child: _CandidateCodeCard(
+                        invitationStore: invitationStore,
+                        onRedeemed: (principal, invitation) =>
+                            onSignIn(principal, invitation),
+                      ),
+                    )
+                  else
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final wide = constraints.maxWidth > 560;
+                        final cards = [
+                          _RecruiterAuthCard(
+                            authStore: authStore,
+                            provisionOrganization: provisionOrganization,
+                            onSignedIn: (principal) => onSignIn(principal, null),
+                          ),
+                          _CandidateCodeCard(
+                            invitationStore: invitationStore,
+                            onRedeemed: (principal, invitation) =>
+                                onSignIn(principal, invitation),
+                          ),
+                        ];
+                        return wide
+                            // IntrinsicHeight so the two cards match height
+                            // without being handed the scroll view's unbounded
+                            // height.
+                            ? IntrinsicHeight(
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  children: [
+                                    Expanded(child: cards[0]),
+                                    const SizedBox(width: Spacing.lg),
+                                    Expanded(child: cards[1]),
+                                  ],
+                                ),
+                              )
+                            : Column(
                                 children: [
-                                  Expanded(child: cards[0]),
-                                  const SizedBox(width: Spacing.lg),
-                                  Expanded(child: cards[1]),
+                                  cards[0],
+                                  const SizedBox(height: Spacing.lg),
+                                  cards[1],
                                 ],
-                              ),
-                            )
-                          : Column(
-                              children: [
-                                cards[0],
-                                const SizedBox(height: Spacing.lg),
-                                cards[1],
-                              ],
-                            );
-                    },
-                  ),
+                              );
+                      },
+                    ),
                 ],
               ),
             ),

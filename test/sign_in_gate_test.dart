@@ -229,5 +229,22 @@ void main() {
         findsOneWidget,
       );
     });
+
+    testWidgets(
+        'the candidate web build (showRecruiterOption: false) has no HR entry',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: SignInScreen(
+          invitationStore: InMemoryInvitationStore(),
+          authStore: InMemoryAuthStore(),
+          showRecruiterOption: false,
+          onSignIn: (_, _) {},
+        ),
+      ));
+
+      expect(find.text('Continue as Recruiter'), findsNothing);
+      expect(find.widgetWithText(TextField, 'Work email'), findsNothing);
+      expect(find.widgetWithText(TextField, 'Invitation code'), findsOneWidget);
+    });
   });
 }
