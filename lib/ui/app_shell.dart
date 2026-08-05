@@ -46,6 +46,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../core/design/app_theme.dart';
+import 'patterns.dart';
 import 'tokens.dart';
 
 /// One destination in the shell.
@@ -544,15 +545,13 @@ class _RailFooter extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
 
-    final avatar = Container(
-      width: 34,
-      height: 34,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: scheme.secondary.withValues(alpha: 0.16),
-        shape: BoxShape.circle,
-      ),
-      child: Icon(Icons.person_outline, size: 17, color: scheme.secondary),
+    // Initials, not a generic person glyph — the same Monogram used for a
+    // candidate elsewhere in the app. A bare icon here reads as "nobody is
+    // really signed in"; initials read as an actual account.
+    final avatar = Monogram(
+      name: identity.name,
+      diameter: 34,
+      tone: scheme.secondary,
     );
 
     final body = extended
