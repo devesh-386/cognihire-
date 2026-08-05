@@ -7,8 +7,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/design/app_theme.dart';
+import '../../core/email/email_sender.dart';
 import '../../core/invitations/bulk_invite_csv.dart';
 import '../../core/invitations/invitation.dart';
+import '../../core/invitations/invitation_email.dart';
 import '../../core/invitations/invitation_store.dart';
 import '../../core/roles/role.dart';
 import '../../core/roles/role_store.dart';
@@ -25,10 +27,18 @@ class InvitationsScreen extends StatefulWidget {
     required this.invitationStore,
     required this.roleStore,
     required this.loadSessions,
+    this.emailSender = const NullEmailSender(),
+    this.senderName,
   });
 
   final InvitationStore invitationStore;
   final RoleStore roleStore;
+  final EmailSender emailSender;
+
+  /// Shown in the invitation email as "Invited by ...". Null when nobody is
+  /// signed in (direct-mount call sites) — the email is simply sent without
+  /// that line rather than inventing a name.
+  final String? senderName;
 
   /// Supplied rather than an `AuditStore` directly, so this screen shares the
   /// same snapshot the rest of the app already loaded — same pattern as
@@ -137,6 +147,118 @@ class InvitationsScreenState extends State<InvitationsScreen> {
       await widget.invitationStore.saveInvitation(invitation);
     }
     await reload();
+    if (!mounted) return;
+
+    // The whole point of a CSV import over the one-at-a-time dialog: at scale
+    // HR cannot hand each code out by hand, so the codes go out by email
+    // immediately rather than waiting for a second action per candidate.
+    // Every invitation in one batch shares the role chosen in the review
+    // dialog (buildInvitationsFromRows), so one lookup covers the batch.
+    final role = _roleFor(invitations.first.roleId, roles);
+    await _sendBatch(invitations, role);
+  }
+
+  /// Composes and sends one invitation's email, using [role]'s title (or a
+  /// stated placeholder if the role has since been deleted) and the signed-in
+  /// sender's name when one is known.
+  Future<EmailSendResult> _sendOne(Invitation invitation, Role? role) {
+    final email = composeInvitationEmail(
+      invitation: invitation,
+      roleTitle: role?.title ?? 'the role',
+      senderName: widget.senderName,
+    );
+    return widget.emailSender.send(
+      to: invitation.candidateEmail,
+      subject: email.subject,
+      body: email.body,
+    );
+  }
+
+  Future<void> _sendSingle(Invitation invitation, Role? role) async {
+    final result = await _sendOne(invitation, role);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      duration: Duration(seconds: result.success ? 4 : 10),
+      content: Text(
+        result.success
+            ? 'Emailed the code to ${invitation.candidateEmail}.'
+            : 'Could not email ${invitation.candidateEmail}: ${result.error}',
+      ),
+    ));
+  }
+
+  /// Sends every invitation in [invitations] that has an email, and reports a
+  /// count — never a silent "done" that hides which ones actually failed to
+  /// go out.
+  Future<void> _sendBatch(List<Invitation> invitations, Role? role) async {
+    final withEmail = invitations.where((i) => i.candidateEmail.isNotEmpty).toList();
+    if (withEmail.isEmpty) return;
+
+    var sent = 0;
+    final failures = <String>[];
+    for (final invitation in withEmail) {
+      final result = await _sendOne(invitation, role);
+      if (result.success) {
+        sent++;
+      } else {
+        failures.add('${invitation.candidateName}: ${result.error}');
+      }
+    }
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Bulk invite emails'),
+        content: SizedBox(
+          width: 460,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('$sent of ${withEmail.length} sent successfully.'),
+              if (failures.isNotEmpty) ...[
+                const SizedBox(height: Spacing.sm),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 160),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (final failure in failures)
+                          Padding(
+                            padding: const EdgeInsets.only(top: Spacing.xs),
+                            child: Text(
+                              failure,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color: Theme.of(context).colorScheme.error,
+                                  ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: Spacing.sm),
+                const Text(
+                  'The codes above are still valid — copy and send them '
+                  'from the list, or retry.',
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   Role? _roleFor(String id, List<Role> roles) {
@@ -204,6 +326,12 @@ class InvitationsScreenState extends State<InvitationsScreen> {
                 invitation: invitation,
                 role: _roleFor(invitation.roleId, roles),
                 result: _resultFor(invitation),
+                onSendEmail: invitation.candidateEmail.isEmpty
+                    ? null
+                    : () => _sendSingle(
+                          invitation,
+                          _roleFor(invitation.roleId, roles),
+                        ),
               ),
             ),
       ],
@@ -216,6 +344,7 @@ class _InvitationCard extends StatelessWidget {
     required this.invitation,
     required this.role,
     required this.result,
+    required this.onSendEmail,
   });
 
   final Invitation invitation;
@@ -224,6 +353,10 @@ class _InvitationCard extends StatelessWidget {
   /// This candidate's finished session, once one exists. Null before they
   /// have completed an interview — see `InvitationsScreenState._resultFor`.
   final SessionRecord? result;
+
+  /// Null when this invitation has no candidate email to send to — the
+  /// button is hidden rather than shown disabled with no way to explain why.
+  final VoidCallback? onSendEmail;
 
   @override
   Widget build(BuildContext context) {
@@ -269,6 +402,14 @@ class _InvitationCard extends StatelessWidget {
                 onPressed: () =>
                     Clipboard.setData(ClipboardData(text: invitation.code)),
               ),
+              if (onSendEmail != null) ...[
+                const SizedBox(width: Spacing.xs),
+                IconButton(
+                  tooltip: 'Email the code to ${invitation.candidateEmail}',
+                  icon: const Icon(Icons.email_outlined, size: 18),
+                  onPressed: onSendEmail,
+                ),
+              ],
             ] else if (result != null)
               OutlinedButton.icon(
                 onPressed: () => Navigator.of(context).push(MaterialPageRoute(

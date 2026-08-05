@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'core/auth/principal.dart';
 import 'core/auth/user_role.dart';
 import 'core/claims/claim.dart';
+import 'core/email/email_sender.dart';
+import 'core/email/gmail_smtp_email_sender.dart';
 import 'core/claims/claim_audit.dart';
 import 'core/design/app_theme.dart';
 import 'core/persistence/audit_store.dart';
@@ -63,13 +65,29 @@ Future<void> main() async {
 
   await seedDemoDataIfEmpty(roleStore, invitationStore);
 
+  final emailSender = _createEmailSender();
+
   runApp(CogniHireApp(
     store: store,
     roleStore: roleStore,
     invitationStore: invitationStore,
+    emailSender: emailSender,
     storageLocation: location,
     storageIsDurable: durable,
   ));
+}
+
+/// A real [GmailSmtpEmailSender] when launched with both dart-defines set,
+/// otherwise [NullEmailSender] — which fails every send with an actionable
+/// reason rather than the app crashing or silently pretending to send.
+/// `String.fromEnvironment` reads `--dart-define`, so the credential never
+/// touches source control; see `GmailSmtpEmailSender`'s doc for the security
+/// tradeoff of it living in this client process at all.
+EmailSender _createEmailSender() {
+  const address = String.fromEnvironment('GMAIL_ADDRESS');
+  const appPassword = String.fromEnvironment('GMAIL_APP_PASSWORD');
+  if (address.isEmpty || appPassword.isEmpty) return const NullEmailSender();
+  return GmailSmtpEmailSender(address: address, appPassword: appPassword);
 }
 
 /// The seeded role's fixed id — used to recognise it again on a later launch,
@@ -138,6 +156,7 @@ class CogniHireApp extends StatefulWidget {
     required this.store,
     required this.roleStore,
     required this.invitationStore,
+    required this.emailSender,
     required this.storageLocation,
     required this.storageIsDurable,
   });
@@ -145,6 +164,7 @@ class CogniHireApp extends StatefulWidget {
   final AuditStore store;
   final RoleStore roleStore;
   final InvitationStore invitationStore;
+  final EmailSender emailSender;
   final String storageLocation;
   final bool storageIsDurable;
 
@@ -191,6 +211,7 @@ class _CogniHireAppState extends State<CogniHireApp> {
               store: widget.store,
               roleStore: widget.roleStore,
               invitationStore: widget.invitationStore,
+              emailSender: widget.emailSender,
               redeemedInvitation: _redeemedInvitation,
               storageLocation: widget.storageLocation,
               storageIsDurable: widget.storageIsDurable,
@@ -325,6 +346,7 @@ class HomeScreen extends StatefulWidget {
     required this.store,
     RoleStore? roleStore,
     InvitationStore? invitationStore,
+    this.emailSender = const NullEmailSender(),
     required this.storageLocation,
     required this.storageIsDurable,
     this.themeMode = ThemeMode.system,
@@ -359,6 +381,11 @@ class HomeScreen extends StatefulWidget {
   /// Defaults to an inert store when the caller does not supply one, for the
   /// same reason [roleStore] does.
   final InvitationStore invitationStore;
+
+  /// Defaults to [NullEmailSender] — most call sites (tests, previews) have
+  /// no opinion about email, and the real app itself falls back to it too
+  /// when no Gmail credential was supplied at launch. See `_createEmailSender`.
+  final EmailSender emailSender;
 
   final String storageLocation;
   final bool storageIsDurable;
@@ -711,6 +738,8 @@ class _HomeScreenState extends State<HomeScreen> {
             key: _invitationsKey,
             invitationStore: widget.invitationStore,
             roleStore: widget.roleStore,
+            emailSender: widget.emailSender,
+            senderName: widget.principal?.displayName,
             loadSessions: () => loadWorkspace(widget.store),
           ),
         ),

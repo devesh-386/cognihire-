@@ -1,4 +1,5 @@
 import 'package:cognihire/core/claims/claim_audit.dart';
+import 'package:cognihire/core/email/email_sender.dart';
 import 'package:cognihire/core/invitations/invitation.dart';
 import 'package:cognihire/core/invitations/invitation_store.dart';
 import 'package:cognihire/core/persistence/audit_store.dart';
@@ -8,6 +9,28 @@ import 'package:cognihire/core/workspace/workspace_loader.dart';
 import 'package:cognihire/features/invitations/invitations_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+/// Records every send it is asked to make, and answers with a scripted
+/// result — success by default, or a fixed failure for a given recipient.
+class _FakeEmailSender implements EmailSender {
+  final List<({String to, String subject, String body})> sent = [];
+  final Set<String> failFor;
+
+  _FakeEmailSender({this.failFor = const {}});
+
+  @override
+  Future<EmailSendResult> send({
+    required String to,
+    required String subject,
+    required String body,
+  }) async {
+    sent.add((to: to, subject: subject, body: body));
+    if (failFor.contains(to)) {
+      return const EmailSendResult.failed('simulated failure');
+    }
+    return const EmailSendResult.sent();
+  }
+}
 
 void main() {
   // Flutter's default test surface is 800x600, which is narrower than the
@@ -26,12 +49,15 @@ void main() {
     RoleStore roleStore,
     InvitationStore invitationStore, {
     AuditStore? auditStore,
+    EmailSender? emailSender,
   }) =>
       MaterialApp(
         home: Scaffold(
           body: InvitationsScreen(
             invitationStore: invitationStore,
             roleStore: roleStore,
+            emailSender: emailSender ?? const NullEmailSender(),
+            senderName: 'Priya Shah — Meridian Health',
             loadSessions: () => loadWorkspace(auditStore ?? InMemoryAuditStore()),
           ),
         ),
@@ -179,5 +205,102 @@ void main() {
 
     // Landed on the claim audit screen for that session.
     expect(find.text('Claim audit'), findsOneWidget);
+  });
+
+  testWidgets('a pending invitation with an email offers a send button that '
+      'actually sends', (tester) async {
+    setRealisticSize(tester);
+    final roleStore = InMemoryRoleStore();
+    await roleStore.saveRole(Role(
+      id: 'r1',
+      title: 'Senior Backend',
+      requiredSkills: const [],
+      createdAt: DateTime(2026, 1, 1),
+    ));
+    final invitationStore = InMemoryInvitationStore();
+    await invitationStore.saveInvitation(Invitation(
+      id: 'inv-1',
+      candidateName: 'Jordan Rivera',
+      candidateEmail: 'jordan@example.com',
+      roleId: 'r1',
+      code: 'ABC123',
+      createdAt: DateTime(2026, 8, 1),
+    ));
+    final sender = _FakeEmailSender();
+
+    await tester.pumpWidget(
+      screenWith(roleStore, invitationStore, emailSender: sender),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Email the code to jordan@example.com'));
+    await tester.pumpAndSettle();
+
+    expect(sender.sent, hasLength(1));
+    expect(sender.sent.single.to, 'jordan@example.com');
+    expect(sender.sent.single.subject, contains('Senior Backend'));
+    expect(sender.sent.single.body, contains('ABC123'));
+    expect(sender.sent.single.body, contains('Priya Shah'));
+    expect(find.textContaining('Emailed the code to jordan@example.com'),
+        findsOneWidget);
+  });
+
+  testWidgets('a pending invitation with no email has no send button',
+      (tester) async {
+    setRealisticSize(tester);
+    final roleStore = InMemoryRoleStore();
+    await roleStore.saveRole(Role(
+      id: 'r1',
+      title: 'Senior Backend',
+      requiredSkills: const [],
+      createdAt: DateTime(2026, 1, 1),
+    ));
+    final invitationStore = InMemoryInvitationStore();
+    await invitationStore.saveInvitation(Invitation(
+      id: 'inv-1',
+      candidateName: 'Jordan Rivera',
+      roleId: 'r1',
+      code: 'ABC123',
+      createdAt: DateTime(2026, 8, 1),
+    ));
+
+    await tester.pumpWidget(screenWith(roleStore, invitationStore));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.email_outlined), findsNothing);
+  });
+
+  testWidgets('a failed send is reported, not silently treated as sent',
+      (tester) async {
+    setRealisticSize(tester);
+    final roleStore = InMemoryRoleStore();
+    await roleStore.saveRole(Role(
+      id: 'r1',
+      title: 'Senior Backend',
+      requiredSkills: const [],
+      createdAt: DateTime(2026, 1, 1),
+    ));
+    final invitationStore = InMemoryInvitationStore();
+    await invitationStore.saveInvitation(Invitation(
+      id: 'inv-1',
+      candidateName: 'Jordan Rivera',
+      candidateEmail: 'jordan@example.com',
+      roleId: 'r1',
+      code: 'ABC123',
+      createdAt: DateTime(2026, 8, 1),
+    ));
+    final sender = _FakeEmailSender(failFor: {'jordan@example.com'});
+
+    await tester.pumpWidget(
+      screenWith(roleStore, invitationStore, emailSender: sender),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Email the code to jordan@example.com'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Could not email jordan@example.com'),
+        findsOneWidget);
+    expect(find.textContaining('simulated failure'), findsOneWidget);
   });
 }
