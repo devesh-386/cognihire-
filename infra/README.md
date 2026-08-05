@@ -128,3 +128,53 @@ supabase --project-ref foffzvwmxnsmbixkilxt db query \
 Or check the function's own logs in the Supabase Dashboard → Edge Functions →
 `intake-webhook` → Logs, if the submission didn't show up (wrong role title is the
 most likely miss — it's an exact-title match against your roles table).
+
+---
+
+# Ticket 12 — scheduler + staged reminder emails
+
+`reminder-scheduler` (deployed) is polled every 5 minutes by a `pg_cron` job
+(`schedule_reminder_cron` migration) via `pg_net`. Each run: sends the redemption
+code for any `scheduled` invitation past its `code_send_at` (flips it to `pending`),
+then sends a plain reminder for any `pending` invitation past its `reminder_send_at`
+— both are no-ops once already sent (`code_sent_at`/`reminder_sent_at` gate them),
+so a slow run or a retry never double-sends.
+
+## Set the two required secrets
+
+The function needs your Gmail credentials — **set these yourself**, don't paste the
+App Password to me:
+
+```bash
+supabase secrets set --project-ref foffzvwmxnsmbixkilxt \
+  GMAIL_ADDRESS=you@gmail.com \
+  GMAIL_APP_PASSWORD=your-16-character-app-password \
+  SCHEDULER_SECRET=Cpv4T5gCBe6FCwThoI25NHeisKU5vxm07Sw0XdC_lxY
+```
+
+`SCHEDULER_SECRET` must match the literal baked into the `schedule_reminder_cron`
+migration's cron job body exactly — if you ever rotate it, update both.
+`SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` are injected automatically for every
+Edge Function; nothing to set there.
+
+## Verify
+
+Confirm the cron job is registered and check its recent run history:
+
+```bash
+supabase --project-ref foffzvwmxnsmbixkilxt db query \
+  "select jobname, schedule, active from cron.job;"
+supabase --project-ref foffzvwmxnsmbixkilxt db query \
+  "select status, return_message, start_time from cron.job_run_details order by start_time desc limit 5;"
+```
+
+Or trigger one run immediately without waiting for the next 5-minute tick:
+
+```bash
+curl -X POST https://foffzvwmxnsmbixkilxt.supabase.co/functions/v1/reminder-scheduler \
+  -H "x-scheduler-secret: Cpv4T5gCBe6FCwThoI25NHeisKU5vxm07Sw0XdC_lxY"
+```
+
+A real end-to-end check needs an invitation with `code_send_at` already in the
+past — easiest via the Google Form (Ticket 11) with a preferred time an hour from
+now, or by hand-editing a test row's `code_send_at`.
