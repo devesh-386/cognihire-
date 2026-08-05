@@ -100,6 +100,12 @@ class _CogniHireAppState extends State<CogniHireApp> {
   /// chooser, non-null mounts that role's experience.
   Principal? _principal;
 
+  /// Set only when [_principal] is a candidate who entered through a redeemed
+  /// invitation code. Carried through to [HomeScreen] so the session it sets up
+  /// starts already bound to that invitation's role, instead of the candidate
+  /// having to find it again in a dropdown.
+  Invitation? _redeemedInvitation;
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -109,7 +115,13 @@ class _CogniHireAppState extends State<CogniHireApp> {
       darkTheme: AppTheme.dark,
       themeMode: _themeMode,
       home: _principal == null
-          ? SignInScreen(onSignIn: (p) => setState(() => _principal = p))
+          ? SignInScreen(
+              invitationStore: widget.invitationStore,
+              onSignIn: (p, invitation) => setState(() {
+                _principal = p;
+                _redeemedInvitation = invitation;
+              }),
+            )
           : HomeScreen(
               // Keyed by principal id so switching accounts rebuilds the shell
               // from scratch rather than leaking the previous person's state.
@@ -117,12 +129,16 @@ class _CogniHireAppState extends State<CogniHireApp> {
               store: widget.store,
               roleStore: widget.roleStore,
               invitationStore: widget.invitationStore,
+              redeemedInvitation: _redeemedInvitation,
               storageLocation: widget.storageLocation,
               storageIsDurable: widget.storageIsDurable,
               themeMode: _themeMode,
               onThemeModeChanged: (mode) => setState(() => _themeMode = mode),
               principal: _principal,
-              onSignOut: () => setState(() => _principal = null),
+              onSignOut: () => setState(() {
+                _principal = null;
+                _redeemedInvitation = null;
+              }),
             ),
     );
   }
@@ -253,6 +269,7 @@ class HomeScreen extends StatefulWidget {
     this.onThemeModeChanged,
     this.principal,
     this.onSignOut,
+    this.redeemedInvitation,
   })  : roleStore = roleStore ?? const _NoRoleStore(),
         invitationStore = invitationStore ?? const _NoInvitationStore();
 
@@ -266,6 +283,11 @@ class HomeScreen extends StatefulWidget {
 
   /// Returns to the sign-in chooser. Null for the direct-mount call sites above.
   final VoidCallback? onSignOut;
+
+  /// Set when [principal] is a candidate who entered through a redeemed
+  /// invitation code. The session draft is pre-bound to this invitation's
+  /// candidate name and role on first build — see `_HomeScreenState.initState`.
+  final Invitation? redeemedInvitation;
 
   /// Defaults to an inert store when the caller does not supply one — most
   /// existing call sites (tests, previews) predate the Roles feature and have
@@ -329,6 +351,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final index = await widget.roleStore.listRoles();
     if (!mounted) return;
     setState(() => _roleIndex = index);
+    _applyRedeemedInvitation(index);
 
     // A role the draft was pointing at may have been deleted since this list
     // last loaded — the session setup should not go on silently ordering
@@ -337,6 +360,27 @@ class _HomeScreenState extends State<HomeScreen> {
     if (current == null) return;
     final stillExists = index.roles.any((r) => r.id == current.id);
     if (!stillExists) _draft.targetRole = null;
+  }
+
+  /// Binds the session draft to the role and candidate name from a redeemed
+  /// invitation, once, on the first roles load after signing in. A candidate
+  /// who entered via a code should not have to find their own role in the
+  /// picker — the whole point of the invitation was to hand them that.
+  bool _invitationApplied = false;
+
+  void _applyRedeemedInvitation(RoleIndex index) {
+    if (_invitationApplied) return;
+    final invitation = widget.redeemedInvitation;
+    if (invitation == null) return;
+    _invitationApplied = true;
+
+    _draft.label = invitation.candidateName;
+    for (final role in index.roles) {
+      if (role.id == invitation.roleId) {
+        _draft.targetRole = role;
+        break;
+      }
+    }
   }
 
   @override
@@ -694,7 +738,19 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Icons.badge_outlined,
             description: 'How this session is filed in Sessions and grouped in '
                 'Candidates.',
-            child: TextField(
+            // TextFormField, not TextField: this field can arrive pre-filled
+            // (a redeemed invitation sets _draft.label before this screen is
+            // ever built), and TextField has no way to show an initial value —
+            // it would silently discard the candidate's own name.
+            //
+            // Keyed on _invitationApplied, not on the live text: that flag
+            // flips false->true at most once, right when the pre-fill lands,
+            // forcing exactly one rebuild to pick up the new initialValue.
+            // Keying on the text itself would rebuild on every keystroke and
+            // throw the cursor to the end as the candidate types.
+            child: TextFormField(
+              key: ValueKey(_invitationApplied),
+              initialValue: _draft.rawLabel,
               onChanged: (value) => _draft.label = value,
               textInputAction: TextInputAction.done,
               decoration: const InputDecoration(
