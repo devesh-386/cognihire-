@@ -57,3 +57,74 @@ so interviews work from anywhere, not just localhost.
 
 Hetzner CX32 ≈ €13.10/mo (~$14). This is the only ongoing infra cost in the pivot —
 Supabase (Ticket 8) is free tier.
+
+---
+
+# Ticket 11 — Google Form intake → Supabase
+
+`intake-webhook` (deployed, `supabase functions deploy intake-webhook` if you ever
+need to redeploy manually — see `infra/intake-webhook/index.ts`) turns one Google
+Form response into a candidate + a scheduled invitation, with `code_send_at`/
+`reminder_send_at` already computed from the candidate's requested time (T-60/T-30
+minutes) — Ticket 12 only has to poll and send, not do the scheduling math.
+
+## 1. Create the Google Form
+
+Fields, exact titles (the Apps Script matches on these):
+- **Full name** — short answer
+- **Email** — short answer, "Response validation" → email
+- **Which role are you applying for?** — short answer or dropdown. Must match an
+  existing `Role.title` in your organisation *exactly* (case-insensitive) — HR
+  creates the role in the app first, then you copy its title into the form.
+- **Preferred interview time** — Date question with "Include time" on
+- **Resume** — File upload, restrict to PDF/DOC/DOCX, max 1 file
+
+## 2. Wire the Apps Script
+
+1. In the Form, **⋮ → Script editor** (or Extensions → Apps Script).
+2. Paste in `infra/google-form-apps-script.gs`.
+3. Replace `WEBHOOK_SECRET` with: `wauVZueHxrCg-_ezPuqrZEjaildmrh_AGl-jdJmkxYg`
+   (already set as the Edge Function's `INTAKE_WEBHOOK_SECRET` secret below —
+   keep both in sync if you rotate it).
+4. **Triggers** (clock icon in the left sidebar) → **+ Add Trigger** → function
+   `onFormSubmit`, event source **From form**, event type **On form submit**.
+   Authorize when prompted (it needs Drive access to read the uploaded résumé).
+
+## 3. Set the Edge Function's secrets
+
+Needs the Supabase CLI (`npm install -g supabase`, then `supabase login`):
+
+```bash
+supabase secrets set --project-ref foffzvwmxnsmbixkilxt \
+  INTAKE_WEBHOOK_SECRET=wauVZueHxrCg-_ezPuqrZEjaildmrh_AGl-jdJmkxYg
+```
+
+`INTAKE_ORGANIZATION_ID` can't be set until you've registered your HR account
+(Ticket 10 — `flutter run` → "New organisation? Create an account"), since that's
+what creates the `organizations` row. Once you have, find your org id:
+
+```bash
+supabase --project-ref foffzvwmxnsmbixkilxt db query \
+  "select id, name from organizations;"
+```
+
+then:
+
+```bash
+supabase secrets set --project-ref foffzvwmxnsmbixkilxt \
+  INTAKE_ORGANIZATION_ID=<the id from above>
+```
+
+## 4. Verify
+
+Submit the Google Form once with a role title that matches a real role you created.
+Check it landed:
+
+```bash
+supabase --project-ref foffzvwmxnsmbixkilxt db query \
+  "select c.name, i.status, i.scheduled_at, i.code_send_at from invitations i join candidates c on c.id = i.candidate_id order by i.created_at desc limit 1;"
+```
+
+Or check the function's own logs in the Supabase Dashboard → Edge Functions →
+`intake-webhook` → Logs, if the submission didn't show up (wrong role title is the
+most likely miss — it's an exact-title match against your roles table).
