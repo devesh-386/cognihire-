@@ -1,62 +1,62 @@
-# Ticket 9 — cloud VM (Ollama + face service)
+# Ticket 9 — cloud VM (Ollama + face service), via Coolify
 
-One small always-on VM serves both the HR desktop app and the candidate web app,
-so interviews work from anywhere, not just localhost.
+**Reworked 2026-08-06** (see the plan's Decision History): the original approach
+here was a hand-rolled Ubuntu box — manual nginx, certbot, systemd, SSH deploy
+scripts. Devesh flagged that as unnecessary risk for a one-developer, few-weeks-out
+demo, and proposed Coolify (a self-hosted Render/Railway) instead — same one-box
+target, same local Ollama (keeps the already-built, already-tested Dart↔Ollama and
+Dart↔face-service code untouched, no résumé data ever leaves the machine), but
+Coolify handles Docker builds, HTTPS, and redeploy-on-push, so none of the manual
+ops work below is needed anymore. This section replaces the old one.
 
 ## Steps
 
-1. **Provision the VM.** Hetzner Cloud CX32 (2 vCPU / 8GB RAM), Ubuntu 24.04. 8GB is the
-   floor for `qwen2.5:7b` running comfortably alongside the face service.
-2. **Point a domain at it.** Any subdomain you own, A record → the VM's IP.
-3. **SSH in and run the base setup:**
-   ```bash
-   scp cloud_vm_setup.sh root@<VM_IP>:
-   ssh root@<VM_IP> 'bash cloud_vm_setup.sh'
-   ```
-   Installs Ollama, pulls `qwen2.5:7b`, sets up the firewall, installs nginx/certbot.
-4. **Deploy the face service:**
+1. **Provision one VPS.** Any provider — Hetzner CX32 (2 vCPU / 8GB RAM, ~€13.10/mo)
+   is still the right size: 8GB is the floor for `qwen2.5:7b` alongside the face
+   service. Ubuntu 24.04.
+2. **Install Coolify:**
    ```bash
    ssh root@<VM_IP>
-   useradd -m -s /bin/bash cognihire
-   mkdir -p /opt/cognihire && chown cognihire:cognihire /opt/cognihire
-   su - cognihire
-   git clone <this repo> /opt/cognihire/repo   # or scp service/ directly
-   cp -r /opt/cognihire/repo/service /opt/cognihire/service
-   cd /opt/cognihire/service
-   python3 -m venv .venv
-   .venv/bin/pip install -r requirements.txt
-   exit  # back to root
+   curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash
    ```
-   Edit `ALLOWED_ORIGINS` in `face-service.service` to the real HR/candidate app
-   origins once Ticket 13 has them, then:
+   Then open `http://<VM_IP>:8000` to finish setup (create your admin account) —
+   Coolify's own UI walks you through pointing a domain at it and issuing itself a
+   cert for its dashboard.
+3. **Deploy Ollama** (Coolify → New Resource → Docker Image):
+   - Image: `ollama/ollama:latest`
+   - Port: `11434`
+   - Persistent volume mounted at `/root/.ollama` (so the pulled model survives
+     redeploys)
+   - Domain: e.g. `ollama.yourdomain.com` — Coolify issues the cert automatically
+   - After first deploy, open the container's console in Coolify and run:
+     ```
+     ollama pull qwen2.5:7b
+     ```
+4. **Deploy the face service** (Coolify → New Resource → Public/Private Git
+   Repository, pointed at this repo, base directory `service/`):
+   - Build pack: **Dockerfile** (uses `service/Dockerfile`, added alongside this
+     rework)
+   - Port: `8000`
+   - Domain: e.g. `face.yourdomain.com`
+   - Environment variable: `ALLOWED_ORIGINS` = the real HR/candidate app origins
+     once Ticket 13 has them (comma-separated); leave unset (defaults to `*`) until
+     then
+   - Enable auto-deploy on push if you want `git push` to redeploy it
+5. **Verify:**
    ```bash
-   cp face-service.service /etc/systemd/system/
-   systemctl daemon-reload
-   systemctl enable --now face-service
+   curl https://ollama.yourdomain.com/api/tags
+   curl https://face.yourdomain.com/health   # or whatever health route main.py exposes
    ```
-5. **Reverse proxy + TLS:**
-   ```bash
-   cp nginx-cognihire.conf /etc/nginx/sites-available/cognihire
-   # edit YOUR_DOMAIN_HERE first
-   ln -s /etc/nginx/sites-available/cognihire /etc/nginx/sites-enabled/
-   nginx -t && systemctl reload nginx
-   certbot --nginx -d <your-domain>
+6. **Point the apps at it** — relaunch with:
    ```
-6. **Verify:**
-   ```bash
-   curl https://<your-domain>/ollama/api/tags
-   curl https://<your-domain>/face/health   # or whatever health route main.py exposes
-   ```
-7. **Point the apps at it** — relaunch with:
-   ```
-   --dart-define=OLLAMA_BASE_URL=https://<your-domain>/ollama
-   --dart-define=FACE_SERVICE_URL=https://<your-domain>/face
+   --dart-define=OLLAMA_BASE_URL=https://ollama.yourdomain.com
+   --dart-define=FACE_SERVICE_URL=https://face.yourdomain.com
    ```
 
 ## Cost
 
-Hetzner CX32 ≈ €13.10/mo (~$14). This is the only ongoing infra cost in the pivot —
-Supabase (Ticket 8) is free tier.
+VPS ≈ €13.10/mo (~$14) — same as before, Coolify itself is free/open-source and
+runs on the same box. Supabase (Ticket 8) is free tier.
 
 ---
 
