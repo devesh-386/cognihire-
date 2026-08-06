@@ -56,7 +56,19 @@ jobs:
             # leave the old API container untouched, and still pass the
             # health check below — a green deploy that shipped nothing.
             docker compose -f docker-compose.api.yml build
-            docker compose -f docker-compose.api.yml up -d
+
+            # Build first, remove second: if the build fails, script_stop
+            # aborts here and the currently-serving container is left alone,
+            # rather than being killed with nothing to replace it.
+            #
+            # The original manual deploy created `cognihire-face-service`
+            # from a hand-written compose file that `git clean` has now
+            # removed, so Compose treats it as an orphan it doesn't own and
+            # collides on both the container name and port 8000. Explicit
+            # removal is deterministic where relying on --remove-orphans
+            # ordering is not. Harmless once it no longer exists.
+            docker rm -f cognihire-face-service 2>/dev/null || true
+            docker compose -f docker-compose.api.yml up -d --remove-orphans
 
             # InsightFace loads ~300MB of models on a cold start; poll rather
             # than guessing a fixed sleep.
