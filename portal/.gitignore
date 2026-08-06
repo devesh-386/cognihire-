@@ -9,3 +9,5 @@ node_modules/
 # perfectly and can never reach the backend. Real secrets still go in
 # .env.local, which stays ignored above.
 !.env.production
+
+.vercel
