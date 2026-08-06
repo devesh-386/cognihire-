@@ -1,0 +1,8 @@
+00:35 +679 -3: C:/claude/cognihire/test/sufficiency_model_export_test.dart: a malformed artifact is rejected, not guessed at missing honesty flags
+00:35 +680 -3: C:/claude/cognihire/test/sufficiency_model_export_test.dart: a malformed artifact is rejected, not guessed at a contradictory provenance claim
+00:35 +681 -3: Some tests failed.
+
+Failing tests:
+  C:/claude/cognihire/test/preview/ui_preview_test.dart: home compact
+  C:/claude/cognihire/test/preview/ui_preview_test.dart: home wide dark
+  C:/claude/cognihire/test/preview/ui_preview_test.dart: home wide light

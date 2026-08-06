@@ -18,13 +18,34 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime
 from typing import Optional
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+from ai import claim_extraction
+from demo import reset as demo_reset
+from demo import seed as demo_seed
+from notifications import store as email_store
+from notifications import workflow as email_workflow
+from pipeline import profile_builder, supabase_store
+from session import codes_store, interview_codes, interview_session
+
+# Ticket 20: without an explicit handler, Python's logging module only ever
+# surfaces WARNING+ (via its "handler of last resort") — every logger.info
+# call in this codebase (pipeline stage transitions, interview turns) was
+# silently going nowhere. A deployed box with no visible logs is not
+# something a demo can recover from mid-presentation, so this is configured
+# explicitly rather than left to the default. Level is an env var so a noisy
+# deploy can be turned down without a code change.
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 logger = logging.getLogger("cognihire.face")
 
@@ -112,11 +133,276 @@ def _recommendations(brightness: float, sharpness: float, face_size: int) -> lis
 
 @app.get("/health")
 def health() -> dict:
+    """Deploy sanity check. Reports whether each secret/URL is *set*, never
+    its value — a fresh Coolify/VM deploy with a missing env var should be
+    diagnosable from `curl .../health` alone, without SSHing in to check
+    `printenv` or waiting for the first real request to 503."""
+    from ai.provider import LLM_PROVIDER
+
     return {
         "status": "ok",
         "engine_available": _face_app is not None,
         "engine_error": ENGINE_ERROR,
+        "llm_provider": LLM_PROVIDER,
+        "openai_api_key_set": bool(os.environ.get("OPENAI_API_KEY")),
+        "supabase_url_set": bool(supabase_store.SUPABASE_URL),
+        "supabase_service_role_key_set": bool(supabase_store.SUPABASE_SERVICE_ROLE_KEY),
+        "allowed_origins": _allowed_origins,
     }
+
+
+class ClaimExtractRequest(BaseModel):
+    document_text: str
+    source: str
+
+
+class ClaimOut(BaseModel):
+    id: str
+    text: str
+    source: str
+    skill: Optional[str] = None
+
+
+class ClaimExtractResponse(BaseModel):
+    claims: list[ClaimOut]
+    # "hosted_llm" | "local_llm" | "heuristic_rule" — mirrors
+    # `ExtractorKind` in lib/core/claims/claim_extractor.dart. The client
+    # renders the label; it never decides which one applies.
+    kind: str
+    degraded_reason: Optional[str] = None
+    rejected_ungrounded: list[str] = []
+
+
+class ProcessResumeRequest(BaseModel):
+    candidate_id: str
+
+
+@app.post("/resumes/process")
+async def process_resume(req: ProcessResumeRequest) -> dict:
+    """Run the resume pipeline for one candidate.
+
+    Called by the `candidates_resume_uploaded` database trigger when a resume
+    lands. Idempotent: re-running re-processes from the PDF and overwrites the
+    profile, so a retry after a transient failure is always safe.
+    """
+    try:
+        return await profile_builder.process_candidate_resume(req.candidate_id)
+    except supabase_store.SupabaseError as exc:
+        # The database is unreachable or misconfigured — we could not even
+        # record a failure, so surface it as a 5xx rather than reporting a
+        # handled outcome we did not actually persist.
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/extract-claims", response_model=ClaimExtractResponse)
+async def extract_claims(req: ClaimExtractRequest) -> ClaimExtractResponse:
+    """The gateway's only claim-extraction entry point.
+
+    Provider (OpenAI vs. Ollama), model name, and the extraction prompt all
+    live in `ai_gateway` and are chosen by server config (`LLM_PROVIDER`) —
+    never by the request body. A candidate-facing client sends a document
+    and a source label; nothing else about how the extraction runs is its
+    business.
+    """
+    result = await claim_extraction.extract_claims(req.document_text, req.source)
+    return ClaimExtractResponse(
+        claims=[
+            ClaimOut(id=c.id, text=c.text, source=c.source, skill=c.skill)
+            for c in result.claims
+        ],
+        kind=result.kind,
+        degraded_reason=result.degraded_reason,
+        rejected_ungrounded=result.rejected_ungrounded,
+    )
+
+
+class GenerateCodeRequest(BaseModel):
+    candidate_id: str
+    organization_id: str
+    role_title: str
+    required_skills: list[str] = []
+    difficulty: str = "standard"
+    available_minutes: int = 20
+    max_attempts: int = 3
+    expires_in_hours: int = 72
+    # The interview's scheduled start — doubles as `window_start` (the code
+    # isn't redeemable before it) and as what the invitation/reminder emails
+    # tell the candidate. Optional: a code can still be generated for
+    # "whenever the candidate gets to it" before Ticket 21 existed.
+    scheduled_at: Optional[datetime] = None
+
+
+class InterviewStartRequest(BaseModel):
+    code: str
+
+
+class InterviewAnswerRequest(BaseModel):
+    session_id: str
+    answer_text: str
+
+
+class InterviewFinishRequest(BaseModel):
+    session_id: str
+    reason: str = "interview complete"
+
+
+# Phase 3's reasons map to HTTP status the way a REST API should read: a
+# code that's simply wrong is a 404 (nothing to find), one that exists but
+# can't be redeemed right now is a 409 (conflict with its current state).
+_CODE_ERROR_STATUS = {"not_found": 404}
+
+
+@app.post("/interview-codes/generate")
+async def generate_interview_code(req: GenerateCodeRequest) -> dict:
+    """The HR desktop's only way to create a code — centralized here so
+    generation is auditable and reusable (a later Google Form automation
+    calls the same route), never duplicated client-side.
+
+    Ticket 21: also fires the invitation email automatically. A failure to
+    email is never allowed to fail code generation — the code is real and
+    usable either way; the HR desktop's Email Status section is where a
+    failed send actually gets surfaced and retried."""
+    try:
+        code_row = await interview_codes.generate(
+            req.candidate_id, req.organization_id, req.role_title,
+            required_skills=req.required_skills, difficulty=req.difficulty,
+            available_minutes=req.available_minutes, max_attempts=req.max_attempts,
+            expires_in_hours=req.expires_in_hours, window_start=req.scheduled_at,
+        )
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    try:
+        candidate = await supabase_store.fetch_candidate(req.candidate_id)
+        if candidate is not None and candidate.get("email"):
+            await email_workflow.send_invitation_for_code(code_row, candidate)
+    except supabase_store.SupabaseError as exc:
+        logger.warning("invitation email skipped for code %s: %s", code_row.get("id"), exc)
+
+    return code_row
+
+
+class ResendInvitationRequest(BaseModel):
+    code_id: str
+
+
+@app.get("/interview-codes/{code_id}/emails")
+async def list_code_emails(code_id: str) -> dict:
+    """The HR desktop's Email Status section: one row per email type
+    (invitation, reminder_1h, reminder_30m) that has been attempted for this
+    code, each with its status, attempt count, and last error."""
+    try:
+        return {"emails": await email_store.list_for_code(code_id)}
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/interview-codes/resend-invitation")
+async def resend_invitation(req: ResendInvitationRequest) -> dict:
+    """The HR desktop's "Resend invitation" button."""
+    try:
+        code_row = await codes_store.fetch_by_id(req.code_id)
+        if code_row is None:
+            raise HTTPException(status_code=404, detail="no such interview code")
+        candidate = await supabase_store.fetch_candidate(code_row["candidate_id"])
+        if candidate is None or not candidate.get("email"):
+            raise HTTPException(status_code=409, detail="candidate has no email on file")
+        return await email_workflow.resend_invitation(code_row, candidate)
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/email/send-due-reminders")
+async def send_due_reminders() -> dict:
+    """The scheduler's entrypoint (Ticket 21's parallel of Ticket 12's
+    `reminder-scheduler`) — call on a timer (cron, an external scheduler, or
+    a manual poke) to send whatever 1-hour/30-minute reminder is currently
+    due across every active interview code."""
+    try:
+        return await email_workflow.send_due_reminders(supabase_store.fetch_candidate)
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/interview/start")
+async def interview_start(req: InterviewStartRequest) -> dict:
+    """Redeem a code and either resume its in-progress session or open a new
+    one. The candidate portal never sends an id it wasn't handed by a human
+    — only the code."""
+    try:
+        return await interview_codes.start_with_code(req.code)
+    except interview_codes.CodeError as exc:
+        raise HTTPException(
+            status_code=_CODE_ERROR_STATUS.get(exc.reason, 409),
+            detail={"reason": exc.reason, "message": str(exc)},
+        ) from exc
+    except interview_session.SessionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/interview/answer")
+async def interview_answer(req: InterviewAnswerRequest) -> dict:
+    """Record the candidate's answer to the current question and return the
+    next turn — a follow-up, the next topic's question, or completion."""
+    try:
+        return await interview_session.answer(req.session_id, req.answer_text)
+    except interview_session.SessionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/interview/report/{session_id}")
+async def interview_report(session_id: str) -> dict:
+    """The evidence-backed report: one entry per planned topic — claim,
+    question(s), evidence quote, verdict, confidence. No score, no ranking.
+    Built entirely from what's already persisted; no model is called."""
+    try:
+        return await interview_session.report(session_id)
+    except interview_session.SessionError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/interview/finish")
+async def interview_finish(req: InterviewFinishRequest) -> dict:
+    """Abandon a session early (candidate disconnected, timed out, etc).
+    A session that runs its plan to completion finishes itself — this is
+    only for cutting one short."""
+    try:
+        await interview_session.abandon(req.session_id, req.reason)
+        return {"session_id": req.session_id, "status": "abandoned"}
+    except interview_session.SessionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/demo/seed")
+async def demo_seed_environment() -> dict:
+    """Ticket 19 — one-click demo environment: a fixed demo organization, an
+    HR login, three roles, and five candidates with different resume
+    profiles, each run through the real resume pipeline. Idempotent —
+    existing org/roles/candidates are reused rather than duplicated, so this
+    is safe to call again (e.g. after /demo/reset)."""
+    try:
+        return await demo_seed.seed_demo_environment()
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/demo/reset")
+async def demo_reset_environment() -> dict:
+    """Clears interview sessions/events/codes for the demo org and re-seeds
+    fresh codes, so the same environment can be re-demoed without manual
+    database cleanup. Candidates, profiles, roles, and the org are untouched."""
+    try:
+        return await demo_reset.reset_demo_environment()
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.post("/face/analyze", response_model=FrameAnalysis)

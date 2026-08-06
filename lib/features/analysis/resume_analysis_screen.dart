@@ -34,7 +34,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/claims/claim.dart';
 import '../../core/claims/claim_extractor.dart';
-import '../../core/claims/ollama_claim_extractor.dart';
+import '../../core/claims/claim_extractor_factory.dart';
 import '../../core/design/app_theme.dart';
 import '../../core/interview/question_bank.dart';
 import '../../core/session/session_draft.dart';
@@ -62,7 +62,7 @@ class ResumeAnalysisScreen extends StatefulWidget {
 
 class _ResumeAnalysisScreenState extends State<ResumeAnalysisScreen> {
   late final ClaimExtractor _extractor =
-      widget.extractor ?? OllamaClaimExtractor();
+      widget.extractor ?? createDefaultClaimExtractor();
 
   bool _picking = false;
 

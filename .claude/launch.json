@@ -2,10 +2,22 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "cognihire-app",
+      "runtimeExecutable": "flutter",
+      "runtimeArgs": ["run", "-d", "web-server", "--web-port", "8766", "-t", "lib/main.dart"],
+      "port": 8766
+    },
+    {
       "name": "cognihire-live-interview-demo",
       "runtimeExecutable": "flutter",
       "runtimeArgs": ["run", "-d", "web-server", "--web-port", "8765", "-t", "lib/dev/live_interview_demo.dart"],
       "port": 8765
+    },
+    {
+      "name": "cognihire-portal",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "portal", "run", "dev"],
+      "port": 3000
     }
   ]
 }

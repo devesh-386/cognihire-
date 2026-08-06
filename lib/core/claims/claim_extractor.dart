@@ -15,7 +15,13 @@ enum ExtractorKind {
   /// A language model running locally on this machine. Nothing was sent to a
   /// third party.
   localLlm('Local model', 'Extracted by a language model running on this '
-      'machine. The resume text was not sent anywhere.');
+      'machine. The resume text was not sent anywhere.'),
+
+  /// A hosted language model reached over the network (OpenAI for V1). The
+  /// resume text left this machine — say so plainly, this label is the one
+  /// place a reviewer would learn that.
+  hostedLlm('Hosted model', 'Extracted by a hosted language model. The '
+      'resume text was sent to that provider to produce this result.');
 
   const ExtractorKind(this.label, this.description);
   final String label;

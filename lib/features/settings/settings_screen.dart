@@ -10,7 +10,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../../core/claims/claim_extractor.dart';
-import '../../core/claims/ollama_claim_extractor.dart';
+import '../../core/claims/claim_extractor_factory.dart';
 import '../../core/design/app_theme.dart';
 import '../../core/persistence/audit_store.dart';
 import '../../core/persistence/json_codec.dart';
@@ -89,7 +89,7 @@ class SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _checkExtractor() async {
     setState(() => _checkingExtractor = true);
-    final extractor = widget.extractor ?? OllamaClaimExtractor();
+    final extractor = widget.extractor ?? createDefaultClaimExtractor();
 
     // The honest reachability test is to actually run the thing on a line we
     // know is groundable, and see whether the local model or the fallback text

@@ -29,8 +29,10 @@ import 'features/audit/claim_audit_screen.dart';
 import 'features/candidates/candidates_screen.dart';
 import 'features/common/empty_state.dart';
 import 'features/dashboard/dashboard_screen.dart';
+import 'features/demo/demo_screen.dart';
 import 'features/enrolment/enrolment_screen.dart';
 import 'features/interview/interview_screen.dart';
+import 'features/interview_sessions/interview_sessions_screen.dart';
 import 'features/invitations/invitations_screen.dart';
 import 'features/reports/reports_screen.dart';
 import 'features/roles/roles_screen.dart';
@@ -765,6 +767,22 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             onStartSession: _goToNewSession,
           ),
+        ),
+        if (_showFor(_hr))
+          ShellDestination(
+          icon: Icons.forum_outlined,
+          selectedIcon: Icons.forum,
+          label: 'AI Interviews',
+          builder: (_) => InterviewSessionsScreen(
+            client: supabase.Supabase.instance.client,
+          ),
+        ),
+        if (_showFor(_hr))
+          ShellDestination(
+          icon: Icons.auto_fix_high_outlined,
+          selectedIcon: Icons.auto_fix_high,
+          label: 'Demo',
+          builder: (_) => DemoScreen(onCompleted: _refreshWorkspaceViews),
         ),
         if (_showFor(_hr))
           ShellDestination(
