@@ -1,0 +1,76 @@
+# Production API stack — the FastAPI gateway + face service on the Azure VM.
+#
+# Deliberately a SEPARATE file from `docker-compose.yml`, which is the local
+# development infrastructure stack (Postgres/pgvector, Redis, MinIO, Caddy)
+# and has no application service in it at all. Sharing one filename meant a
+# `git reset --hard` on the VM silently replaced the running API's compose
+# definition with the dev stack's — `docker compose up -d` would then start
+# databases instead of the API, while the old API container kept running, so
+# the health check still passed and the deploy reported success having
+# shipped nothing. Two files, two purposes, no collision.
+#
+# Usage on the VM:
+#   docker compose -f docker-compose.api.yml build
+#   docker compose -f docker-compose.api.yml up -d
+services:
+  api:
+    build:
+      context: ./service
+    image: cognihire-face-service
+    container_name: cognihire-face-service
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    # Read from a gitignored `.env` beside this file. Every value is
+    # optional at the container level: a missing SUPABASE_* makes the
+    # resume/interview/demo routes answer 503 (they say so), and a missing
+    # OPENAI_API_KEY makes every AI stage degrade to its documented
+    # heuristic fallback. Nothing here fails silently or fakes a result —
+    # `GET /health` reports which of these are actually set.
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+      # AI provider
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+
+      # Supabase — required by the resume pipeline, interview codes,
+      # sessions, demo environment, and email status.
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      RESUME_BUCKET: ${RESUME_BUCKET:-resumes}
+
+      # Candidate portal URL, used in invitation/reminder email bodies.
+      PORTAL_URL: ${PORTAL_URL:-}
+
+      # Email (Ticket 21). Unset -> NullEmailProvider, which records an
+      # honest "not configured" failure rather than pretending to send.
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-smtp}
+      EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-CogniHire}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
+      ACS_ENDPOINT: ${ACS_ENDPOINT:-}
+      ACS_ACCESS_KEY: ${ACS_ACCESS_KEY:-}
+
+      # Browser origins allowed to call this API. "*" is fine until the
+      # portal and HR app have real deployed origins.
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
+    volumes:
+      # InsightFace downloads ~300MB of models on first run. Persisting them
+      # means a rebuild doesn't re-download on every deploy.
+      - insightface-models:/root/.insightface
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+volumes:
+  insightface-models:

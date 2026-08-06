@@ -10,6 +10,7 @@ on:
     branches: [infra/foundations-epic0]
     paths:
       - "service/**"
+      - "docker-compose.api.yml"
       - "infra/migrations/**"
       - ".github/workflows/deploy.yml"
   workflow_dispatch: {}
@@ -25,18 +26,58 @@ jobs:
           username: ${{ secrets.AZURE_VM_USER }}
           key: ${{ secrets.AZURE_VM_SSH_KEY }}
           script_stop: true
+          # The build pulls system packages and Python wheels; 10 minutes is
+          # not always enough on a 2-vCPU box doing it cold.
+          command_timeout: 25m
           script: |
             set -e
             cd ~/CogniHire
-            git fetch origin
-            git checkout infra/foundations-epic0
-            git reset --hard origin/infra/foundations-epic0
-            docker compose build
-            docker compose up -d
-            # Give the container a moment to boot before checking it, rather
-            # than reporting a false failure on a slow cold start.
-            sleep 5
-            curl -fsS http://localhost:8000/health
 
-      - name: Confirm the public endpoint is live
-        run: curl -fsS https://api.cognihire.online/health
+            # `-f` because the VM may carry hand-edits to tracked files from
+            # the original manual deploy (the Dockerfile's OpenCV libs, a
+            # hand-written compose file). Those are now in the repo, so
+            # discarding the local copies is the point, not a loss.
+            git fetch origin
+            git checkout -f infra/foundations-epic0
+            git reset --hard origin/infra/foundations-epic0
+            echo "Deploying commit: $(git rev-parse --short HEAD)"
+
+            # -f docker-compose.api.yml: the root docker-compose.yml is the
+            # local dev infra stack (Postgres/Redis/MinIO/Caddy) and contains
+            # no application service. Using it here would start databases,
+            # leave the old API container untouched, and still pass the
+            # health check below — a green deploy that shipped nothing.
+            docker compose -f docker-compose.api.yml build
+            docker compose -f docker-compose.api.yml up -d
+
+            # InsightFace loads ~300MB of models on a cold start; poll rather
+            # than guessing a fixed sleep.
+            for i in $(seq 1 30); do
+              if curl -fsS http://localhost:8000/health > /tmp/health.json 2>/dev/null; then
+                break
+              fi
+              echo "waiting for the service to come up ($i/30)..."
+              sleep 5
+            done
+
+            cat /tmp/health.json
+            echo
+
+            # Assert the running container is actually the NEW build. Without
+            # this, a build that silently failed to replace the old container
+            # still answers /health and reports success. `llm_provider` only
+            # exists in the post-Ticket-20 health payload.
+            if ! grep -q "llm_provider" /tmp/health.json; then
+              echo "FAILED: /health has no llm_provider field — the old build is still running."
+              docker compose -f docker-compose.api.yml logs --tail=50 api
+              exit 1
+            fi
+
+      - name: Confirm the public endpoint is live and current
+        run: |
+          curl -fsS https://api.cognihire.online/health | tee health.json
+          echo
+          grep -q "llm_provider" health.json || {
+            echo "Public endpoint is serving the old build."
+            exit 1
+          }
