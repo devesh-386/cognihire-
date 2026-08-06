@@ -1,0 +1,42 @@
+name: Deploy backend to Azure VM
+
+# Ticket 20 follow-up (item 7 on the "next engineering tasks" list): every
+# push to this branch redeploys the FastAPI service automatically, instead
+# of someone SSHing in and running `git pull && docker compose up -d` by
+# hand. Manual dispatch is kept too, for redeploying without a new commit
+# (e.g. after rotating a secret in the VM's own .env).
+on:
+  push:
+    branches: [infra/foundations-epic0]
+    paths:
+      - "service/**"
+      - "infra/migrations/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH in and redeploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.AZURE_VM_HOST }}
+          username: ${{ secrets.AZURE_VM_USER }}
+          key: ${{ secrets.AZURE_VM_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            cd ~/CogniHire
+            git fetch origin
+            git checkout infra/foundations-epic0
+            git reset --hard origin/infra/foundations-epic0
+            docker compose build
+            docker compose up -d
+            # Give the container a moment to boot before checking it, rather
+            # than reporting a false failure on a slow cold start.
+            sleep 5
+            curl -fsS http://localhost:8000/health
+
+      - name: Confirm the public endpoint is live
+        run: curl -fsS https://api.cognihire.online/health
