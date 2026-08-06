@@ -33,11 +33,19 @@ jobs:
             set -e
             cd ~/CogniHire
 
-            # `-f` because the VM may carry hand-edits to tracked files from
-            # the original manual deploy (the Dockerfile's OpenCV libs, a
-            # hand-written compose file). Those are now in the repo, so
-            # discarding the local copies is the point, not a loss.
             git fetch origin
+
+            # The VM carries hand-written copies of files the repo now owns
+            # (service/Dockerfile with the OpenCV libs, a compose file) from
+            # the original manual deploy. They are UNTRACKED there, and
+            # `checkout -f` refuses to clobber untracked files — it only
+            # forces past modified *tracked* ones. So clean first.
+            #
+            # NO `-x`: that would also delete gitignored files, and `.env`
+            # on this box holds the Supabase service-role key. Without -x,
+            # git clean leaves ignored files alone, so the secrets survive
+            # every deploy. Do not add -x here.
+            git clean -fd
             git checkout -f infra/foundations-epic0
             git reset --hard origin/infra/foundations-epic0
             echo "Deploying commit: $(git rev-parse --short HEAD)"
