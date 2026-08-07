@@ -23,19 +23,20 @@ from typing import Optional
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from ai import claim_extraction
 from demo import reset as demo_reset
 from demo import seed as demo_seed
+from demo import tester_account
 from notifications import store as email_store
 from notifications import templates
 from notifications import workflow as email_workflow
 from notifications.provider import get_provider as get_email_provider
-from pipeline import profile_builder, supabase_store
-from session import codes_store, interview_codes, interview_session
+from pipeline import demo_store, profile_builder, supabase_store
+from session import codes_store, interview_codes, interview_session, session_store
 
 # Ticket 20: without an explicit handler, Python's logging module only ever
 # surfaces WARNING+ (via its "handler of last resort") — every logger.info
@@ -428,6 +429,125 @@ async def register_interest(req: RegisterInterestRequest) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# HR portal: auth + org-scoped listing.
+#
+# A logged-in HR user is a GoTrue user whose user_metadata carries the
+# organization_id it belongs to (same shape demo_store already creates for
+# the seeded demo HR user). List routes never take an organization_id from
+# the client — they resolve it from the bearer token via GoTrue, the same
+# way every other org-scoped write in this file already trusts identity.
+# ---------------------------------------------------------------------------
+
+
+class SignupRequest(BaseModel):
+    organization_name: str
+    name: str | None = None
+    email: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+async def _require_org(authorization: str | None) -> str:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="missing bearer token")
+    token = authorization.split(" ", 1)[1]
+    try:
+        user = await demo_store.resolve_user_from_token(token)
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    organization_id = (user.get("user_metadata") or {}).get("organization_id")
+    if not organization_id:
+        raise HTTPException(status_code=403, detail="account has no organization")
+    return organization_id
+
+
+@app.post("/auth/signup")
+async def auth_signup(req: SignupRequest) -> dict:
+    """Creates the organization (first signup for that name) or joins an
+    existing one, then creates the HR user and signs them in immediately —
+    the portal never issues a "check your email" step because GoTrue's own
+    email flows aren't wired here yet."""
+    try:
+        org = await demo_store.find_organization_by_name(req.organization_name)
+        if org is None:
+            org = await demo_store.create_organization(req.organization_name)
+        await demo_store.find_or_create_hr_user(
+            req.email, req.password, org["id"], name=req.name,
+        )
+        token = await demo_store.sign_in(req.email, req.password)
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return {
+        "access_token": token["access_token"],
+        "organization_id": org["id"],
+        "organization_name": org["name"],
+        "email": req.email,
+        "name": req.name,
+    }
+
+
+@app.post("/auth/login")
+async def auth_login(req: LoginRequest) -> dict:
+    try:
+        token = await demo_store.sign_in(req.email, req.password)
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+    organization_id = (token.get("user", {}).get("user_metadata") or {}).get("organization_id")
+    if not organization_id:
+        raise HTTPException(status_code=403, detail="account has no organization")
+
+    return {
+        "access_token": token["access_token"],
+        "organization_id": organization_id,
+        "email": req.email,
+    }
+
+
+@app.get("/roles")
+async def list_roles(authorization: str | None = Header(default=None)) -> dict:
+    organization_id = await _require_org(authorization)
+    try:
+        return {"roles": await demo_store.list_roles(organization_id)}
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/candidates")
+async def list_candidates(authorization: str | None = Header(default=None)) -> dict:
+    organization_id = await _require_org(authorization)
+    try:
+        return {"candidates": await demo_store.list_candidates(organization_id)}
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/interviews")
+async def list_interviews(authorization: str | None = Header(default=None)) -> dict:
+    organization_id = await _require_org(authorization)
+    try:
+        return {"interviews": await session_store.list_sessions_for_org(organization_id)}
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/reports")
+async def list_reports(authorization: str | None = Header(default=None)) -> dict:
+    organization_id = await _require_org(authorization)
+    try:
+        return {
+            "reports": await session_store.list_sessions_for_org(organization_id, status="complete"),
+        }
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 @app.post("/demo/seed")
 async def demo_seed_environment() -> dict:
     """Ticket 19 — one-click demo environment: a fixed demo organization, an
@@ -448,6 +568,36 @@ async def demo_reset_environment() -> dict:
     database cleanup. Candidates, profiles, roles, and the org are untouched."""
     try:
         return await demo_reset.reset_demo_environment()
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _require_non_production() -> None:
+    """Guards every dev-only route in this file. Default is "development" —
+    a deploy that forgets to set ENVIRONMENT must fail closed on the safe
+    side (route unavailable), not fail open into production."""
+    environment = os.environ.get("ENVIRONMENT", "development")
+    if environment == "production":
+        raise HTTPException(status_code=404)
+
+
+@app.post("/dev/seed-tester-account")
+async def seed_tester_account() -> dict:
+    """Creates (or reuses) one hardcoded HR account — "CogniHire Test
+    Company" / tester@cognihire.local — for local/staging manual testing of
+    the company portal without going through /auth/signup every time.
+
+    Refuses to run when ENVIRONMENT=production (see `_require_non_production`).
+    The account itself is a real Supabase Auth user created through the same
+    `demo_store.create_hr_user` call `/demo/seed`'s HR login uses; it signs in
+    through the normal `/auth/login` flow like any other HR user — this route
+    only exists to save the manual signup step, not to bypass auth.
+
+    Credentials are defined in `demo/tester_account.py` — edit or delete that
+    module (and this route) to change or remove the tester account."""
+    _require_non_production()
+    try:
+        return await tester_account.seed_tester_account()
     except supabase_store.SupabaseError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

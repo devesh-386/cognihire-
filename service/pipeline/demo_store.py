@@ -134,7 +134,12 @@ async def find_auth_user_by_email(email: str) -> dict | None:
     return None
 
 
-async def create_hr_user(email: str, password: str, organization_id: str) -> dict:
+async def create_hr_user(
+    email: str, password: str, organization_id: str, *, name: str | None = None,
+) -> dict:
+    user_metadata = {"organization_id": organization_id}
+    if name:
+        user_metadata["name"] = name
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         response = await client.post(
             f"{SUPABASE_URL}/auth/v1/admin/users",
@@ -143,7 +148,7 @@ async def create_hr_user(email: str, password: str, organization_id: str) -> dic
                 "email": email,
                 "password": password,
                 "email_confirm": True,
-                "user_metadata": {"organization_id": organization_id},
+                "user_metadata": user_metadata,
             },
         )
     if response.status_code not in (200, 201):
@@ -151,11 +156,13 @@ async def create_hr_user(email: str, password: str, organization_id: str) -> dic
     return response.json()
 
 
-async def find_or_create_hr_user(email: str, password: str, organization_id: str) -> dict:
+async def find_or_create_hr_user(
+    email: str, password: str, organization_id: str, *, name: str | None = None,
+) -> dict:
     existing = await find_auth_user_by_email(email)
     if existing is not None:
         return existing
-    return await create_hr_user(email, password, organization_id)
+    return await create_hr_user(email, password, organization_id, name=name)
 
 
 async def delete_sessions_and_events_for_org(organization_id: str) -> list[str]:
@@ -175,3 +182,54 @@ async def delete_sessions_and_events_for_org(organization_id: str) -> list[str]:
 
 async def delete_codes_for_org(organization_id: str) -> None:
     await _delete("interview_codes", {"organization_id": f"eq.{organization_id}"})
+
+
+# ---------------------------------------------------------------------------
+# HR auth (portal login/signup) and org-scoped listing.
+#
+# GoTrue's password grant and /auth/v1/user both accept the service-role key
+# as `apikey` (it's a valid project JWT) — no separate anon key needed, so
+# this reuses the same SUPABASE_SERVICE_ROLE_KEY every other module here does.
+# ---------------------------------------------------------------------------
+
+
+async def sign_in(email: str, password: str) -> dict:
+    """Password-grant sign-in. Raises SupabaseError with the GoTrue error
+    message on bad credentials — the caller maps that to a 401."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        response = await client.post(
+            f"{SUPABASE_URL}/auth/v1/token",
+            headers=_headers(),
+            params={"grant_type": "password"},
+            json={"email": email, "password": password},
+        )
+    if response.status_code != 200:
+        detail = response.json().get("error_description") or response.text[:200]
+        raise SupabaseError(detail)
+    return response.json()
+
+
+async def resolve_user_from_token(access_token: str) -> dict:
+    """Resolves a portal bearer token back to its GoTrue user, so a list
+    endpoint can scope its query to `user_metadata.organization_id` without
+    trusting an org id the client could otherwise just send itself."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        response = await client.get(
+            f"{SUPABASE_URL}/auth/v1/user",
+            headers={**_headers(), "Authorization": f"Bearer {access_token}"},
+        )
+    if response.status_code != 200:
+        raise SupabaseError("invalid or expired session")
+    return response.json()
+
+
+async def list_roles(organization_id: str) -> list[dict]:
+    return await _get_many("roles", {
+        "organization_id": f"eq.{organization_id}", "select": "*", "order": "created_at.desc",
+    })
+
+
+async def list_candidates(organization_id: str) -> list[dict]:
+    return await _get_many("candidates", {
+        "organization_id": f"eq.{organization_id}", "select": "*", "order": "created_at.desc",
+    })

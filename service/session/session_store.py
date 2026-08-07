@@ -88,6 +88,26 @@ async def list_events(session_id: str) -> list[dict]:
     return response.json()
 
 
+async def list_sessions_for_org(organization_id: str, *, status: str | None = None) -> list[dict]:
+    """Powers the portal's Interviews and Reports lists. `status` filters to
+    e.g. "complete" for Reports — same table, different view, so this stays
+    one query rather than a second store function to keep in sync."""
+    params = {
+        "organization_id": f"eq.{organization_id}", "select": "*", "order": "created_at.desc",
+    }
+    if status is not None:
+        params["status"] = f"eq.{status}"
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        response = await client.get(
+            f"{SUPABASE_URL}/rest/v1/interview_sessions",
+            headers=_headers(),
+            params=params,
+        )
+    if response.status_code != 200:
+        raise SupabaseError(f"session list failed: HTTP {response.status_code}")
+    return response.json()
+
+
 async def next_sequence(session_id: str) -> int:
     """The next event sequence number for a session — count of events so far."""
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
