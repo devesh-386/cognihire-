@@ -31,7 +31,9 @@ from ai import claim_extraction
 from demo import reset as demo_reset
 from demo import seed as demo_seed
 from notifications import store as email_store
+from notifications import templates
 from notifications import workflow as email_workflow
+from notifications.provider import get_provider as get_email_provider
 from pipeline import profile_builder, supabase_store
 from session import codes_store, interview_codes, interview_session
 
@@ -379,6 +381,51 @@ async def interview_finish(req: InterviewFinishRequest) -> dict:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except supabase_store.SupabaseError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+class RegisterInterestRequest(BaseModel):
+    email: str
+
+
+@app.post("/register-interest")
+async def register_interest(req: RegisterInterestRequest) -> dict:
+    """Public: emails the registration form link to whoever asks for it.
+
+    Deliberately says the same thing whether or not the send actually
+    succeeded, and never reveals whether this address is already a candidate
+    — this route is unauthenticated and reachable from the marketing site, so
+    a distinguishable response would make it an email-enumeration oracle. The
+    real outcome is logged server-side instead.
+    """
+    form_url = os.environ.get("APPLY_FORM_URL", "")
+    email = req.email.strip()
+
+    # Cheap sanity check only — real validation is the mail server's job, and
+    # anything stricter here rejects valid addresses.
+    if "@" not in email or len(email) < 5:
+        raise HTTPException(status_code=400, detail="that doesn't look like an email address")
+
+    if not form_url:
+        logger.error("register-interest called but APPLY_FORM_URL is not configured")
+        raise HTTPException(
+            status_code=503,
+            detail="registration isn't available right now — please try again later",
+        )
+
+    message = templates.registration_email(candidate_email=email, form_url=form_url)
+    result = await get_email_provider().send(message)
+    if result.ok:
+        logger.info("registration link sent to %s", email)
+    else:
+        logger.warning("registration link to %s failed: %s", email, result.error)
+
+    return {
+        "status": "ok",
+        "message": (
+            f"If {email} is a valid address, the registration link is on its "
+            "way. Check your inbox — and your spam folder, just in case."
+        ),
+    }
 
 
 @app.post("/demo/seed")

@@ -39,3 +39,11 @@ export function submitAnswer({ sessionId, answerText }) {
 export function finishInterview({ sessionId, reason }) {
   return post("/interview/finish", { session_id: sessionId, reason });
 }
+
+/// Emails the registration form link. The form URL lives on the server
+/// (APPLY_FORM_URL), not here — so it can be changed without redeploying the
+/// site, and so a scraper reading this bundle doesn't get a direct link to a
+/// form that writes into the candidate pipeline.
+export function registerInterest(email) {
+  return post("/register-interest", { email });
+}

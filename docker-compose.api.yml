@@ -45,6 +45,11 @@ services:
       # Candidate portal URL, used in invitation/reminder email bodies.
       PORTAL_URL: ${PORTAL_URL:-}
 
+      # The registration form (Google Form or equivalent) that /register-interest
+      # emails out from the public site. Unset -> that route 503s rather than
+      # sending an email with a broken link in it.
+      APPLY_FORM_URL: ${APPLY_FORM_URL:-}
+
       # Email (Ticket 21). Unset -> NullEmailProvider, which records an
       # honest "not configured" failure rather than pretending to send.
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-smtp}

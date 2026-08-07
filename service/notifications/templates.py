@@ -70,6 +70,46 @@ def invitation_email(
     )
 
 
+def registration_email(*, candidate_email: str, form_url: str) -> EmailMessage:
+    """Sent when someone asks for a registration link from the public site.
+
+    Addressed generically — at this point all we have is an email address,
+    and inventing a name from the local part ("hi, deveshsv.386") reads worse
+    than not trying."""
+    text = (
+        "Hello,\n\n"
+        "Thanks for your interest in interviewing with CogniHire.\n\n"
+        f"Register here: {form_url}\n\n"
+        "The form asks for your details, the role you're applying for, and "
+        "your résumé. Once it's in, we'll email you an interview code and a "
+        "time.\n\n"
+        "The interview runs entirely in your browser and takes about 20 "
+        "minutes. You'll need a working camera, microphone, and a stable "
+        "internet connection.\n\n"
+        "If you didn't request this, you can ignore this email.\n\n"
+        "— CogniHire"
+    )
+    html = (
+        "<p>Hello,</p>"
+        "<p>Thanks for your interest in interviewing with CogniHire.</p>"
+        f'<p><a href="{form_url}">Register here</a></p>'
+        "<p>The form asks for your details, the role you're applying for, "
+        "and your résumé. Once it's in, we'll email you an interview code "
+        "and a time.</p>"
+        "<p>The interview runs entirely in your browser and takes about 20 "
+        "minutes. You'll need a working camera, microphone, and a stable "
+        "internet connection.</p>"
+        "<p style=\"color:#6c5b4e;font-size:0.9em\">If you didn't request "
+        "this, you can ignore this email.</p>"
+        "<p>— CogniHire</p>"
+    )
+    return EmailMessage(
+        to=candidate_email, to_name="",
+        subject="Register for your CogniHire interview",
+        html_body=html, text_body=text,
+    )
+
+
 def reminder_email(
     *,
     candidate_name: str,
