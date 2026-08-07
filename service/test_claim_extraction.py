@@ -16,14 +16,30 @@ import asyncio
 import json
 
 import httpx
+import pytest
 
 from ai import claim_extraction, provider
 
 
+@pytest.fixture(autouse=True)
+def _no_real_retry_backoff(monkeypatch):
+    """Several tests here return a 500/503, which provider.py now retries
+    with a real backoff sleep before degrading. Kept fast and deterministic,
+    same as test_provider_retry.py."""
+
+    async def _no_sleep(*_args):
+        return None
+
+    monkeypatch.setattr(provider.asyncio, "sleep", _no_sleep)
+
+
 class _FakeResponse:
-    def __init__(self, status_code: int, payload: dict | None = None):
+    def __init__(self, status_code: int, payload: dict | None = None, headers: dict | None = None):
         self.status_code = status_code
         self._payload = payload or {}
+        # Real httpx.Response always has .headers; provider.py's retry
+        # logic reads it even on a non-2xx reply.
+        self.headers = headers or {}
 
     def json(self):
         return self._payload

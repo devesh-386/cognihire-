@@ -12,6 +12,7 @@ otherwise — ever holds one, which is what makes it safe to ship a web build.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -29,6 +30,40 @@ OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
+
+# Rate limiting (429) and momentary 5xx are exactly the responses a retry can
+# fix; anything else (400, 401, a malformed body) means retrying would just
+# get the same answer, so those still degrade on the first response.
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+_MAX_RETRIES = 2
+_BASE_BACKOFF_SECONDS = 1.0
+# A candidate is waiting live for the next question — retries add latency to
+# an interactive turn, so the wait per attempt is capped regardless of what
+# a provider's Retry-After header asks for.
+_MAX_BACKOFF_SECONDS = 5.0
+
+
+async def _post_with_retry(client: httpx.AsyncClient, url: str, **kwargs) -> httpx.Response:
+    """POST with up to `_MAX_RETRIES` extra attempts for a transient
+    failure — a busy moment at the provider should not immediately degrade
+    an interview turn to the heuristic fallback. Honors a numeric
+    `Retry-After` header when present, otherwise backs off exponentially.
+    Every other status is still returned on the first response, same as
+    before this existed."""
+    response = await client.post(url, **kwargs)
+    for attempt in range(_MAX_RETRIES):
+        if response.status_code not in _RETRYABLE_STATUS:
+            return response
+
+        retry_after = response.headers.get("retry-after")
+        try:
+            delay = float(retry_after) if retry_after else _BASE_BACKOFF_SECONDS * (2**attempt)
+        except ValueError:
+            delay = _BASE_BACKOFF_SECONDS * (2**attempt)
+        await asyncio.sleep(min(delay, _MAX_BACKOFF_SECONDS))
+
+        response = await client.post(url, **kwargs)
+    return response
 
 
 @dataclass
@@ -55,7 +90,8 @@ async def _openai_chat_json(system: str, user: str, timeout: int) -> ModelReply:
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(
+            response = await _post_with_retry(
+                client,
                 f"{OPENAI_BASE_URL}/chat/completions",
                 headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
                 json={
@@ -91,7 +127,8 @@ async def _openai_chat_json(system: str, user: str, timeout: int) -> ModelReply:
 async def _ollama_chat_json(system: str, user: str, timeout: int) -> ModelReply:
     try:
         async with httpx.AsyncClient(timeout=max(timeout, 90)) as client:
-            response = await client.post(
+            response = await _post_with_retry(
+                client,
                 f"{OLLAMA_BASE_URL}/api/chat",
                 json={
                     "model": OLLAMA_MODEL,
