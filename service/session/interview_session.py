@@ -163,14 +163,24 @@ async def answer(
     )
 
     is_complete = turn.kind == TurnKind.COMPLETE
-    await session_store.update_session(session_id, {
-        "status": state_machine.COMPLETE if is_complete else state_machine.IN_PROGRESS,
-        "coverage_state": new_coverage.to_dict(),
-        "outcomes": _outcomes_to_dict(outcomes),
-        "current_topic": turn.topic,
-        "last_question": turn.question,
-    })
 
+    # Events appended BEFORE the session row is mutated, not after. These two
+    # writes aren't transactional — Supabase REST gives us no cross-table
+    # transaction here — so whichever one goes first determines what a
+    # client-visible failure actually means. With the row updated first (the
+    # original order), a failure appending events left the session already
+    # advanced to the next topic while the caller received an error and
+    # believed nothing had happened; a naive retry of the same answer then
+    # landed on a DIFFERENT topic than the one it was meant for — silently,
+    # with no indication anything had gone wrong. Found live: a transient
+    # `next_sequence` failure (a separate bug, since fixed) left exactly one
+    # real session in that corrupted state.
+    #
+    # Event appends first means a failure here still leaves the session row
+    # untouched — `current_topic`/`last_question` still point at the
+    # question the candidate was actually just asked — so a retry with the
+    # same answer re-analyzes against the SAME topic. Not free (the model
+    # gets called again), but never silently wrong.
     seq = [await session_store.next_sequence(session_id)]
     for event_type, payload in (
         (EventType.ANSWER, {"topic": current_topic_name, "answer_text": answer_text}),
@@ -182,6 +192,14 @@ async def answer(
             SessionEvent(session_id, await _next_event_sequence(session_id, seq),
                          event_type, payload).to_dict()
         )
+
+    await session_store.update_session(session_id, {
+        "status": state_machine.COMPLETE if is_complete else state_machine.IN_PROGRESS,
+        "coverage_state": new_coverage.to_dict(),
+        "outcomes": _outcomes_to_dict(outcomes),
+        "current_topic": turn.topic,
+        "last_question": turn.question,
+    })
 
     if is_complete:
         # Best-effort: a code failing to flip to 'used' does not affect the

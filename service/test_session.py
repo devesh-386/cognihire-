@@ -268,6 +268,44 @@ def test_answer_unsupported_asks_a_followup_and_stays_in_progress(fake_store, mo
     assert row["current_topic"] == "Team leadership"
 
 
+def test_a_failed_event_append_leaves_the_session_row_untouched(fake_store, monkeypatch):
+    """Regression test for a real bug found live: the session row used to be
+    updated BEFORE events were appended, so a failure appending events (a
+    transient Supabase error, a network blip — anything) left the session
+    silently advanced to the next topic while the caller received an error
+    and had no way to know the interview had actually moved on. A client
+    that naively retried the same answer then landed on the WRONG topic.
+
+    Event appends now happen first — a failure there must leave the session
+    row exactly as it was before this call, so a retry is safe."""
+    fake_store.profile = PROFILE_ROW
+    _patch_model_sequence(monkeypatch, [PLAN_REPLY, QUESTION_REPLY])
+    started = _run(interview_session.start("cand-1", "org-1", "Backend Engineer"))
+    session_id = started["session_id"]
+    row_before = dict(fake_store.sessions[session_id])
+
+    _patch_model_sequence(
+        monkeypatch,
+        [{
+            "supported": True, "confidence": 0.9, "followup_required": False,
+            "evidence_quote": "I led it end to end.", "reason": "Specific enough.",
+        }],
+    )
+
+    async def failing_append_event(event):
+        raise supabase_store.SupabaseError("simulated transient failure")
+
+    monkeypatch.setattr(session_store, "append_event", failing_append_event)
+
+    with pytest.raises(supabase_store.SupabaseError):
+        _run(interview_session.answer(session_id, "I led it end to end."))
+
+    assert fake_store.sessions[session_id] == row_before, (
+        "the session row must be unchanged after a failed event append — "
+        "otherwise a client-visible error can hide a real state change"
+    )
+
+
 def test_answering_a_completed_session_raises(fake_store, monkeypatch):
     fake_store.profile = PROFILE_ROW
     _patch_model_sequence(monkeypatch, [PLAN_REPLY, QUESTION_REPLY])
