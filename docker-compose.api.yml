@@ -30,6 +30,11 @@ services:
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
+      # This file is the production stack (see header comment) — default to
+      # "production" here, not in the app code, so dev-only routes
+      # (/dev/seed-tester-account) fail closed unless something overrides it.
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+
       # AI provider
       LLM_PROVIDER: ${LLM_PROVIDER:-openai}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
