@@ -96,7 +96,15 @@ class _FakeBackend:
 
         if method == "GET":
             matched = self._filtered(table, params)
-            return _FakeResponse(200, payload=matched, headers={"content-range": f"*/{len(matched)}"})
+            total = len(matched)
+            limit = params.get("limit")
+            if limit is not None:
+                matched = matched[: int(limit)]
+            # PostgREST answers 206, not 200, when `limit` truncates the
+            # result below what matched — see session_store.next_sequence's
+            # real 206 bug this fake now models.
+            status = 206 if limit is not None and len(matched) < total else 200
+            return _FakeResponse(status, payload=matched, headers={"content-range": f"*/{total}"})
 
         if method == "POST":
             body = kwargs.get("json")

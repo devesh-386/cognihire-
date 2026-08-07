@@ -110,8 +110,18 @@ class _FakeSupabase:
 
         if method == "GET":
             matched = self._filtered(table, params)
-            return _FakeResponse(200, payload=matched,
-                                  headers={"content-range": f"*/{len(matched)}"})
+            total = len(matched)
+            limit = params.get("limit")
+            if limit is not None:
+                matched = matched[: int(limit)]
+            # PostgREST answers 206 Partial Content, not 200, whenever
+            # `limit` returns fewer rows than actually matched — this is
+            # what caught session_store.next_sequence's real bug (it only
+            # accepted 200) against live Supabase; this fake used to always
+            # return 200 regardless of `limit` and never would have caught it.
+            status = 206 if limit is not None and len(matched) < total else 200
+            return _FakeResponse(status, payload=matched,
+                                  headers={"content-range": f"*/{total}"})
 
         if method == "POST":
             body = kwargs.get("json")
