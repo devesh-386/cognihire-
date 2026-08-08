@@ -147,9 +147,26 @@ def fake_supabase(monkeypatch):
 
 
 @pytest.fixture
-def client(fake_supabase):
+def client(fake_supabase, monkeypatch):
     import main
+    from pipeline import demo_store
+    from security import rate_limit
+
+    rate_limit._reset_for_tests()
+
+    # /interview-codes/generate now resolves the caller's org from a bearer
+    # token (same pattern as /roles) instead of trusting the request body.
+    # This fake fixture has no real GoTrue to authenticate against, so the
+    # token resolution itself is monkeypatched — any "Bearer test-token-org-1"
+    # header resolves to organization_id "org-1", which is all these tests need.
+    async def fake_resolve(token):
+        return {"user_metadata": {"organization_id": token.removeprefix("test-token-")}}
+
+    monkeypatch.setattr(demo_store, "resolve_user_from_token", fake_resolve)
     return TestClient(main.app)
+
+
+_AUTH_ORG_1 = {"Authorization": "Bearer test-token-org-1"}
 
 
 def test_generating_a_code_fires_an_invitation_email(fake_supabase, client):
@@ -157,7 +174,7 @@ def test_generating_a_code_fires_an_invitation_email(fake_supabase, client):
 
     resp = client.post("/interview-codes/generate", json={
         "candidate_id": "cand-1", "organization_id": "org-1", "role_title": "Backend Engineer",
-    })
+    }, headers=_AUTH_ORG_1)
     assert resp.status_code == 200, resp.text
     code_id = resp.json()["id"]
 
@@ -179,7 +196,7 @@ def test_generating_a_code_for_a_candidate_with_no_email_skips_silently(fake_sup
 
     resp = client.post("/interview-codes/generate", json={
         "candidate_id": "cand-2", "organization_id": "org-1", "role_title": "Backend Engineer",
-    })
+    }, headers=_AUTH_ORG_1)
     assert resp.status_code == 200, resp.text
     code_id = resp.json()["id"]
 
@@ -191,7 +208,7 @@ def test_resend_invitation_creates_a_new_attempt(fake_supabase, client):
     fake_supabase.seed_candidate("cand-3", "org-1", "resend@example.com")
     resp = client.post("/interview-codes/generate", json={
         "candidate_id": "cand-3", "organization_id": "org-1", "role_title": "Backend Engineer",
-    })
+    }, headers=_AUTH_ORG_1)
     code_id = resp.json()["id"]
 
     resend_resp = client.post("/interview-codes/resend-invitation", json={"code_id": code_id})

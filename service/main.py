@@ -24,7 +24,7 @@ from typing import Optional
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -38,6 +38,7 @@ from notifications import templates
 from notifications import workflow as email_workflow
 from notifications.provider import get_provider as get_email_provider
 from pipeline import demo_store, profile_builder, supabase_store
+from security import rate_limit
 from session import codes_store, interview_codes, interview_session, session_store
 
 # Ticket 20: without an explicit handler, Python's logging module only ever
@@ -182,13 +183,18 @@ class ProcessResumeRequest(BaseModel):
     candidate_id: str
 
 
-@app.post("/resumes/process")
+@app.post("/resumes/process", dependencies=[Depends(rate_limit.limit("resumes-process", 20))])
 async def process_resume(req: ProcessResumeRequest) -> dict:
     """Run the resume pipeline for one candidate.
 
     Called by the `candidates_resume_uploaded` database trigger when a resume
     lands. Idempotent: re-running re-processes from the PDF and overwrites the
     profile, so a retry after a transient failure is always safe.
+
+    Unauthenticated by design (the DB trigger has no bearer token to send)
+    but this is a real LLM-call path per candidate, so it's rate-limited per
+    client IP as the cheapest available guard against it being hammered
+    directly instead of via the trigger.
     """
     try:
         return await profile_builder.process_candidate_resume(req.candidate_id)
@@ -199,7 +205,11 @@ async def process_resume(req: ProcessResumeRequest) -> dict:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@app.post("/extract-claims", response_model=ClaimExtractResponse)
+@app.post(
+    "/extract-claims",
+    response_model=ClaimExtractResponse,
+    dependencies=[Depends(rate_limit.limit("extract-claims", 10))],
+)
 async def extract_claims(req: ClaimExtractRequest) -> ClaimExtractResponse:
     """The gateway's only claim-extraction entry point.
 
@@ -208,6 +218,11 @@ async def extract_claims(req: ClaimExtractRequest) -> ClaimExtractResponse:
     never by the request body. A candidate-facing client sends a document
     and a source label; nothing else about how the extraction runs is its
     business.
+
+    Unauthenticated (no HR/candidate identity is meaningful here yet) and it
+    is a direct LLM call on arbitrary input, so it's the single most
+    abusable route in this file as a free OpenAI proxy without a rate limit
+    — hence one here even though nothing else about this route changed.
     """
     result = await claim_extraction.extract_claims(req.document_text, req.source)
     return ClaimExtractResponse(
@@ -223,7 +238,6 @@ async def extract_claims(req: ClaimExtractRequest) -> ClaimExtractResponse:
 
 class GenerateCodeRequest(BaseModel):
     candidate_id: str
-    organization_id: str
     role_title: str
     required_skills: list[str] = []
     difficulty: str = "standard"
@@ -244,11 +258,27 @@ class InterviewStartRequest(BaseModel):
 class InterviewAnswerRequest(BaseModel):
     session_id: str
     answer_text: str
+    # The candidate's interview code — the same credential `/interview/start`
+    # took. `session_id` is a real UUID (low guessability) but is not a
+    # secret: it can end up in a browser's history, a referrer header, or a
+    # server log. Requiring the code too means holding a leaked session_id
+    # alone isn't enough to answer or end someone else's interview.
+    code: str
 
 
 class InterviewFinishRequest(BaseModel):
     session_id: str
+    code: str
     reason: str = "interview complete"
+
+
+async def _require_code_owns_session(code: str, session_id: str) -> None:
+    try:
+        code_row = await codes_store.fetch_by_code(code)
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if code_row is None or code_row.get("session_id") != session_id:
+        raise HTTPException(status_code=403, detail="that code does not match this interview session")
 
 
 # Phase 3's reasons map to HTTP status the way a REST API should read: a
@@ -258,18 +288,40 @@ _CODE_ERROR_STATUS = {"not_found": 404}
 
 
 @app.post("/interview-codes/generate")
-async def generate_interview_code(req: GenerateCodeRequest) -> dict:
+async def generate_interview_code(
+    req: GenerateCodeRequest, authorization: str | None = Header(default=None),
+) -> dict:
     """The HR desktop's only way to create a code — centralized here so
     generation is auditable and reusable (a later Google Form automation
     calls the same route), never duplicated client-side.
+
+    Requires the same bearer-token org resolution `/roles` etc. already use.
+    `organization_id` is never trusted from the request body — it's resolved
+    from the token, and the candidate must actually belong to that org — so
+    an authenticated caller can only ever mint a code for their own
+    organization's candidates, never anyone else's. (The form-webhook and
+    demo-seed paths call `session.interview_codes.generate` directly, not
+    this HTTP route, so they're unaffected by this.)
 
     Ticket 21: also fires the invitation email automatically. A failure to
     email is never allowed to fail code generation — the code is real and
     usable either way; the HR desktop's Email Status section is where a
     failed send actually gets surfaced and retried."""
+    organization_id = await _require_org(authorization)
+
+    try:
+        candidate = await supabase_store.fetch_candidate(req.candidate_id)
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if candidate is None or candidate.get("organization_id") != organization_id:
+        # Same response whether the candidate doesn't exist or belongs to
+        # someone else's org — distinguishing the two would let a caller
+        # probe candidate ids across organizations.
+        raise HTTPException(status_code=404, detail="no such candidate")
+
     try:
         code_row = await interview_codes.generate(
-            req.candidate_id, req.organization_id, req.role_title,
+            req.candidate_id, organization_id, req.role_title,
             required_skills=req.required_skills, difficulty=req.difficulty,
             available_minutes=req.available_minutes, max_attempts=req.max_attempts,
             expires_in_hours=req.expires_in_hours, window_start=req.scheduled_at,
@@ -351,6 +403,7 @@ async def interview_start(req: InterviewStartRequest) -> dict:
 async def interview_answer(req: InterviewAnswerRequest) -> dict:
     """Record the candidate's answer to the current question and return the
     next turn — a follow-up, the next topic's question, or completion."""
+    await _require_code_owns_session(req.code, req.session_id)
     try:
         return await interview_session.answer(req.session_id, req.answer_text)
     except interview_session.SessionError as exc:
@@ -360,10 +413,27 @@ async def interview_answer(req: InterviewAnswerRequest) -> dict:
 
 
 @app.get("/interview/report/{session_id}")
-async def interview_report(session_id: str) -> dict:
+async def interview_report(
+    session_id: str, authorization: str | None = Header(default=None),
+) -> dict:
     """The evidence-backed report: one entry per planned topic — claim,
     question(s), evidence quote, verdict, confidence. No score, no ranking.
-    Built entirely from what's already persisted; no model is called."""
+    Built entirely from what's already persisted; no model is called.
+
+    HR-only, same bearer-token org resolution as `/roles` etc. A session_id
+    is a real UUID but not treated as secret elsewhere in this file (see
+    `InterviewAnswerRequest.code`) — without this check, anyone who obtained
+    or guessed one could read a candidate's full interview transcript and
+    verdicts. 404 (not 403) on an org mismatch, so this doesn't reveal
+    whether a given session_id exists at all to someone outside its org."""
+    organization_id = await _require_org(authorization)
+    try:
+        session_row = await session_store.fetch_session(session_id)
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if session_row is None or session_row.get("organization_id") != organization_id:
+        raise HTTPException(status_code=404, detail=f"no session {session_id}")
+
     try:
         return await interview_session.report(session_id)
     except interview_session.SessionError as exc:
@@ -377,6 +447,7 @@ async def interview_finish(req: InterviewFinishRequest) -> dict:
     """Abandon a session early (candidate disconnected, timed out, etc).
     A session that runs its plan to completion finishes itself — this is
     only for cutting one short."""
+    await _require_code_owns_session(req.code, req.session_id)
     try:
         await interview_session.abandon(req.session_id, req.reason)
         return {"session_id": req.session_id, "status": "abandoned"}
@@ -390,7 +461,7 @@ class RegisterInterestRequest(BaseModel):
     email: str
 
 
-@app.post("/register-interest")
+@app.post("/register-interest", dependencies=[Depends(rate_limit.limit("register-interest", 5))])
 async def register_interest(req: RegisterInterestRequest) -> dict:
     """Public: emails the registration form link to whoever asks for it.
 
@@ -439,7 +510,10 @@ class FormRegistrationRequest(BaseModel):
     preferred_time: Optional[datetime] = None
 
 
-@app.post("/candidates/register-from-form")
+@app.post(
+    "/candidates/register-from-form",
+    dependencies=[Depends(rate_limit.limit("candidates-register-from-form", 20))],
+)
 async def register_candidate_from_form(
     req: FormRegistrationRequest,
     x_form_secret: str | None = Header(default=None),
@@ -604,7 +678,12 @@ async def demo_seed_environment() -> dict:
     HR login, three roles, and five candidates with different resume
     profiles, each run through the real resume pipeline. Idempotent —
     existing org/roles/candidates are reused rather than duplicated, so this
-    is safe to call again (e.g. after /demo/reset)."""
+    is safe to call again (e.g. after /demo/reset).
+
+    Same non-production guard as `/dev/seed-tester-account`: this creates
+    real Supabase data and was previously reachable, unauthenticated, in
+    production."""
+    _require_non_production()
     try:
         return await demo_seed.seed_demo_environment()
     except supabase_store.SupabaseError as exc:
@@ -615,7 +694,12 @@ async def demo_seed_environment() -> dict:
 async def demo_reset_environment() -> dict:
     """Clears interview sessions/events/codes for the demo org and re-seeds
     fresh codes, so the same environment can be re-demoed without manual
-    database cleanup. Candidates, profiles, roles, and the org are untouched."""
+    database cleanup. Candidates, profiles, roles, and the org are untouched.
+
+    Same non-production guard as `/dev/seed-tester-account` — this is a
+    destructive, unauthenticated route and was previously reachable in
+    production."""
+    _require_non_production()
     try:
         return await demo_reset.reset_demo_environment()
     except supabase_store.SupabaseError as exc:

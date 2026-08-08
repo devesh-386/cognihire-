@@ -248,9 +248,24 @@ def fake_supabase(monkeypatch):
 
 
 @pytest.fixture
-def client(fake_supabase):
+def client(fake_supabase, monkeypatch):
     import main  # imported here so the fixture's env patches are live first
+    from pipeline import demo_store
+    from security import rate_limit
+
+    rate_limit._reset_for_tests()
+
+    # /interview-codes/generate and /interview/report now resolve the
+    # caller's org from a bearer token — see test_email_routes.py's client
+    # fixture for the same pattern and why it's needed here.
+    async def fake_resolve(token):
+        return {"user_metadata": {"organization_id": token.removeprefix("test-token-")}}
+
+    monkeypatch.setattr(demo_store, "resolve_user_from_token", fake_resolve)
     return TestClient(main.app)
+
+
+_AUTH_E2E_ORG = {"Authorization": "Bearer test-token-e2e-org-1"}
 
 
 def test_full_pipeline_resume_to_hr_report(fake_supabase, client):
@@ -287,7 +302,7 @@ def test_full_pipeline_resume_to_hr_report(fake_supabase, client):
     resp = client.post("/interview-codes/generate", json={
         "candidate_id": "e2e-cand-1", "organization_id": "e2e-org-1",
         "role_title": "Backend Engineer",
-    })
+    }, headers=_AUTH_E2E_ORG)
     assert resp.status_code == 200, resp.text
     code = resp.json()["code"]
     assert len(code) == 8
@@ -311,6 +326,7 @@ def test_full_pipeline_resume_to_hr_report(fake_supabase, client):
     while turn["turn"]["kind"] != "complete" and rounds < 20:
         resp = client.post("/interview/answer", json={
             "session_id": session_id,
+            "code": code,
             "answer_text": "I personally built and led this, working closely "
                             "with the team end to end and shipping it to production.",
         })
@@ -336,7 +352,7 @@ def test_full_pipeline_resume_to_hr_report(fake_supabase, client):
     assert linked_code["status"] == "used"
 
     # --- Stage: Evidence linking + report generation --------------------------
-    resp = client.get(f"/interview/report/{session_id}")
+    resp = client.get(f"/interview/report/{session_id}", headers=_AUTH_E2E_ORG)
     assert resp.status_code == 200, resp.text
     report = resp.json()
     assert report["role_title"] == "Backend Engineer"

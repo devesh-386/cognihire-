@@ -84,10 +84,18 @@ async def generate(
     return row
 
 
-async def start_with_code(code: str) -> dict:
+async def start_with_code(code: str, _retries_left: int = 3) -> dict:
     """Validate a code and either resume its in-progress session or start a
     new one. Raises `CodeError` for every way a code can be unusable —
-    the caller (the gateway route) maps `reason` to an HTTP status."""
+    the caller (the gateway route) maps `reason` to an HTTP status.
+
+    Two simultaneous redemptions of the same code used to both pass the
+    attempts check, both create a session, and race to overwrite the code's
+    `session_id` — a real duplicate-session bug, not hypothetical. The
+    attempts-increment below is now an atomic compare-and-swap
+    (`codes_store.claim_code`) instead of a plain read-then-write; a request
+    that loses the race re-fetches and either resumes the session the winner
+    just created, or retries, rather than creating a second one."""
     row = await codes_store.fetch_by_code(code)
     if row is None:
         raise CodeError("not_found", "That code was not recognized.")
@@ -125,7 +133,17 @@ async def start_with_code(code: str) -> dict:
     if row["attempts_used"] >= row["max_attempts"]:
         raise CodeError("max_attempts_exceeded", "This code has no attempts remaining.")
 
-    await codes_store.update_code(row["id"], {"attempts_used": row["attempts_used"] + 1})
+    claimed = await codes_store.claim_code(row["id"], row["attempts_used"], row["attempts_used"] + 1)
+    if not claimed:
+        # Lost the race: another request claimed this code between our read
+        # and our write. Its session should exist (or be about to) — retry
+        # from the top so we resume it, rather than starting a second one.
+        if _retries_left <= 0:
+            raise CodeError(
+                "conflict",
+                "This code is being redeemed right now — please try again in a moment.",
+            )
+        return await start_with_code(code, _retries_left=_retries_left - 1)
 
     result = await interview_session.start(
         row["candidate_id"], row["organization_id"], row["role_title"],

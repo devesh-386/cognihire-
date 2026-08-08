@@ -82,3 +82,32 @@ async def update_code(code_id: str, fields: dict) -> None:
         )
     if response.status_code not in (200, 204):
         raise SupabaseError(f"code update failed: HTTP {response.status_code} {response.text[:200]}")
+
+
+async def claim_code(code_id: str, expected_attempts_used: int, new_attempts_used: int) -> bool:
+    """Atomic compare-and-swap: bumps `attempts_used` only if the row still
+    has no session AND `attempts_used` still matches what the caller last
+    read. A single PostgREST PATCH is one SQL UPDATE, so the WHERE clause
+    (`session_id=is.null&attempts_used=eq.<expected>`) is evaluated and
+    applied atomically at the database — no separate read-then-write gap for
+    a second, concurrent redemption of the same code to land in.
+
+    Returns True if this call won the race (the row matched and was
+    updated), False if it lost (another request already claimed the code
+    first) — the caller is expected to re-fetch and treat a loss as "someone
+    else is already starting this session."
+    """
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        response = await client.patch(
+            f"{SUPABASE_URL}/rest/v1/interview_codes",
+            headers={**_headers(), "Prefer": "return=representation"},
+            params={
+                "id": f"eq.{code_id}",
+                "session_id": "is.null",
+                "attempts_used": f"eq.{expected_attempts_used}",
+            },
+            json={"attempts_used": new_attempts_used},
+        )
+    if response.status_code not in (200, 204):
+        raise SupabaseError(f"code claim failed: HTTP {response.status_code} {response.text[:200]}")
+    return bool(response.json())
