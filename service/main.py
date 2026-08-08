@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 from datetime import datetime
 from typing import Optional
 
@@ -28,6 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from ai import claim_extraction
+from demo import form_registration
 from demo import reset as demo_reset
 from demo import seed as demo_seed
 from demo import tester_account
@@ -427,6 +429,54 @@ async def register_interest(req: RegisterInterestRequest) -> dict:
             "way. Check your inbox — and your spam folder, just in case."
         ),
     }
+
+
+class FormRegistrationRequest(BaseModel):
+    name: str
+    email: str
+    role_title: str = "General"
+    resume_base64: str
+    preferred_time: Optional[datetime] = None
+
+
+@app.post("/candidates/register-from-form")
+async def register_candidate_from_form(
+    req: FormRegistrationRequest,
+    x_form_secret: str | None = Header(default=None),
+) -> dict:
+    """Called by the Google Form's on-submit Apps Script, not by a browser —
+    this is what the `/register-interest` email link ultimately leads to.
+    Creates the candidate, runs their resume through the real pipeline, and
+    emails them their interview code, all in one call.
+
+    Every self-registered candidate lands in `APPLY_FORM_ORGANIZATION_NAME`
+    (there's no per-role apply link yet, so there's no other way to know
+    which company they mean) — see that env var's comment for how to change
+    it later.
+    """
+    configured_secret = os.environ.get("FORM_WEBHOOK_SECRET", "")
+    if not configured_secret:
+        raise HTTPException(status_code=503, detail="form registration isn't configured")
+    if not x_form_secret or not secrets.compare_digest(x_form_secret, configured_secret):
+        raise HTTPException(status_code=401, detail="invalid or missing form secret")
+
+    organization_name = os.environ.get("APPLY_FORM_ORGANIZATION_NAME", "")
+    if not organization_name:
+        raise HTTPException(status_code=503, detail="APPLY_FORM_ORGANIZATION_NAME isn't configured")
+
+    try:
+        return await form_registration.register_candidate(
+            organization_name=organization_name,
+            name=req.name,
+            email=req.email,
+            role_title=req.role_title,
+            resume_base64=req.resume_base64,
+            preferred_time=req.preferred_time,
+        )
+    except form_registration.FormRegistrationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------

@@ -55,6 +55,14 @@ services:
       # sending an email with a broken link in it.
       APPLY_FORM_URL: ${APPLY_FORM_URL:-}
 
+      # Which org self-registered candidates land in — there's no per-role
+      # apply link yet, so this is the only thing that decides it. The form's
+      # on-submit Apps Script authenticates with FORM_WEBHOOK_SECRET; unset
+      # either one and /candidates/register-from-form 503s instead of
+      # guessing or silently accepting unauthenticated submissions.
+      APPLY_FORM_ORGANIZATION_NAME: ${APPLY_FORM_ORGANIZATION_NAME:-}
+      FORM_WEBHOOK_SECRET: ${FORM_WEBHOOK_SECRET:-}
+
       # Email (Ticket 21). Unset -> NullEmailProvider, which records an
       # honest "not configured" failure rather than pretending to send.
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-smtp}
