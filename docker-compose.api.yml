@@ -63,6 +63,14 @@ services:
       APPLY_FORM_ORGANIZATION_NAME: ${APPLY_FORM_ORGANIZATION_NAME:-}
       FORM_WEBHOOK_SECRET: ${FORM_WEBHOOK_SECRET:-}
 
+      # The canonical auto-invite pipeline: shared secret checked by
+      # POST /internal/candidates/{id}/auto-invite, called by the
+      # candidate_ready_for_interview DB trigger (not by Apps Script or any
+      # browser). Unset -> the trigger no-ops (see 0006's app_config check)
+      # and this endpoint 401s any caller, same fail-closed pattern as
+      # FORM_WEBHOOK_SECRET above.
+      INTERNAL_AUTOINVITE_SECRET: ${INTERNAL_AUTOINVITE_SECRET:-}
+
       # Email (Ticket 21). Unset -> NullEmailProvider, which records an
       # honest "not configured" failure rather than pretending to send.
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-smtp}
