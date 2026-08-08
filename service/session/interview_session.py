@@ -51,8 +51,29 @@ def _plan_from_dict(d: dict) -> QuestionPlan:
     )
 
 
+def _known_fields(cls, d: dict) -> dict:
+    """Keep only the keys `cls` actually declares.
+
+    Sessions outlive the code that wrote them. A plain `Cls(**stored_dict)`
+    raises `TypeError` the moment a field is added or removed, which would
+    break the report of every interview already completed — the one thing a
+    finished interview should be safe from. Unknown keys are dropped and
+    missing ones fall back to the dataclass default.
+    """
+    return {k: v for k, v in d.items() if k in cls.__dataclass_fields__}
+
+
 def _outcomes_from_dict(d: dict) -> dict[str, TopicOutcome]:
-    return {topic: TopicOutcome(**outcome) for topic, outcome in d.items()}
+    outcomes: dict[str, TopicOutcome] = {}
+    for topic, stored in d.items():
+        fields = _known_fields(TopicOutcome, stored)
+        # Rows written before `last_confidence` existed only carry the
+        # high-water mark. Using it here keeps an in-flight session's already
+        # covered topics covered, instead of silently reopening them.
+        if "last_confidence" not in fields:
+            fields["last_confidence"] = fields.get("best_confidence", 0.0)
+        outcomes[topic] = TopicOutcome(**fields)
+    return outcomes
 
 
 def _outcomes_to_dict(outcomes: dict[str, TopicOutcome]) -> dict:
@@ -150,16 +171,23 @@ async def answer(
     prior = outcomes.get(current_topic_name, TopicOutcome(topic=current_topic_name))
     outcomes[current_topic_name] = TopicOutcome(
         topic=current_topic_name,
-        supported=prior.supported or analysis.supported,
+        # The latest verdict wins rather than `prior.supported or ...`: a
+        # follow-up is a better-informed judgement of the same claim and
+        # supersedes the answer it followed, which is already how the report
+        # reads these (see `report_generation.build_report`). The old sticky
+        # OR let a topic contradicted on its follow-up keep counting toward
+        # `completion_percent` while the report called it not supported.
+        supported=analysis.supported,
         attempted=True,
         best_confidence=max(prior.best_confidence, analysis.confidence),
         attempts=prior.attempts + 1,
+        last_confidence=analysis.confidence,
     )
 
     new_coverage = evaluate(plan, outcomes)
     turn = await next_turn(
         plan, new_coverage, last_answer_text=answer_text, last_analysis=analysis,
-        provider_override=provider_override,
+        last_topic=current_topic_name, provider_override=provider_override,
     )
 
     is_complete = turn.kind == TurnKind.COMPLETE
@@ -243,7 +271,7 @@ async def report(session_id: str) -> dict:
         raise SessionError(f"no session {session_id}")
 
     plan = _plan_from_dict(row["question_plan"])
-    coverage = CoverageState(**row["coverage_state"])
+    coverage = CoverageState(**_known_fields(CoverageState, row["coverage_state"]))
     events = await session_store.list_events(session_id)
 
     links = evidence_linking.build_links(plan, events)

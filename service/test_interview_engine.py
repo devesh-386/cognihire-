@@ -14,7 +14,7 @@ import json
 
 import httpx
 
-from ai import provider
+from ai import embeddings, provider
 from ai.answer_analysis import AnswerAnalysis, analyze
 from ai.coverage_manager import CoverageState, TopicOutcome, evaluate, next_topic
 from ai.interview import TurnKind, generate_followup, generate_question, next_turn
@@ -91,7 +91,7 @@ def test_all_unattempted_topics_are_remaining():
 
 
 def test_supported_topic_is_covered():
-    outcomes = {"React dashboard": TopicOutcome("React dashboard", supported=True, attempted=True)}
+    outcomes = {"React dashboard": TopicOutcome("React dashboard", supported=True, attempted=True, last_confidence=0.9)}
     state = evaluate(PLAN, outcomes)
     assert "React dashboard" in state.covered
     assert state.remaining == ["Team leadership"]
@@ -107,7 +107,7 @@ def test_attempted_but_unsupported_stays_remaining_and_is_flagged():
 
 
 def test_all_covered_marks_complete():
-    outcomes = {t.topic: TopicOutcome(t.topic, supported=True, attempted=True) for t in PLAN.topics}
+    outcomes = {t.topic: TopicOutcome(t.topic, supported=True, attempted=True, last_confidence=0.9) for t in PLAN.topics}
     state = evaluate(PLAN, outcomes)
     assert state.is_complete
     assert state.completion_percent == 100
@@ -224,6 +224,26 @@ def test_provider_outage_degrades_to_heuristic_and_always_follows_up(monkeypatch
     assert result.degraded_reason
 
 
+def test_provider_outage_fallback_uses_semantic_similarity_when_available(monkeypatch):
+    """The degraded heuristic used to be pure keyword overlap. With
+    embeddings available it now scores meaning instead — still never claims
+    `supported`, but the confidence reflects the semantic match rather than
+    shared words."""
+    _patch_model(monkeypatch, error=httpx.TimeoutException("slow"))
+
+    async def _fake_embed(text, *, timeout=30, provider_override=None):
+        return {CLAIM: [1.0, 0.0], ANSWER: [0.9, 0.1]}.get(text)
+
+    monkeypatch.setattr(embeddings, "embed", _fake_embed)
+
+    result = _run(analyze(QUESTION, ANSWER, CLAIM))
+
+    assert not result.supported
+    assert result.followup_required
+    assert "semantic-similarity" in result.reason
+    assert result.confidence > 0.5
+
+
 def test_confidence_is_clamped_to_valid_range(monkeypatch):
     _patch_model(
         monkeypatch,
@@ -294,21 +314,94 @@ def test_next_turn_asks_the_first_topic_when_nothing_attempted(monkeypatch):
 
 def test_next_turn_follows_up_when_required(monkeypatch):
     _patch_model(monkeypatch, {"question": "Can you be more specific?"})
-    state = evaluate(PLAN, {})
+    # One recorded attempt, still under the retry cap — the topic just
+    # answered is still the one to pursue, so a follow-up belongs on it.
+    outcomes = {"React dashboard": TopicOutcome(
+        "React dashboard", supported=False, attempted=True, attempts=1, last_confidence=0.2,
+    )}
+    state = evaluate(PLAN, outcomes)
     analysis = AnswerAnalysis(
         supported=False, confidence=0.2, followup_required=True,
         reason="vague", kind="hosted_llm",
     )
 
-    turn = _run(next_turn(PLAN, state, last_answer_text="it was fine", last_analysis=analysis))
+    turn = _run(next_turn(
+        PLAN, state, last_answer_text="it was fine", last_analysis=analysis,
+        last_topic="React dashboard",
+    ))
 
     assert turn.kind == TurnKind.FOLLOWUP
     assert turn.topic == "React dashboard"
 
 
+def test_followup_never_lands_on_a_topic_the_candidate_was_not_asked_about(monkeypatch):
+    """Regression. `next_turn` used to pick the follow-up's topic with
+    `next_topic(...)` — the NEXT topic — while handing the model the PREVIOUS
+    topic's answer and shortfall reason. Any topic that exhausted its
+    attempts (the common path) therefore introduced the following topic as a
+    "you were vague, go deeper" follow-up about something the candidate had
+    never been asked, and evidence_linking filed the next answer under it.
+    """
+    _patch_model(monkeypatch, {"question": "Can you be more specific?"})
+    # "React dashboard" has used both its attempts, so it drops out of
+    # `remaining` and "Team leadership" becomes the topic to pursue.
+    outcomes = {"React dashboard": TopicOutcome(
+        "React dashboard", supported=False, attempted=True, attempts=2, last_confidence=0.1,
+    )}
+    state = evaluate(PLAN, outcomes)
+    assert "React dashboard" not in state.remaining
+    analysis = AnswerAnalysis(
+        supported=False, confidence=0.1, followup_required=True,
+        reason="vague", kind="hosted_llm",
+    )
+
+    turn = _run(next_turn(
+        PLAN, state, last_answer_text="an answer about the React dashboard",
+        last_analysis=analysis, last_topic="React dashboard",
+    ))
+
+    # A fresh question about the new topic — never a follow-up carrying the
+    # previous topic's answer across.
+    assert turn.kind == TurnKind.QUESTION
+    assert turn.topic == "Team leadership"
+
+
+def test_supported_below_the_confidence_bar_is_not_covered():
+    """Regression. `_SUPPORTED_THRESHOLD` was declared, documented as the bar
+    a topic must clear to count as covered, and then never referenced — so a
+    verdict of `supported: true, confidence: 0.05` marked a topic fully
+    covered and the confidence beside it in the report decided nothing."""
+    outcomes = {"React dashboard": TopicOutcome(
+        "React dashboard", supported=True, attempted=True, attempts=1, last_confidence=0.3,
+    )}
+
+    state = evaluate(PLAN, outcomes)
+
+    assert "React dashboard" not in state.covered
+    assert "React dashboard" in state.unsupported
+    assert "React dashboard" in state.remaining  # still worth a second attempt
+
+
+def test_a_high_water_confidence_does_not_cover_a_failing_topic():
+    """`best_confidence` is a display-only high-water mark. Gating on it
+    instead of the latest attempt would let one early confident answer keep a
+    topic covered no matter what followed — the guard for the write side of
+    this rule is `test_session.test_a_later_verdict_replaces_an_earlier_one`.
+    """
+    outcomes = {"React dashboard": TopicOutcome(
+        "React dashboard", supported=False, attempted=True, attempts=2,
+        best_confidence=0.95, last_confidence=0.2,
+    )}
+
+    state = evaluate(PLAN, outcomes)
+
+    assert "React dashboard" not in state.covered
+    assert "React dashboard" in state.unsupported
+
+
 def test_next_turn_moves_on_when_supported(monkeypatch):
     _patch_model(monkeypatch, {"question": "Tell me about leading the team."})
-    outcomes = {"React dashboard": TopicOutcome("React dashboard", supported=True, attempted=True)}
+    outcomes = {"React dashboard": TopicOutcome("React dashboard", supported=True, attempted=True, last_confidence=0.9)}
     state = evaluate(PLAN, outcomes)
     analysis = AnswerAnalysis(supported=True, confidence=0.9, followup_required=False, reason="good", kind="hosted_llm")
 
@@ -324,7 +417,7 @@ def test_next_turn_completes_when_all_covered(monkeypatch):
 
     monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **k: _FakeAsyncClient(responder))
 
-    outcomes = {t.topic: TopicOutcome(t.topic, supported=True, attempted=True) for t in PLAN.topics}
+    outcomes = {t.topic: TopicOutcome(t.topic, supported=True, attempted=True, last_confidence=0.9) for t in PLAN.topics}
     state = evaluate(PLAN, outcomes)
 
     turn = _run(next_turn(PLAN, state))

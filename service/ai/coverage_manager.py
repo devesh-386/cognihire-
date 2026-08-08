@@ -22,13 +22,26 @@ from .question_planning import PlannedTopic, QuestionPlan
 
 @dataclass
 class TopicOutcome:
-    """One topic's state after zero or more turns against it."""
+    """One topic's state after zero or more turns against it.
+
+    `supported`/`last_confidence` describe the MOST RECENT attempt, not the
+    best one ever seen. A follow-up is a second, better-informed judgement of
+    the same claim, so it supersedes the answer it followed — the same rule
+    `report_generation.build_report` applies when it reads `attempts[-1]`.
+    They used to disagree: this carried `supported = prior or current`, so a
+    topic contradicted on its follow-up still counted toward
+    `completion_percent` while the report printed "not supported" for it.
+
+    `best_confidence` is retained as a high-water mark for display only. It
+    decides nothing.
+    """
 
     topic: str
     supported: bool = False
     attempted: bool = False
     best_confidence: float = 0.0
     attempts: int = 0
+    last_confidence: float = 0.0
 
 
 @dataclass
@@ -50,7 +63,17 @@ class CoverageState:
 # A topic counts as covered once an answer against it clears this bar. Below
 # it, the candidate is treated as not yet having substantiated the claim —
 # worth a follow-up rather than moving on.
-_SUPPORTED_THRESHOLD = 0.6
+#
+# This was declared here for a long time and never referenced by anything: a
+# model returning `supported: true, confidence: 0.05` marked a topic fully
+# covered, and the confidence shown beside each verdict in the HR report was
+# decorative. It is now the single bar both `evaluate` below and
+# `report_generation.build_report` apply, so "covered" and "supported" mean
+# the same thing in the percentage and in the report.
+#
+# Public deliberately: a second copy of this number somewhere else is exactly
+# how the two views drifted apart the first time.
+SUPPORTED_THRESHOLD = 0.6
 
 # A topic that still isn't supported after this many attempts stops being
 # retried and is written off as unsupported instead of asked again. Without
@@ -82,7 +105,7 @@ def evaluate(
         outcome = outcomes_by_topic.get(topic.topic)
         if outcome is None or not outcome.attempted:
             remaining.append(topic.topic)
-        elif outcome.supported:
+        elif outcome.supported and outcome.last_confidence >= SUPPORTED_THRESHOLD:
             covered.append(topic.topic)
         else:
             unsupported.append(topic.topic)

@@ -187,6 +187,7 @@ async def next_turn(
     coverage: CoverageState,
     last_answer_text: str | None = None,
     last_analysis: AnswerAnalysis | None = None,
+    last_topic: str | None = None,
     provider_override: str | None = None,
 ) -> InterviewTurn:
     """The single entry point the caller (HTTP layer, once built) drives.
@@ -195,12 +196,29 @@ async def next_turn(
     call — this function does not itself update coverage; the caller re-runs
     `evaluate` after storing the answer and analysis, then calls this again
     for the next turn.
+
+    `last_topic` is the topic the last answer was given against, and it is
+    what makes a follow-up land on the right claim. Without it this function
+    used to follow up on `next_topic(...)` — i.e. the NEXT topic — while
+    handing the model the PREVIOUS topic's answer and shortfall reason. Two
+    routine paths hit that: a supported-but-thin answer, and any topic that
+    exhausted its attempts. Both drop the answered topic out of `remaining`,
+    so the candidate was asked to "go deeper" on a claim they had never been
+    asked about, and `evidence_linking` then filed the next answer under it.
+    A follow-up is only ever a second attempt at the topic just answered, so
+    it is only issued when that topic is still the one to pursue.
     """
     topic = next_topic(plan, coverage)
     if topic is None:
         return InterviewTurn(kind=TurnKind.COMPLETE)
 
-    if last_analysis is not None and last_analysis.followup_required and last_answer_text:
+    still_pursuing_last_topic = last_topic is not None and last_topic == topic.topic
+    if (
+        last_analysis is not None
+        and last_analysis.followup_required
+        and last_answer_text
+        and still_pursuing_last_topic
+    ):
         return await generate_followup(
             topic, last_answer_text, last_analysis, provider_override
         )

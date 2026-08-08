@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 
-from .coverage_manager import CoverageState
+from .coverage_manager import SUPPORTED_THRESHOLD, CoverageState
 from .evidence_linking import EvidenceLink
 from .question_planning import QuestionPlan
 
@@ -77,11 +77,17 @@ def build_report(
             continue
 
         last = attempts[-1]
+        # Same bar `coverage_manager.evaluate` applies, imported rather than
+        # re-stated: a verdict the model flagged supported but was only 0.05
+        # sure of is not evidence, and a report that called it "supported"
+        # while the completion percentage disagreed was the exact drift this
+        # shared constant exists to prevent.
+        cleared = last.supported and last.confidence >= SUPPORTED_THRESHOLD
         topics.append(TopicReport(
             topic=planned.topic,
             claim_text=claim_text,
             objective=planned.objective,
-            outcome="supported" if last.supported else "not_supported",
+            outcome="supported" if cleared else "not_supported",
             confidence=last.confidence,
             evidence_quote=last.evidence_quote,
             reason=last.reason,

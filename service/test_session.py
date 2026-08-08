@@ -268,6 +268,43 @@ def test_answer_unsupported_asks_a_followup_and_stays_in_progress(fake_store, mo
     assert row["current_topic"] == "Team leadership"
 
 
+def test_a_later_verdict_replaces_an_earlier_supported_one(fake_store, monkeypatch):
+    """Regression. `answer` used to record `supported = prior.supported or
+    analysis.supported`, so once a topic was ever marked supported nothing
+    could take it back — while `report_generation` read only the last
+    attempt. A topic contradicted on its follow-up therefore counted toward
+    `completion_percent` while the report printed "not supported" for it.
+
+    The path below is the realistic one: a first answer the model supports
+    but is only 0.3 sure of (so the topic stays open for a follow-up), then a
+    follow-up the model is 0.9 sure is NOT supported. Under the old sticky
+    rule the surviving `supported=True` plus that high confidence marked the
+    topic covered — a confident rejection flipping a claim to substantiated.
+    """
+    fake_store.profile = PROFILE_ROW
+    _patch_model_sequence(monkeypatch, [PLAN_REPLY, QUESTION_REPLY])
+    started = _run(interview_session.start("cand-1", "org-1", "Backend Engineer"))
+    session_id = started["session_id"]
+
+    _patch_model_sequence(monkeypatch, [
+        {"supported": True, "confidence": 0.3, "followup_required": True,
+         "evidence_quote": None, "reason": "Plausible but thin."},
+        {"question": "Can you give a specific example?"},
+    ])
+    _run(interview_session.answer(session_id, "I led the team."))
+
+    _patch_model_sequence(monkeypatch, [
+        {"supported": False, "confidence": 0.9, "followup_required": False,
+         "evidence_quote": None, "reason": "Contradicted the earlier answer."},
+    ])
+    result = _run(interview_session.answer(session_id, "Actually someone else led it."))
+
+    row = fake_store.sessions[session_id]
+    assert row["outcomes"]["Team leadership"]["supported"] is False
+    assert "Team leadership" not in result["coverage"]["covered"]
+    assert "Team leadership" in result["coverage"]["unsupported"]
+
+
 def test_a_failed_event_append_leaves_the_session_row_untouched(fake_store, monkeypatch):
     """Regression test for a real bug found live: the session row used to be
     updated BEFORE events were appended, so a failure appending events (a
