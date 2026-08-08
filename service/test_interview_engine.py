@@ -114,10 +114,14 @@ def test_all_covered_marks_complete():
     assert state.recommended_next is None
 
 
-def test_empty_plan_is_immediately_complete():
+def test_empty_plan_is_complete_but_reports_no_coverage():
+    """An empty plan has no next turn, so it is complete — but it has covered
+    nothing, and used to report 100%. That produced a report reading
+    "complete — 100% of planned topics covered" for a candidate who was never
+    asked a single question."""
     state = evaluate(QuestionPlan(topics=[]), {})
     assert state.is_complete
-    assert state.completion_percent == 100
+    assert state.completion_percent == 0
 
 
 def test_next_topic_resolves_the_planned_topic_object():

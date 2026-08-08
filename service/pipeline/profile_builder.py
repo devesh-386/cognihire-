@@ -132,6 +132,22 @@ async def process_candidate_resume(candidate_id: str) -> dict:
     # (text rules, not a model) but it is real, and the profile records which
     # mechanism produced it — blocking the interview would punish the
     # candidate for our provider being down.
+    #
+    # Nothing verified to ask about is different, and is not ready. This is
+    # the same condition `question_planning.plan` refuses on, checked here so
+    # it fails where a human can see it: READY_FOR_INTERVIEW is what triggers
+    # the auto-invite, so marking this candidate ready would email them a code
+    # for an interview whose plan has no topics — which opens, immediately
+    # completes, and produces a report reading "complete" with nothing asked.
+    # FAILED puts them in the HR dashboard's "Needs attention" list instead,
+    # which is exactly where a resume we could not read anything out of
+    # belongs.
+    if not claims.claims and not profile.grounded_facts:
+        return await fail(
+            "no grounded claims or facts could be extracted from this resume — "
+            "there is nothing verified to build an interview from"
+        )
+
     await supabase_store.upsert_profile(
         candidate_id, org_id, {"processing_status": "READY_FOR_INTERVIEW"}
     )

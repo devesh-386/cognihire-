@@ -195,6 +195,27 @@ def test_start_raises_when_profile_not_ready(fake_store):
         _run(interview_session.start("cand-1", "org-1", "Backend Engineer"))
 
 
+def test_start_refuses_a_plan_with_no_topics(fake_store, monkeypatch):
+    """A session with no topics used to open, immediately complete, and
+    produce a report saying the interview finished — a claim about a
+    candidate that nothing supports. Refused at the point the fabricated
+    report would have been created."""
+    # Ready, but with nothing grounded to interview against — the state
+    # `profile_builder` now refuses to produce, guarded here too because this
+    # is where the fabricated report would be written.
+    fake_store.profile = {
+        "candidate_id": "cand-1",
+        "processing_status": "READY_FOR_INTERVIEW",
+        "knowledge_profile": {},
+        "claims": [],
+    }
+
+    with pytest.raises(interview_session.SessionError):
+        _run(interview_session.start("cand-1", "org-1", "Backend Engineer"))
+
+    assert fake_store.sessions == {}
+
+
 def test_start_builds_a_plan_and_returns_the_first_question(fake_store, monkeypatch):
     fake_store.profile = PROFILE_ROW
     _patch_model_sequence(monkeypatch, [PLAN_REPLY, QUESTION_REPLY])

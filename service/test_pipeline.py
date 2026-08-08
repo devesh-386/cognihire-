@@ -246,6 +246,40 @@ def test_happy_path_walks_the_full_status_sequence(monkeypatch):
     assert result["claim_count"] == 1
 
 
+def test_a_resume_yielding_nothing_grounded_is_not_marked_ready(monkeypatch):
+    """Regression. The pipeline used to mark every candidate whose text
+    extracted READY_FOR_INTERVIEW, even with zero claims and zero grounded
+    facts. READY_FOR_INTERVIEW is what fires the auto-invite, so that emailed
+    the candidate a code for an interview whose plan has no topics — one that
+    opens, immediately completes, and yields a report reading "complete" with
+    not a single question asked. FAILED surfaces it in the HR dashboard's
+    "Needs attention" list instead."""
+    # Real extractable text, so the run genuinely reaches the end of the
+    # pipeline — a blank PDF would fail at text extraction and pass this test
+    # without ever exercising the check it exists for.
+    pdf = _make_pdf([RESUME_TEXT])
+    store = _FakeStore(CANDIDATE, pdf)
+    _patch_pipeline(
+        monkeypatch, store,
+        claim_extraction.ClaimExtraction(claims=[], kind="hosted_llm"),
+    )
+
+    profile_cls = type(_run(profile_builder.resume_understanding.understand("")))
+
+    async def no_facts(text, provider_override=None):
+        return profile_cls(kind="hosted_llm")
+
+    monkeypatch.setattr(profile_builder.resume_understanding, "understand", no_facts)
+
+    result = _run(profile_builder.process_candidate_resume("cand-1"))
+
+    # Got all the way through extraction and structuring before being refused.
+    assert store.statuses[:3] == ["TEXT_EXTRACTED", "STRUCTURED", "CLAIMS_READY"]
+    assert result["status"] == "FAILED"
+    assert "READY_FOR_INTERVIEW" not in store.statuses
+    assert store.statuses[-1] == "FAILED"
+
+
 def test_scanned_pdf_records_failed_and_stops(monkeypatch):
     writer = pypdf.PdfWriter()
     writer.add_blank_page(width=612, height=792)

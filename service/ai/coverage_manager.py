@@ -95,7 +95,12 @@ def evaluate(
     contain.
     """
     if not plan.topics:
-        return CoverageState(is_complete=True, completion_percent=100)
+        # Nothing to ask is not everything answered. This used to report 100%,
+        # so a plan with no grounded claim to build on produced a report
+        # reading "complete — 100% of planned topics covered" without a single
+        # question having been asked. `is_complete` is still true (there is no
+        # next turn), but the percentage now says what actually happened.
+        return CoverageState(is_complete=True, completion_percent=0)
 
     covered: list[str] = []
     unsupported: list[str] = []

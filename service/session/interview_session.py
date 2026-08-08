@@ -114,6 +114,18 @@ async def start(
         required_skills=required_skills, difficulty=difficulty,
         available_minutes=available_minutes, provider_override=provider_override,
     )
+    if not plan.topics:
+        # Refused rather than opened-and-instantly-completed. A session with
+        # no topics produces a report that says the interview finished, which
+        # is a claim about a candidate that nothing supports. `profile_builder`
+        # already marks such a profile FAILED so this should be unreachable —
+        # it is kept as the layer nearest the damage, since this is the point
+        # where a fabricated "complete" report would be created.
+        raise SessionError(
+            plan.degraded_reason
+            or "no grounded claims are available to build an interview from"
+        )
+
     coverage = evaluate(plan, {})
     turn = await next_turn(plan, coverage, provider_override=provider_override)
 
