@@ -59,6 +59,23 @@ async def fetch_by_id(code_id: str) -> dict | None:
     return rows[0] if rows else None
 
 
+async def list_codes_for_org(organization_id: str) -> list[dict]:
+    """Powers the portal's Interviews list' email-status column. Plain
+    per-org scan, same shape as `session_store.list_sessions_for_org` —
+    email status is attached by the caller (`main.py`), not here, to keep
+    this module's job limited to `interview_codes` the way every other list
+    function in this file already is."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        response = await client.get(
+            f"{SUPABASE_URL}/rest/v1/interview_codes",
+            headers=_headers(),
+            params={"organization_id": f"eq.{organization_id}", "select": "*", "order": "created_at.desc"},
+        )
+    if response.status_code != 200:
+        raise SupabaseError(f"code list failed: HTTP {response.status_code}")
+    return response.json()
+
+
 async def fetch_by_session(session_id: str) -> dict | None:
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         response = await client.get(

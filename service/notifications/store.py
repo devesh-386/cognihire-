@@ -47,6 +47,26 @@ async def list_for_code(code_id: str) -> list[dict]:
     return response.json()
 
 
+async def list_invitations_for_org(organization_id: str) -> list[dict]:
+    """One row per code that has an invitation email attempt, for the
+    portal's Interviews list — `organization_id` is a direct column on this
+    table (see the migration), so this doesn't need to join through
+    `interview_codes` first."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        response = await client.get(
+            f"{SUPABASE_URL}/rest/v1/interview_code_emails",
+            headers=_headers(),
+            params={
+                "organization_id": f"eq.{organization_id}",
+                "email_type": "eq.invitation",
+                "select": "*",
+            },
+        )
+    if response.status_code != 200:
+        raise SupabaseError(f"invitation list failed: HTTP {response.status_code}")
+    return response.json()
+
+
 async def list_active_codes() -> list[dict]:
     """Every `interview_codes` row still usable for an interview — the
     scheduler's candidate set. Kept a plain per-row scan (one `find()` call

@@ -230,6 +230,19 @@ async def list_roles(organization_id: str) -> list[dict]:
 
 
 async def list_candidates(organization_id: str) -> list[dict]:
-    return await _get_many("candidates", {
+    """Powers the portal's Candidates list. `processing_status` is attached
+    from `candidate_ai_profile` (a separate table — a candidate row exists
+    before its resume has been processed, so there's no FK to embed) rather
+    than left for the frontend to guess at from `resume_path` alone; `None`
+    means no profile exists yet at all (resume just uploaded, trigger hasn't
+    fired), distinct from an explicit "FAILED" or "READY_FOR_INTERVIEW"."""
+    candidates = await _get_many("candidates", {
         "organization_id": f"eq.{organization_id}", "select": "*", "order": "created_at.desc",
     })
+    profiles = await _get_many("candidate_ai_profile", {
+        "organization_id": f"eq.{organization_id}", "select": "candidate_id,processing_status",
+    })
+    status_by_candidate = {p["candidate_id"]: p["processing_status"] for p in profiles}
+    for candidate in candidates:
+        candidate["processing_status"] = status_by_candidate.get(candidate["id"])
+    return candidates

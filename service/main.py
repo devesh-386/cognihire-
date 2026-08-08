@@ -672,6 +672,28 @@ async def list_reports(authorization: str | None = Header(default=None)) -> dict
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+@app.get("/interview-codes")
+async def list_interview_codes(authorization: str | None = Header(default=None)) -> dict:
+    """Org-scoped code list with invitation email status attached — the
+    portal's Interviews list needs both to answer "was this candidate even
+    emailed, and did it land" without a request per code. Same bearer-token
+    org resolution as every other list route here."""
+    organization_id = await _require_org(authorization)
+    try:
+        codes = await codes_store.list_codes_for_org(organization_id)
+        invitations = await email_store.list_invitations_for_org(organization_id)
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    invitation_by_code = {row["code_id"]: row for row in invitations}
+    for code in codes:
+        invitation = invitation_by_code.get(code["id"])
+        code["invitation_status"] = invitation["status"] if invitation else None
+        code["invitation_error"] = invitation.get("last_error") if invitation else None
+
+    return {"interview_codes": codes}
+
+
 @app.post("/demo/seed")
 async def demo_seed_environment() -> dict:
     """Ticket 19 — one-click demo environment: a fixed demo organization, an
