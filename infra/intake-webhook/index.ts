@@ -125,19 +125,26 @@ Deno.serve(async (req: Request) => {
     }
   }
 
+  // resume_path is only written when this submission actually carried a
+  // resume. Including it unconditionally would send `null` on a
+  // resume-less resubmission and wipe the resume the candidate already
+  // uploaded — and because the resume trigger returns early on a null
+  // resume_path, nothing would reprocess it, leaving them silently stuck
+  // with no AI profile and no route to an interview code.
+  const candidateRow: Record<string, unknown> = {
+    id: candidateId,
+    organization_id: organizationId,
+    name,
+    email,
+    role_id: role.id,
+  };
+  if (resumePath) {
+    candidateRow.resume_path = resumePath;
+  }
+
   const { data: upserted, error: candidateError } = await client
     .from("candidates")
-    .upsert(
-      {
-        id: candidateId,
-        organization_id: organizationId,
-        name,
-        email,
-        resume_path: resumePath,
-        role_id: role.id,
-      },
-      { onConflict: "organization_id,email" },
-    )
+    .upsert(candidateRow, { onConflict: "organization_id,email" })
     .select("id")
     .single();
   if (candidateError) {

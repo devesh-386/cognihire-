@@ -390,13 +390,23 @@ async def auto_invite_candidate(
         raise HTTPException(status_code=422, detail="candidate's role_id does not match any role")
 
     try:
-        existing = await codes_store.find_active_code_for_candidate(candidate_id)
+        existing = await codes_store.find_live_code_for_candidate(candidate_id)
     except supabase_store.SupabaseError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    if existing is not None and existing.get("expires_at") and existing["expires_at"] > datetime.now(
-        timezone.utc
-    ).isoformat():
-        return {"status": "existing", "code_id": existing["id"], "code": existing["code"]}
+    if existing is not None and existing.get("status") == "used":
+        # They already sat the interview. Re-processing their resume (which
+        # is what re-fires this trigger) must not invite them to do it again.
+        return {"status": "already_interviewed", "code_id": existing["id"]}
+    if existing is not None and existing.get("expires_at"):
+        # Parsed, never compared as strings: Postgres renders timestamptz as
+        # "2026-08-11 04:50:14.578971+00" (space, "+00") while Python's
+        # isoformat() gives "...T...+00:00", so a lexicographic compare reads
+        # ' ' < 'T' and calls every code expiring later *today* expired —
+        # which would mint a duplicate code for a candidate who already has a
+        # perfectly good one. Same `fromisoformat` treatment the rest of
+        # session/interview_codes.py already applies to this column.
+        if datetime.fromisoformat(existing["expires_at"]) > datetime.now(timezone.utc):
+            return {"status": "existing", "code_id": existing["id"], "code": existing["code"]}
 
     try:
         code_row = await interview_codes.generate(
