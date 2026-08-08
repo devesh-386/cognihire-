@@ -89,6 +89,10 @@ async def create_role(fields: dict) -> dict:
     return await _insert_one("roles", fields)
 
 
+async def fetch_role(role_id: str) -> dict | None:
+    return await _get_one("roles", {"id": f"eq.{role_id}", "select": "*"})
+
+
 async def find_candidate_by_email(organization_id: str, email: str) -> dict | None:
     return await _get_one("candidates", {
         "organization_id": f"eq.{organization_id}", "email": f"eq.{email}", "select": "*",

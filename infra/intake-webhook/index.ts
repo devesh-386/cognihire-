@@ -1,6 +1,5 @@
 // Ticket 11 — receives one Google Form submission (via the Apps Script
-// trigger in infra/google-form-apps-script.gs) and turns it into a
-// candidate + a scheduled invitation.
+// trigger in infra/google-form-apps-script.gs) and creates a candidate.
 //
 // Auth: this is called by Apps Script, which cannot mint a Supabase user
 // JWT, so verify_jwt is off for this function and a shared secret
@@ -9,6 +8,20 @@
 // is used for the actual writes, deliberately bypassing the org-scoped RLS
 // that protects every other write path in this project, because intake has
 // no signed-in HR session to scope by.
+//
+// Canonicalization note: this function used to generate its own 6-char code
+// and write to a separate `invitations` table, polled by a cron
+// (`reminder-scheduler`) using its own Gmail-SMTP sender — a second,
+// parallel code+email system next to the real one
+// (`session/interview_codes.py` + `notifications/workflow.py`, Ticket 21).
+// That's gone: this function now only creates the candidate (with
+// `role_id` persisted so the AI pipeline knows what role they applied for)
+// and lets the existing `candidates_resume_uploaded` trigger kick off resume
+// processing. Once `candidate_ai_profile.processing_status` reaches
+// READY_FOR_INTERVIEW, the `candidate_ready_for_interview` trigger takes it
+// from there — generating the code and sending the invitation through the
+// one canonical path. The `invitations` table and `reminder-scheduler` are
+// deprecated, not deleted, in case anything still reads them.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -70,20 +83,12 @@ Deno.serve(async (req: Request) => {
     organizationId = orgs[0].id;
   }
 
-  const { name, email, roleTitle, preferredTimeIso, resumeBase64, resumeFilename } = body;
-  if (!name || !email || !roleTitle || !preferredTimeIso) {
+  const { name, email, roleTitle, resumeBase64, resumeFilename } = body;
+  if (!name || !email || !roleTitle) {
     return new Response(
-      JSON.stringify({ error: "missing name, email, roleTitle, or preferredTimeIso" }),
+      JSON.stringify({ error: "missing name, email, or roleTitle" }),
       { status: 400, headers: { "Content-Type": "application/json" } },
     );
-  }
-
-  const scheduledAt = new Date(preferredTimeIso);
-  if (Number.isNaN(scheduledAt.getTime())) {
-    return new Response(JSON.stringify({ error: "preferredTimeIso is not a valid instant" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
   }
 
   const { data: role, error: roleError } = await client
@@ -99,6 +104,11 @@ Deno.serve(async (req: Request) => {
     );
   }
 
+  // Upsert on (organization_id, email): a retried Apps Script trigger (or a
+  // candidate re-submitting the form) resolves to the SAME candidate row
+  // instead of creating a duplicate — this is the fix for the duplicate-
+  // candidate/duplicate-code/duplicate-email gap flagged during integration
+  // review. id is only set on first insert; on conflict it's left alone.
   const candidateId = `cand-intake-${crypto.randomUUID()}`;
   let resumePath: string | null = null;
   if (resumeBase64 && resumeFilename) {
@@ -115,13 +125,21 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  const { error: candidateError } = await client.from("candidates").insert({
-    id: candidateId,
-    organization_id: organizationId,
-    name,
-    email,
-    resume_path: resumePath,
-  });
+  const { data: upserted, error: candidateError } = await client
+    .from("candidates")
+    .upsert(
+      {
+        id: candidateId,
+        organization_id: organizationId,
+        name,
+        email,
+        resume_path: resumePath,
+        role_id: role.id,
+      },
+      { onConflict: "organization_id,email" },
+    )
+    .select("id")
+    .single();
   if (candidateError) {
     return new Response(JSON.stringify({ error: candidateError.message }), {
       status: 500,
@@ -129,41 +147,12 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // Codes are six unambiguous characters (matches the Dart-side
-  // generateInvitationCode alphabet in invitation.dart) — generated now, but
-  // not delivered to the candidate until Ticket 12's reminder-scheduler
-  // sends it at code_send_at.
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const code = Array.from(
-    crypto.getRandomValues(new Uint8Array(6)),
-    (b) => alphabet[b % alphabet.length],
-  ).join("");
-
-  const oneHourMs = 60 * 60 * 1000;
-  const codeSendAt = new Date(scheduledAt.getTime() - oneHourMs);
-  const reminderSendAt = new Date(scheduledAt.getTime() - oneHourMs / 2);
-
-  const invitationId = `inv-intake-${crypto.randomUUID()}`;
-  const { error: invitationError } = await client.from("invitations").insert({
-    id: invitationId,
-    organization_id: organizationId,
-    candidate_id: candidateId,
-    role_id: role.id,
-    code,
-    status: "scheduled",
-    scheduled_at: scheduledAt.toISOString(),
-    code_send_at: codeSendAt.toISOString(),
-    reminder_send_at: reminderSendAt.toISOString(),
-  });
-  if (invitationError) {
-    return new Response(JSON.stringify({ error: invitationError.message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
+  // The candidates_resume_uploaded trigger (0002/0005) fires on this insert
+  // or update (AFTER INSERT OR UPDATE OF resume_path) and kicks off resume
+  // processing; the candidate_ready_for_interview trigger takes it from
+  // READY_FOR_INTERVIEW to a code + invitation email automatically.
   return new Response(
-    JSON.stringify({ ok: true, candidateId, invitationId }),
+    JSON.stringify({ ok: true, candidateId: upserted.id }),
     { status: 201, headers: { "Content-Type": "application/json" } },
   );
 });

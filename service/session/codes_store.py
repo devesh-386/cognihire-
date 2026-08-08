@@ -89,6 +89,29 @@ async def fetch_by_session(session_id: str) -> dict | None:
     return rows[0] if rows else None
 
 
+async def find_active_code_for_candidate(candidate_id: str) -> dict | None:
+    """The auto-invite endpoint's idempotency check: if a candidate already
+    has an active code, generating another would double-invite them. Returns
+    the most recent active row (or None), leaving expiry to the caller since
+    this module has no notion of "now"."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        response = await client.get(
+            f"{SUPABASE_URL}/rest/v1/interview_codes",
+            headers=_headers(),
+            params={
+                "candidate_id": f"eq.{candidate_id}",
+                "status": "eq.active",
+                "select": "*",
+                "order": "created_at.desc",
+                "limit": "1",
+            },
+        )
+    if response.status_code != 200:
+        raise SupabaseError(f"active code lookup failed: HTTP {response.status_code}")
+    rows = response.json()
+    return rows[0] if rows else None
+
+
 async def update_code(code_id: str, fields: dict) -> None:
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         response = await client.patch(

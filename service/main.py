@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import os
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 import cv2
@@ -337,6 +337,89 @@ async def generate_interview_code(
         logger.warning("invitation email skipped for code %s: %s", code_row.get("id"), exc)
 
     return code_row
+
+
+@app.post("/internal/candidates/{candidate_id}/auto-invite")
+async def auto_invite_candidate(
+    candidate_id: str, x_internal_secret: str | None = Header(default=None),
+) -> dict:
+    """Called by the `candidate_ai_profile` trigger the moment a candidate's
+    resume processing reaches READY_FOR_INTERVIEW — the auto-registration
+    counterpart to HR clicking "Generate code" by hand. Reuses the exact same
+    `interview_codes.generate` + `send_invitation_for_code` calls as every
+    other path; this route only adds the plumbing to trigger them from a DB
+    state transition instead of a person.
+
+    Protected by a shared secret rather than a login, same reasoning as
+    `/candidates/register-from-form`: the caller is a Postgres trigger, not a
+    person with a bearer token. Idempotent: a candidate who already has an
+    active code is returned as-is rather than double-invited, so a retried
+    or duplicated trigger firing is harmless."""
+    expected_secret = os.environ.get("INTERNAL_AUTOINVITE_SECRET", "")
+    if not expected_secret or not x_internal_secret or not secrets.compare_digest(
+        x_internal_secret, expected_secret
+    ):
+        raise HTTPException(status_code=401, detail="invalid or missing internal secret")
+
+    try:
+        candidate = await supabase_store.fetch_candidate(candidate_id)
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="no such candidate")
+    organization_id = candidate["organization_id"]
+
+    try:
+        profile = await supabase_store.fetch_profile(candidate_id)
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if profile is None or profile.get("processing_status") != "READY_FOR_INTERVIEW":
+        raise HTTPException(status_code=409, detail="candidate is not ready for interview")
+
+    role_id = candidate.get("role_id")
+    if not role_id:
+        raise HTTPException(
+            status_code=422,
+            detail="candidate has no role_id — cannot determine which role to generate a code for",
+        )
+    try:
+        role = await demo_store.fetch_role(role_id)
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if role is None:
+        raise HTTPException(status_code=422, detail="candidate's role_id does not match any role")
+
+    try:
+        existing = await codes_store.find_active_code_for_candidate(candidate_id)
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if existing is not None and existing.get("expires_at") and existing["expires_at"] > datetime.now(
+        timezone.utc
+    ).isoformat():
+        return {"status": "existing", "code_id": existing["id"], "code": existing["code"]}
+
+    try:
+        code_row = await interview_codes.generate(
+            candidate_id, organization_id, role["title"],
+            required_skills=role.get("required_skills") or [],
+            difficulty="standard", available_minutes=20,
+        )
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    email_status = "skipped"
+    try:
+        if candidate.get("email"):
+            result = await email_workflow.send_invitation_for_code(code_row, candidate)
+            email_status = result.get("status", "unknown")
+    except Exception as exc:  # noqa: BLE001 — a failed email must never fail code generation.
+        logger.warning("auto-invite email skipped for code %s: %s", code_row.get("id"), exc)
+        email_status = "failed"
+
+    return {
+        "status": "created", "code_id": code_row["id"], "code": code_row["code"],
+        "email_status": email_status,
+    }
 
 
 class ResendInvitationRequest(BaseModel):
