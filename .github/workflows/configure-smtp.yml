@@ -1,0 +1,71 @@
+name: Configure SMTP on the Azure VM
+
+# One-off, manually-triggered workflow: writes/updates SMTP_HOST,
+# SMTP_USERNAME, SMTP_PASSWORD in the VM's .env and recreates the api
+# container so it picks the new values up. Not part of the normal deploy
+# path (deploy.yml) — that one deliberately never touches .env, since it
+# also holds the Supabase service-role key and must survive every deploy
+# untouched. This workflow is the one place the values in .env change, and
+# only when a human explicitly runs it.
+#
+# Requires repo secrets SMTP_HOST, SMTP_USERNAME, SMTP_PASSWORD to be set
+# (Settings > Secrets and variables > Actions) before running — the
+# credentials only ever live in GitHub's secret store and the VM's own
+# .env, never in this file or in git history.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  configure-smtp:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH in, update .env, recreate the api container
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.AZURE_VM_HOST }}
+          username: ${{ secrets.AZURE_VM_USER }}
+          key: ${{ secrets.AZURE_VM_SSH_KEY }}
+          script_stop: true
+          envs: SMTP_HOST,SMTP_USERNAME,SMTP_PASSWORD
+          script: |
+            set -e
+            cd ~/CogniHire
+
+            # Idempotent: replace the line if the key already exists (even if
+            # empty, which is how it starts), append it if it's genuinely
+            # never been in this .env before.
+            set_env_var() {
+              local key="$1"
+              local value="$2"
+              if grep -q "^${key}=" .env 2>/dev/null; then
+                sed -i "s#^${key}=.*#${key}=${value}#" .env
+              else
+                echo "${key}=${value}" >> .env
+              fi
+            }
+
+            set_env_var SMTP_HOST "$SMTP_HOST"
+            set_env_var SMTP_USERNAME "$SMTP_USERNAME"
+            set_env_var SMTP_PASSWORD "$SMTP_PASSWORD"
+
+            # force-recreate: `up -d` alone won't restart a container just
+            # because .env changed underneath it — Compose only recreates on
+            # a config diff it can see, and env_file/environment substitution
+            # happens at container-create time, not something it re-diffs.
+            docker compose -f docker-compose.api.yml up -d --force-recreate api
+
+            for i in $(seq 1 30); do
+              if curl -fsS http://localhost:8000/health > /tmp/health.json 2>/dev/null; then
+                break
+              fi
+              echo "waiting for the service to come back up ($i/30)..."
+              sleep 3
+            done
+            cat /tmp/health.json
+            echo
+
+      - name: Confirm the public endpoint is live
+        run: |
+          curl -fsS https://api.cognihire.online/health | tee health.json
+          echo
