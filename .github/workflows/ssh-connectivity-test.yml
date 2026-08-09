@@ -18,12 +18,13 @@ jobs:
           username: ${{ secrets.AZURE_VM_USER }}
           key: ${{ secrets.AZURE_VM_SSH_KEY }}
           debug: true
-          script_stop: true
+          script_stop: false
           envs: SMTP_HOST,SMTP_USERNAME,SMTP_PASSWORD
           script: |
-            set -e
             cd ~/CogniHire
             echo "step 1: cd ok"
+            bash --version | head -1
+            echo "SMTP_HOST is: [$SMTP_HOST] (length ${#SMTP_HOST})"
 
             set_env_var() {
               local key="$1"
@@ -37,14 +38,4 @@ jobs:
             echo "step 2: function defined ok"
 
             set_env_var SMTP_HOST "$SMTP_HOST"
-            echo "step 3: set_env_var SMTP_HOST ok"
-            set_env_var SMTP_USERNAME "$SMTP_USERNAME"
-            echo "step 4: set_env_var SMTP_USERNAME ok"
-            set_env_var SMTP_PASSWORD "$SMTP_PASSWORD"
-            echo "step 5: set_env_var SMTP_PASSWORD ok"
-
-            grep -E "^SMTP_(HOST|USERNAME|PASSWORD)=" .env | sed 's/=.*/=[REDACTED]/'
-            echo "step 6: verified .env contents"
-
-            docker compose -f docker-compose.api.yml up -d --force-recreate api
-            echo "step 7: docker compose ok"
+            echo "step 3: set_env_var SMTP_HOST returned $?"
