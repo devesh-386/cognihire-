@@ -37,12 +37,12 @@ _CACHE_FILE = _CACHE_DIR / "embeddings.json"
 # actually carry the skill/role signal (which tends to front-load).
 _MAX_CHARS = 2000
 
-# Kept modest deliberately: this trains on a local Ollama model with no
-# batching API, so wall-clock scales linearly with row count. 1200 balanced
-# train rows / 400 balanced test rows is enough to fit and honestly evaluate
-# a 1-feature logistic model without a multi-hour run.
-_TRAIN_PER_CLASS = 600
-_TEST_PER_CLASS = 200
+# The full dataset is affordable because its texts repeat heavily across
+# rows: 8000 rows contain only ~1470 unique resumes/job descriptions, and
+# the embedding cache is keyed by text hash — so "use every row" costs
+# ~1470 embed calls, not 16000.
+_TRAIN_PER_CLASS = None
+_TEST_PER_CLASS = None
 
 _CONCURRENCY = 16
 _EMBED_PROVIDER = "ollama"
@@ -50,9 +50,16 @@ _EMBED_PROVIDER = "ollama"
 
 @dataclass(frozen=True)
 class FitExample:
+    # Truncated to _MAX_CHARS — this is what gets embedded, and what the
+    # cache is keyed on. Do not widen without invalidating the cache.
     resume_text: str
     job_description_text: str
     fit: bool
+    # Untruncated. Token/keyword features read these: truncation exists to
+    # bound embedding cost, and there is no matching reason to throw away
+    # the skills section of a long resume when merely counting terms.
+    full_resume_text: str = ""
+    full_job_description_text: str = ""
 
 
 def _binarize(label: str) -> bool:
@@ -63,15 +70,21 @@ def _truncate(text: str) -> str:
     return text[:_MAX_CHARS]
 
 
-def _stratified_sample(rows, per_class: int, seed: int) -> list:
+def _stratified_sample(rows, per_class: int | None, seed: int) -> list:
+    """Class-balances by downsampling the majority class. `per_class=None`
+    balances to whatever the smaller class has, keeping every row it can —
+    balancing matters because 'No Fit' is ~50% of the raw data and an
+    unbalanced fit would be graded against a shifted base rate."""
     rng = random.Random(seed)
     by_label: dict[bool, list] = {True: [], False: []}
     for row in rows:
         by_label[_binarize(row["label"])].append(row)
+
+    limit = per_class if per_class is not None else min(len(b) for b in by_label.values())
     sampled = []
-    for label, bucket in by_label.items():
+    for bucket in by_label.values():
         rng.shuffle(bucket)
-        sampled.extend(bucket[:per_class])
+        sampled.extend(bucket[:limit])
     rng.shuffle(sampled)
     return sampled
 
@@ -93,6 +106,8 @@ def load_examples() -> tuple[list[FitExample], list[FitExample]]:
                 resume_text=_truncate(r["resume_text"]),
                 job_description_text=_truncate(r["job_description_text"]),
                 fit=_binarize(r["label"]),
+                full_resume_text=r["resume_text"],
+                full_job_description_text=r["job_description_text"],
             )
             for r in rows
         ]
@@ -147,15 +162,21 @@ def cosine_similarity(a: List[float], b: List[float]) -> float:
 
 async def build_features(
     examples: Sequence[FitExample],
-) -> tuple[list[float], list[bool]]:
+) -> tuple[list[float], list[bool], list[FitExample]]:
     """Embeds every resume and job description (cached), returns
-    (cosine_similarities, labels) with any row whose embedding failed
-    dropped rather than silently zero-filled."""
+    (cosine_similarities, labels, surviving_examples) with any row whose
+    embedding failed dropped rather than silently zero-filled.
+
+    The surviving examples come back alongside so the caller can compute
+    text-based features over exactly the rows that made it through — the
+    three lists are index-aligned by construction.
+    """
     resume_vectors = await _embed_all([e.resume_text for e in examples])
     job_vectors = await _embed_all([e.job_description_text for e in examples])
 
     similarities: list[float] = []
     labels: list[bool] = []
+    survivors: list[FitExample] = []
     dropped = 0
     for ex, rv, jv in zip(examples, resume_vectors, job_vectors):
         if rv is None or jv is None:
@@ -163,8 +184,9 @@ async def build_features(
             continue
         similarities.append(cosine_similarity(rv, jv))
         labels.append(ex.fit)
+        survivors.append(ex)
 
     if dropped:
         print(f"[resume_fit] dropped {dropped}/{len(examples)} rows (embedding failed)")
 
-    return similarities, labels
+    return similarities, labels, survivors

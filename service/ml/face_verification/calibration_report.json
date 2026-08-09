@@ -1,0 +1,29 @@
+{
+  "datasetSource": "sklearn.datasets.fetch_lfw_pairs (LFW funneled, color)",
+  "caveat": "LFW is a public benchmark of celebrity/public-figure photos, not CogniHire's candidate population. This calibrates a reasonable general threshold, not one validated on real candidates.",
+  "trainPairs": {
+    "genuine": 1100,
+    "impostor": 1100,
+    "dropped": 0
+  },
+  "testPairs": {
+    "genuine": 500,
+    "impostor": 500,
+    "dropped": 0
+  },
+  "calibratedThreshold": 0.12656039630149798,
+  "trainEer": 0.03090909090909091,
+  "testAtCalibratedThreshold": {
+    "far": 0.03,
+    "frr": 0.034,
+    "eer": 0.032,
+    "accuracy": 0.968,
+    "auc": 0.97852
+  },
+  "testAtOldHardcodedThreshold": {
+    "threshold": 0.5,
+    "far": 0.0,
+    "frr": 0.414,
+    "accuracy": 0.793
+  }
+}

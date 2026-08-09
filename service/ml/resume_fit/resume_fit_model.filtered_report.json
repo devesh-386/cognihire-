@@ -1,0 +1,334 @@
+{
+  "note": "Trained only on resumes whose label varies across postings, removing the resume-identity confound diagnose.py found in the full dataset (resume-only baseline there: 0.6064, nearly equal to the full model's 0.6109).",
+  "resumeOnlyBaselineOnFilteredSet": 0.5924050632911393,
+  "trainRows": 5540,
+  "testRows": 1580,
+  "allModels": {
+    "logistic_regression": {
+      "count": 1580,
+      "positiveCount": 790,
+      "auc": 0.6120525556801795,
+      "brier": 0.24322842508388817,
+      "logLoss": 0.6811625194216081,
+      "accuracy": 0.5734177215189873,
+      "expectedCalibrationError": 0.0579804821545481,
+      "reliabilityBins": [
+        {
+          "lowerEdge": 0.0,
+          "upperEdge": 0.1,
+          "count": 0,
+          "meanConfidence": 0.0,
+          "observedAccuracy": 0.0
+        },
+        {
+          "lowerEdge": 0.1,
+          "upperEdge": 0.2,
+          "count": 41,
+          "meanConfidence": 0.1663081894934741,
+          "observedAccuracy": 0.07317073170731707
+        },
+        {
+          "lowerEdge": 0.2,
+          "upperEdge": 0.3,
+          "count": 125,
+          "meanConfidence": 0.26073657220722884,
+          "observedAccuracy": 0.368
+        },
+        {
+          "lowerEdge": 0.3,
+          "upperEdge": 0.4,
+          "count": 265,
+          "meanConfidence": 0.35217674398522647,
+          "observedAccuracy": 0.4641509433962264
+        },
+        {
+          "lowerEdge": 0.4,
+          "upperEdge": 0.5,
+          "count": 367,
+          "meanConfidence": 0.4499909983880367,
+          "observedAccuracy": 0.4604904632152589
+        },
+        {
+          "lowerEdge": 0.5,
+          "upperEdge": 0.6,
+          "count": 361,
+          "meanConfidence": 0.5483223919559765,
+          "observedAccuracy": 0.5096952908587258
+        },
+        {
+          "lowerEdge": 0.6,
+          "upperEdge": 0.7,
+          "count": 261,
+          "meanConfidence": 0.6442204292898481,
+          "observedAccuracy": 0.6168582375478927
+        },
+        {
+          "lowerEdge": 0.7,
+          "upperEdge": 0.8,
+          "count": 115,
+          "meanConfidence": 0.7450992920435985,
+          "observedAccuracy": 0.6695652173913044
+        },
+        {
+          "lowerEdge": 0.8,
+          "upperEdge": 0.9,
+          "count": 41,
+          "meanConfidence": 0.8400619566605028,
+          "observedAccuracy": 0.6097560975609756
+        },
+        {
+          "lowerEdge": 0.9,
+          "upperEdge": 1.0,
+          "count": 4,
+          "meanConfidence": 0.9103141941248297,
+          "observedAccuracy": 0.5
+        }
+      ]
+    },
+    "gradient_boosting": {
+      "count": 1580,
+      "positiveCount": 790,
+      "auc": 0.6439705175452652,
+      "brier": 0.23542648182014145,
+      "logLoss": 0.663203057150085,
+      "accuracy": 0.6,
+      "expectedCalibrationError": 0.04739827178935145,
+      "reliabilityBins": [
+        {
+          "lowerEdge": 0.0,
+          "upperEdge": 0.1,
+          "count": 63,
+          "meanConfidence": 0.06328123384351718,
+          "observedAccuracy": 0.06349206349206349
+        },
+        {
+          "lowerEdge": 0.1,
+          "upperEdge": 0.2,
+          "count": 64,
+          "meanConfidence": 0.15338737707295458,
+          "observedAccuracy": 0.3125
+        },
+        {
+          "lowerEdge": 0.2,
+          "upperEdge": 0.3,
+          "count": 124,
+          "meanConfidence": 0.2511811108982956,
+          "observedAccuracy": 0.3709677419354839
+        },
+        {
+          "lowerEdge": 0.3,
+          "upperEdge": 0.4,
+          "count": 193,
+          "meanConfidence": 0.3532741175546499,
+          "observedAccuracy": 0.37823834196891193
+        },
+        {
+          "lowerEdge": 0.4,
+          "upperEdge": 0.5,
+          "count": 296,
+          "meanConfidence": 0.45540506964645855,
+          "observedAccuracy": 0.5
+        },
+        {
+          "lowerEdge": 0.5,
+          "upperEdge": 0.6,
+          "count": 384,
+          "meanConfidence": 0.5460677172677121,
+          "observedAccuracy": 0.5520833333333334
+        },
+        {
+          "lowerEdge": 0.6,
+          "upperEdge": 0.7,
+          "count": 276,
+          "meanConfidence": 0.6458196157194879,
+          "observedAccuracy": 0.5942028985507246
+        },
+        {
+          "lowerEdge": 0.7,
+          "upperEdge": 0.8,
+          "count": 136,
+          "meanConfidence": 0.7445905358600174,
+          "observedAccuracy": 0.6911764705882353
+        },
+        {
+          "lowerEdge": 0.8,
+          "upperEdge": 0.9,
+          "count": 43,
+          "meanConfidence": 0.8392047348994588,
+          "observedAccuracy": 0.6744186046511628
+        },
+        {
+          "lowerEdge": 0.9,
+          "upperEdge": 1.0,
+          "count": 1,
+          "meanConfidence": 0.9147153613574363,
+          "observedAccuracy": 0.0
+        }
+      ]
+    },
+    "random_forest": {
+      "count": 1580,
+      "positiveCount": 790,
+      "auc": 0.6495433424130749,
+      "brier": 0.2321482706583602,
+      "logLoss": 0.6569407941941781,
+      "accuracy": 0.5930379746835444,
+      "expectedCalibrationError": 0.038461804638004186,
+      "reliabilityBins": [
+        {
+          "lowerEdge": 0.0,
+          "upperEdge": 0.1,
+          "count": 53,
+          "meanConfidence": 0.06792150097968826,
+          "observedAccuracy": 0.1509433962264151
+        },
+        {
+          "lowerEdge": 0.1,
+          "upperEdge": 0.2,
+          "count": 73,
+          "meanConfidence": 0.14887453329745895,
+          "observedAccuracy": 0.2328767123287671
+        },
+        {
+          "lowerEdge": 0.2,
+          "upperEdge": 0.3,
+          "count": 81,
+          "meanConfidence": 0.25909237604913676,
+          "observedAccuracy": 0.2962962962962963
+        },
+        {
+          "lowerEdge": 0.3,
+          "upperEdge": 0.4,
+          "count": 152,
+          "meanConfidence": 0.3559784879812783,
+          "observedAccuracy": 0.3355263157894737
+        },
+        {
+          "lowerEdge": 0.4,
+          "upperEdge": 0.5,
+          "count": 386,
+          "meanConfidence": 0.4565716628331469,
+          "observedAccuracy": 0.5155440414507773
+        },
+        {
+          "lowerEdge": 0.5,
+          "upperEdge": 0.6,
+          "count": 445,
+          "meanConfidence": 0.5474864653130009,
+          "observedAccuracy": 0.5213483146067416
+        },
+        {
+          "lowerEdge": 0.6,
+          "upperEdge": 0.7,
+          "count": 275,
+          "meanConfidence": 0.6417459835924288,
+          "observedAccuracy": 0.6436363636363637
+        },
+        {
+          "lowerEdge": 0.7,
+          "upperEdge": 0.8,
+          "count": 83,
+          "meanConfidence": 0.7454954216573904,
+          "observedAccuracy": 0.6506024096385542
+        },
+        {
+          "lowerEdge": 0.8,
+          "upperEdge": 0.9,
+          "count": 31,
+          "meanConfidence": 0.8313950655931237,
+          "observedAccuracy": 0.8709677419354839
+        },
+        {
+          "lowerEdge": 0.9,
+          "upperEdge": 1.0,
+          "count": 1,
+          "meanConfidence": 0.9024585894390156,
+          "observedAccuracy": 1.0
+        }
+      ]
+    }
+  },
+  "selectedModel": "random_forest",
+  "heldOut": {
+    "count": 1580,
+    "positiveCount": 790,
+    "auc": 0.6495433424130749,
+    "brier": 0.2321482706583602,
+    "logLoss": 0.6569407941941781,
+    "accuracy": 0.5930379746835444,
+    "expectedCalibrationError": 0.038461804638004186,
+    "reliabilityBins": [
+      {
+        "lowerEdge": 0.0,
+        "upperEdge": 0.1,
+        "count": 53,
+        "meanConfidence": 0.06792150097968826,
+        "observedAccuracy": 0.1509433962264151
+      },
+      {
+        "lowerEdge": 0.1,
+        "upperEdge": 0.2,
+        "count": 73,
+        "meanConfidence": 0.14887453329745895,
+        "observedAccuracy": 0.2328767123287671
+      },
+      {
+        "lowerEdge": 0.2,
+        "upperEdge": 0.3,
+        "count": 81,
+        "meanConfidence": 0.25909237604913676,
+        "observedAccuracy": 0.2962962962962963
+      },
+      {
+        "lowerEdge": 0.3,
+        "upperEdge": 0.4,
+        "count": 152,
+        "meanConfidence": 0.3559784879812783,
+        "observedAccuracy": 0.3355263157894737
+      },
+      {
+        "lowerEdge": 0.4,
+        "upperEdge": 0.5,
+        "count": 386,
+        "meanConfidence": 0.4565716628331469,
+        "observedAccuracy": 0.5155440414507773
+      },
+      {
+        "lowerEdge": 0.5,
+        "upperEdge": 0.6,
+        "count": 445,
+        "meanConfidence": 0.5474864653130009,
+        "observedAccuracy": 0.5213483146067416
+      },
+      {
+        "lowerEdge": 0.6,
+        "upperEdge": 0.7,
+        "count": 275,
+        "meanConfidence": 0.6417459835924288,
+        "observedAccuracy": 0.6436363636363637
+      },
+      {
+        "lowerEdge": 0.7,
+        "upperEdge": 0.8,
+        "count": 83,
+        "meanConfidence": 0.7454954216573904,
+        "observedAccuracy": 0.6506024096385542
+      },
+      {
+        "lowerEdge": 0.8,
+        "upperEdge": 0.9,
+        "count": 31,
+        "meanConfidence": 0.8313950655931237,
+        "observedAccuracy": 0.8709677419354839
+      },
+      {
+        "lowerEdge": 0.9,
+        "upperEdge": 1.0,
+        "count": 1,
+        "meanConfidence": 0.9024585894390156,
+        "observedAccuracy": 1.0
+      }
+    ]
+  },
+  "naiveFixedThresholdAccuracy": 0.5164556962025316
+}

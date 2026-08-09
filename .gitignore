@@ -64,6 +64,12 @@ __pycache__/
 # Local embedding cache for training resume_fit — thousands of vectors,
 # regenerable from the HF dataset, not something to version.
 service/ml/resume_fit/cache/
+service/ml/face_verification/cache/
+
+# Trained resume_fit artifact — not yet wired into the app, regenerable via
+# `python -m ml.resume_fit.train`. Reconsider once ai/semantic_similarity.py
+# actually loads it.
+service/ml/resume_fit/resume_fit_model.joblib
 
 # Local session data. The app writes audits and face enrolments to the OS
 # app-support directory, not here — but never let a stray copy be committed:
