@@ -38,6 +38,7 @@
 /// expressed in colour, and this product does not have one.
 library;
 
+import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/material.dart';
 
 /// Spacing scale. 4pt rhythm — every gap in the app should come from here
@@ -337,37 +338,47 @@ abstract final class AppTheme {
     // Explicit type scale rather than Material's defaults. The point is a
     // deliberate step between sizes and a weight hierarchy that carries
     // structure — headings 700, labels 600, body 400.
+    //
+    // Apple type rule: tracking and leading are size-specific and inverse to
+    // each other — the larger the type, the tighter both get. So the display
+    // face carries the most-negative tracking (-0.037em) and the tightest
+    // leading (1.06), easing toward neutral tracking and 1.55 leading on body.
+    // Optical: at 32px a fixed -0.5 was under-tight and 1.2 leading left
+    // headings looking loose next to the tightened portal.
     final text = TextTheme(
       displaySmall: TextStyle(
         fontSize: 32,
-        height: 1.2,
+        height: 1.06,
         fontWeight: FontWeight.w800,
-        letterSpacing: -0.5,
+        letterSpacing: -1.2,
         color: scheme.onSurface,
       ),
       headlineSmall: TextStyle(
         fontSize: 22,
-        height: 1.3,
+        height: 1.15,
         fontWeight: FontWeight.w700,
-        letterSpacing: -0.2,
+        letterSpacing: -0.55,
         color: scheme.onSurface,
       ),
       titleLarge: TextStyle(
         fontSize: 18,
-        height: 1.35,
+        height: 1.25,
         fontWeight: FontWeight.w700,
+        letterSpacing: -0.3,
         color: scheme.onSurface,
       ),
       titleMedium: TextStyle(
         fontSize: 15,
         height: 1.4,
         fontWeight: FontWeight.w600,
+        letterSpacing: -0.15,
         color: scheme.onSurface,
       ),
       titleSmall: TextStyle(
         fontSize: 13.5,
         height: 1.4,
         fontWeight: FontWeight.w600,
+        letterSpacing: -0.1,
         color: scheme.onSurface,
       ),
       // 1.55 line-height on body — inside the 1.5–1.75 readable band.
@@ -420,6 +431,29 @@ abstract final class AppTheme {
       textTheme: text,
       extensions: [evidence, brand],
       visualDensity: VisualDensity.standard,
+
+      // Apple motion rule: route changes read as one continuous, spring-like
+      // move rather than a fade. The shared-axis transition slides along the
+      // horizontal axis with Material 3's emphasised easing (a critically
+      // damped curve, no overshoot) — directional and interruptible, and it
+      // telegraphs where the new screen comes from. `FadeForwardsPageTransitionsBuilder`
+      // is M3's own take on this and falls back to a plain fade under
+      // `MediaQuery.disableAnimations` (which reduce-motion sets), so it needs
+      // no separate reduced-motion branch.
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
+          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.windows: FadeForwardsPageTransitionsBuilder(),
+          TargetPlatform.linux: FadeForwardsPageTransitionsBuilder(),
+        },
+      ),
+
+      // Feedback on press, not release, and quicker to depress than to release
+      // (Apple: the touch-down state should feel instant). A shorter splash
+      // fade-in makes the ripple track the finger rather than lag it.
+      splashFactory: InkSparkle.splashFactory,
 
       appBarTheme: AppBarTheme(
         backgroundColor: scheme.surface,
