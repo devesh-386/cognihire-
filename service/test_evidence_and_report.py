@@ -115,6 +115,50 @@ def test_report_surfaces_rejected_ungrounded_topics():
     assert report.rejected_ungrounded_topics == ["Invented a time machine"]
 
 
+def test_transparency_metrics_reflect_provenance_and_grounding():
+    links = build_links(PLAN, EVENTS)
+    coverage = CoverageState(completion_percent=100, is_complete=True)
+    report = build_report(PLAN, coverage, links, "Backend Engineer", "complete")
+
+    t = report.transparency
+    assert t is not None
+    # Planned by a model, not the fallback.
+    assert t.planned_by == "hosted_llm"
+    assert t.used_ai_planner is True
+    assert t.planning_degraded_reason is None
+    # Two topics survived the gate, one ("Invented a time machine") was
+    # rejected: 2 of 3 proposed → 0.667.
+    assert t.topics_planned == 2
+    assert t.topics_grounding_rejected == 1
+    assert t.grounding_rate == 0.667
+    # Both topics examined; both end supported (leadership's follow-up, the
+    # last attempt, cleared the bar), each with a verbatim evidence quote.
+    assert t.topics_examined == 2
+    assert t.supported == 2
+    assert t.not_supported == 0
+    assert t.topics_with_direct_evidence == 2
+    # Mean of React 0.9 and leadership's last attempt 0.8 = 0.85.
+    assert t.mean_confidence == 0.85
+
+
+def test_transparency_metrics_flag_the_deterministic_fallback():
+    fallback_plan = QuestionPlan(
+        topics=list(PLAN.topics),
+        kind="heuristic_rule",
+        degraded_reason="the provider was unreachable",
+    )
+    report = build_report(fallback_plan, CoverageState(), [], "Backend Engineer", "in_progress")
+
+    t = report.transparency
+    assert t is not None
+    assert t.used_ai_planner is False
+    assert t.planning_degraded_reason == "the provider was unreachable"
+    # Nothing examined yet → no mean confidence, not a fabricated 0.
+    assert t.mean_confidence is None
+    # Nothing was rejected, so grounding is vacuously perfect rather than 0/0.
+    assert t.grounding_rate == 1.0
+
+
 # --- interview_session.report against a fake store ----------------------------
 
 

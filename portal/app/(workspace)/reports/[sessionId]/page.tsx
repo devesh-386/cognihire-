@@ -66,6 +66,10 @@ export default function ReportDetailPage({
               />
             </div>
 
+            {state.data.transparency ? (
+              <TransparencyPanel t={state.data.transparency} />
+            ) : null}
+
             <div className="flex flex-col gap-px overflow-hidden rounded-xl border border-border bg-border">
               {(state.data.topics ?? []).map((topic: any) => {
                 const outcomePill = topic.outcome ? OUTCOME_PILL[topic.outcome] : null
@@ -132,5 +136,95 @@ export default function ReportDetailPage({
         )}
       </WorkspaceBody>
     </>
+  )
+}
+
+type Transparency = {
+  planned_by: string
+  used_ai_planner: boolean
+  planning_degraded_reason: string | null
+  topics_planned: number
+  topics_grounding_rejected: number
+  grounding_rate: number
+  topics_examined: number
+  topics_with_direct_evidence: number
+  supported: number
+  not_supported: number
+  mean_confidence: number | null
+}
+
+const PLANNER_LABEL: Record<string, string> = {
+  hosted_llm: 'Hosted AI model',
+  local_llm: 'Local AI model',
+  heuristic_rule: 'Deterministic fallback',
+}
+
+function TransparencyPanel({ t }: { t: Transparency }) {
+  const stats: { label: string; value: string; hint?: string }[] = [
+    {
+      label: 'Planned by',
+      value: PLANNER_LABEL[t.planned_by] ?? t.planned_by,
+    },
+    {
+      label: 'Grounding rate',
+      value: `${Math.round(t.grounding_rate * 100)}%`,
+      hint:
+        t.topics_grounding_rejected > 0
+          ? `${t.topics_grounding_rejected} proposed topic${t.topics_grounding_rejected === 1 ? '' : 's'} rejected as ungrounded`
+          : 'Every proposed topic traced to a claim',
+    },
+    {
+      label: 'Backed by a quote',
+      value: `${t.topics_with_direct_evidence} / ${t.topics_examined}`,
+      hint: 'Examined topics with a verbatim evidence quote',
+    },
+    {
+      label: 'Mean confidence',
+      value: t.mean_confidence != null ? `${Math.round(t.mean_confidence * 100)}%` : '—',
+      hint: 'Model confidence across examined topics',
+    },
+  ]
+
+  return (
+    <section
+      aria-label="How this report was produced"
+      className="rounded-xl border border-border bg-card px-6 py-5"
+    >
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="label-mono text-muted-foreground">How this report was produced</p>
+        <p className="text-xs text-muted-foreground">
+          Disclosure of process — not a score.
+        </p>
+      </div>
+
+      {!t.used_ai_planner && t.planning_degraded_reason ? (
+        <p className="mt-4 rounded-lg border border-dashed border-border bg-muted px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+          This interview was planned by the deterministic fallback, not an AI
+          model: {t.planning_degraded_reason}. It covers real claims but without
+          a model&apos;s reasoning about which matter most.
+        </p>
+      ) : null}
+
+      <dl className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-4">
+        {stats.map((s) => (
+          <div key={s.label} className="flex flex-col gap-1 bg-card px-4 py-3.5">
+            <dt className="text-xs text-muted-foreground">{s.label}</dt>
+            <dd className="text-lg font-medium tracking-[-0.02em] tabular-nums">
+              {s.value}
+            </dd>
+            {s.hint ? (
+              <dd className="text-[0.6875rem] leading-snug text-muted-foreground">
+                {s.hint}
+              </dd>
+            ) : null}
+          </div>
+        ))}
+      </dl>
+
+      <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+        {t.supported} supported · {t.not_supported} not supported · {t.topics_examined} of{' '}
+        {t.topics_planned} planned topics examined
+      </p>
+    </section>
   )
 }
