@@ -1,0 +1,20 @@
+name: SSH connectivity test (diagnostic, safe to delete)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Minimal SSH echo test
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.AZURE_VM_HOST }}
+          username: ${{ secrets.AZURE_VM_USER }}
+          key: ${{ secrets.AZURE_VM_SSH_KEY }}
+          debug: true
+          script: |
+            echo "connected ok"
+            whoami
+            pwd
