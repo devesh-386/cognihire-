@@ -35,10 +35,10 @@ export function SiteHeader() {
   return (
     <header
       className={cn(
-        'sticky top-0 z-50 border-b transition-colors duration-300',
+        'apple-material sticky top-0 z-50 border-b backdrop-blur-xl backdrop-saturate-150 transition-[background-color,border-color] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)]',
         scrolled
-          ? 'border-border bg-background/85 backdrop-blur-md'
-          : 'border-transparent bg-background',
+          ? 'border-border bg-background/70'
+          : 'border-transparent bg-background/40',
       )}
     >
       <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-5 lg:px-8">

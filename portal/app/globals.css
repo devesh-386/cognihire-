@@ -113,12 +113,40 @@
   body {
     @apply bg-background text-foreground;
     -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
+  /* Apple type rule: tracking and leading are size-specific, never fixed —
+     negative tracking + tight leading grow with size, the inverse on body.
+     Applied at the element level so every heading/paragraph inherits the
+     right pairing without per-component classes. */
   h1,
   h2,
   h3 {
     font-family: var(--font-display);
+    line-height: 1.05;
+    letter-spacing: -0.03em;
   }
+  h1 {
+    letter-spacing: -0.035em;
+  }
+  h4,
+  h5,
+  h6 {
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+  }
+  p {
+    line-height: 1.6;
+    letter-spacing: -0.005em;
+  }
+}
+
+/* Spring-like easing tokens (critically damped, no overshoot for chrome;
+   a gentle overshoot reserved for momentum-driven affordances). Apple rule:
+   springs over fixed keyframes for anything the user can feel. */
+:root {
+  --ease-standard: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
 }
 
 @utility label-mono {
@@ -166,5 +194,22 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* Apple accessibility rules: honour the OS transparency and contrast
+   preferences, not just reduced-motion. */
+@media (prefers-reduced-transparency: reduce) {
+  .apple-material {
+    backdrop-filter: none !important;
+    background-color: var(--background) !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .apple-material {
+    backdrop-filter: none !important;
+    background-color: var(--background) !important;
+    border-color: var(--foreground) !important;
   }
 }
