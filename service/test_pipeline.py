@@ -122,6 +122,49 @@ def test_text_pdf_extracts_successfully():
     result = pdf_extraction.extract_text(_make_pdf([body]))
 
     assert result.ok, result.error
+    # A text PDF never touches the OCR path — nothing to disclose.
+    assert result.used_ocr is False
+
+
+def test_scanned_pdf_falls_back_to_ocr_and_reports_when_unavailable(monkeypatch):
+    """Same scanned-page fixture as the OCR-needed test above, but asserts
+    the specific new behaviour: the fallback is attempted (not skipped), and
+    when the OCR engine itself can't run (as in this test environment, which
+    has no tesseract/poppler installed), that reason is surfaced rather than
+    a generic message."""
+    writer = pypdf.PdfWriter()
+    writer.add_blank_page(width=612, height=792)
+    buf = io.BytesIO()
+    writer.write(buf)
+
+    result = pdf_extraction.extract_text(buf.getvalue())
+
+    assert not result.ok
+    assert result.used_ocr is False
+    assert "OCR" in result.error
+
+
+def test_ocr_recovers_text_when_selectable_layer_is_too_thin(monkeypatch):
+    """Exercises the success path with a stub OCR engine, since the real one
+    needs tesseract/poppler system binaries this test environment doesn't
+    have installed."""
+    import deterministic.pdf_extraction as pdf_extraction_module
+
+    def fake_try_ocr(pdf_bytes):
+        return "Built and shipped a React dashboard used by 200+ staff. " * 4, None
+
+    monkeypatch.setattr(pdf_extraction_module, "_try_ocr", fake_try_ocr)
+
+    writer = pypdf.PdfWriter()
+    writer.add_blank_page(width=612, height=792)
+    buf = io.BytesIO()
+    writer.write(buf)
+
+    result = pdf_extraction.extract_text(buf.getvalue())
+
+    assert result.ok, result.error
+    assert result.used_ocr is True
+    assert "React dashboard" in result.text
     assert "React dashboard" in result.text
     assert result.page_count == 1
 
