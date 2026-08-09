@@ -38,6 +38,7 @@ jobs:
           username: ${{ secrets.AZURE_VM_USER }}
           key: ${{ secrets.AZURE_VM_SSH_KEY }}
           script_stop: true
+          debug: true
           envs: SMTP_HOST,SMTP_USERNAME,SMTP_PASSWORD
           script: |
             set -e
