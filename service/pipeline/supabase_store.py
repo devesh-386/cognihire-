@@ -49,7 +49,7 @@ async def fetch_candidate(candidate_id: str) -> dict | None:
             headers=_headers(),
             params={
                 "id": f"eq.{candidate_id}",
-                "select": "id,organization_id,name,email,resume_path,role_id",
+                "select": "id,organization_id,name,email,resume_path,role_id,preferred_time",
             },
         )
     if response.status_code != 200:

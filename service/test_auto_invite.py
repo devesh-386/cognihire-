@@ -239,6 +239,38 @@ def test_email_provider_failure_does_not_lose_the_code(client, monkeypatch):
     assert body["email_status"] == "failed"
 
 
+def test_preferred_time_becomes_a_window_start_and_end(client, monkeypatch):
+    """Regression: `supabase_store.fetch_candidate` used to select an explicit
+    column list that never included `preferred_time`, so this endpoint always
+    read `None` for it regardless of what the candidate actually submitted
+    through the Google Form intake — every code came out with no time window
+    at all, silently dropping the "valid only for that slot" guarantee."""
+    preferred = datetime.now(timezone.utc) + timedelta(days=3)
+    preferred_pg_style = preferred.isoformat(sep=" ").replace("+00:00", "+00")
+
+    async def fake_fetch_candidate(candidate_id):
+        return {**CANDIDATE, "preferred_time": preferred_pg_style}
+
+    generate_calls = []
+
+    async def fake_generate(candidate_id, organization_id, role_title, **kwargs):
+        generate_calls.append(kwargs)
+        return {"id": "code-1", "code": "ABCD1234", "candidate_id": candidate_id,
+                 "organization_id": organization_id, "role_title": role_title}
+
+    monkeypatch.setattr(supabase_store, "fetch_candidate", fake_fetch_candidate)
+    monkeypatch.setattr(interview_codes, "generate", fake_generate)
+
+    resp = _post(client)
+    assert resp.status_code == 200, resp.text
+
+    assert len(generate_calls) == 1
+    window_start = generate_calls[0]["window_start"]
+    window_end = generate_calls[0]["window_end"]
+    assert window_start is not None
+    assert window_end == window_start + timedelta(hours=1)
+
+
 def test_repeated_trigger_firing_is_idempotent(client, monkeypatch):
     """Simulates the DB trigger firing twice for the same transition (or the
     webhook being retried): the second call must see the first call's code
