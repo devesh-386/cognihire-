@@ -1,7 +1,10 @@
 import 'package:flutter/foundation.dart';
 
 import '../../core/claims/claim.dart';
+import '../../core/claims/claim_audit.dart';
 import '../../core/interview/live_turn_client.dart';
+import '../../core/session/session_event_log.dart';
+import '../../core/verification/verification_result.dart';
 
 /// What the voice screen should be showing right now.
 ///
@@ -40,15 +43,55 @@ class InterviewVoiceController extends ChangeNotifier {
     this.windowTurns = 6,
     this.totalSeconds = 1800,
     DateTime Function() now = DateTime.now,
+
+    /// The candidate's research-release choice, made before this controller
+    /// is constructed. `null` means it was never asked — kept distinct from
+    /// an explicit `false`, since silence about consent must not be read as
+    /// either a grant or a refusal.
+    bool? researchConsentGranted,
   })  : _client = client ?? LiveTurnClient(),
         _now = now,
-        _startedAt = now();
+        _startedAt = now() {
+    _eventLog.append(
+      SessionEventKind.sessionStarted,
+      at: _startedAt,
+      payload: {'claimCount': claims.length},
+    );
+    if (researchConsentGranted != null) {
+      _eventLog.append(
+        SessionEventKind.researchConsentSet,
+        at: _startedAt,
+        payload: {'granted': researchConsentGranted},
+      );
+    }
+  }
 
   final List<Claim> claims;
   final List<String> jobRequirements;
   final LiveTurnClient _client;
   final DateTime Function() _now;
   final DateTime _startedAt;
+
+  /// Tamper-evident record of the session — see
+  /// `core/session/session_event_log.dart`.
+  final SessionEventLog _eventLog = SessionEventLog();
+  SessionEventLog get eventLog => _eventLog;
+
+  final List<VerificationResult> _identityAttempts = [];
+  List<VerificationResult> get identityAttempts =>
+      List.unmodifiable(_identityAttempts);
+
+  /// Per-claim conversational evidence, built as the interview runs rather
+  /// than reconstructed at the end: for each claim id a live turn's `covered`
+  /// names, this records the interviewer's question, whether the model's
+  /// `quote` was verified against the transcript, and the candidate's next
+  /// answer once they give one.
+  final Map<String, List<_ClaimTurnEvidence>> _evidenceByClaim = {};
+
+  /// Claim ids the most recently applied turn covered, carried forward so the
+  /// *next* candidate utterance — the answer to that turn's question — can be
+  /// attached to the right claims before this list is replaced.
+  List<String> _pendingCoveredClaims = [];
 
   /// How many prior turns ride along as context. Bounded deliberately — see
   /// `prompts/README.md`'s "Structural baseline" section: the fixed prompt
@@ -119,9 +162,8 @@ class InterviewVoiceController extends ChangeNotifier {
   /// Feed one candidate utterance in and drive the next turn.
   ///
   /// Safe to call only from [VoicePresence.listening] — the screen is
-  /// expected to disable input otherwise, same convention as
-  /// [InterviewController] gating on session state rather than trusting the
-  /// caller not to double-submit.
+  /// expected to disable input otherwise rather than trusting the caller not
+  /// to double-submit.
   Future<void> submitCandidateUtterance(String text) async {
     if (presence != VoicePresence.listening) return;
     final trimmed = text.trim();
@@ -130,6 +172,20 @@ class InterviewVoiceController extends ChangeNotifier {
     _transcript.add(TranscriptTurn(role: 'candidate', text: trimmed));
     _consecutiveShortAnswers =
         trimmed.split(RegExp(r'\s+')).length < 15 ? _consecutiveShortAnswers + 1 : 0;
+
+    // This utterance answers whatever the previous turn covered — attach it
+    // before that turn's claim ids are overwritten by the one about to run.
+    for (final claimId in _pendingCoveredClaims) {
+      final entries = _evidenceByClaim[claimId];
+      if (entries == null || entries.isEmpty) continue;
+      entries.last.answer = trimmed;
+      _eventLog.append(
+        SessionEventKind.claimAnswered,
+        at: _now(),
+        payload: {'claimId': claimId},
+      );
+    }
+    _pendingCoveredClaims = [];
 
     presence = VoicePresence.thinking;
     currentSay = '';
@@ -180,6 +236,14 @@ class InterviewVoiceController extends ChangeNotifier {
     _transcript.add(TranscriptTurn(role: 'interviewer', text: turn.say));
     _askedIds.add('${_transcript.length}');
     _coveredIds.addAll(turn.covered);
+
+    for (final claimId in turn.covered) {
+      _evidenceByClaim
+          .putIfAbsent(claimId, () => [])
+          .add(_ClaimTurnEvidence(question: turn.say, wasGrounded: turn.wasGrounded));
+    }
+    _pendingCoveredClaims = turn.covered;
+
     _level = (_level + turn.difficultyDelta).clamp(1, 5);
     _turnsSinceAck =
         turn.say.toLowerCase().startsWith(RegExp(r'i see|got it|interesting'))
@@ -195,7 +259,87 @@ class InterviewVoiceController extends ChangeNotifier {
   /// candidate or interviewer can always end it from the controls, same as a
   /// human interviewer ending a call.
   void end() {
+    if (presence != VoicePresence.ended) {
+      _eventLog.append(SessionEventKind.sessionEnded, at: _now());
+    }
     presence = VoicePresence.ended;
     notifyListeners();
   }
+
+  /// Record one identity verification attempt, including unmeasured ones —
+  /// gaps are reported as honestly as successes, never silently dropped.
+  void recordIdentityAttempt(VerificationResult result) {
+    _identityAttempts.add(result);
+    final (outcome, at) = switch (result) {
+      Verified(:final at) => ('verified', at),
+      Mismatch(:final at) => ('mismatch', at),
+      Unchecked(:final at) => ('unchecked', at),
+    };
+    _eventLog.append(
+      SessionEventKind.identityChecked,
+      at: at,
+      payload: {'outcome': outcome},
+    );
+  }
+
+  /// Assemble the audit from the conversation actually held.
+  ///
+  /// A claim never covered by a live turn has no evidence and is
+  /// `notExamined` — silence is reported as silence, never assumed either
+  /// way. A claim that was raised but never answered (the session ended
+  /// right after asking, or it was covered again before a reply landed) is
+  /// `notDemonstrated`. Otherwise a
+  /// claim is `substantiated` once at least one covering turn both quoted
+  /// the candidate's own words (`wasGrounded`) and received a real answer — an
+  /// ungrounded turn's question was rewritten to `newtopic` by
+  /// `LiveTurnClient`, so it never reaches here still claiming to cover
+  /// anything, but the check is kept explicit rather than assumed.
+  ClaimAudit buildAudit({DateTime? at}) {
+    final end = at ?? _now();
+    final evidence = <String, List<ClaimEvidence>>{};
+    final assessments = <String, ClaimStatus>{};
+
+    for (final claim in claims) {
+      final turns = _evidenceByClaim[claim.id];
+      if (turns == null || turns.isEmpty) continue;
+
+      evidence[claim.id] = [
+        for (final t in turns)
+          ClaimEvidence(
+            kind: EvidenceKind.probeResponse,
+            at: end,
+            observation: t.answer == null
+                ? 'Asked (live): "${t.question}" — no response recorded before '
+                    'the session ended.'
+                : 'Asked (live): "${t.question}" — candidate responded: '
+                    '"${t.answer}"${t.wasGrounded ? '' : ' (question could not be grounded in the transcript)'}',
+          ),
+      ];
+
+      assessments[claim.id] =
+          turns.any((t) => t.wasGrounded && (t.answer ?? '').trim().isNotEmpty)
+              ? ClaimStatus.substantiated
+              : ClaimStatus.notDemonstrated;
+    }
+
+    return const ClaimAuditBuilder().build(
+      claims: claims,
+      evidenceByClaimId: evidence,
+      reviewerAssessments: assessments,
+      identityAttempts: _identityAttempts,
+      sessionStart: _startedAt,
+      sessionEnd: end,
+      sessionEventsJsonl: _eventLog.toJsonl(),
+    );
+  }
+}
+
+/// One covering turn's question, whether its quote was verified, and the
+/// candidate's next answer — filled in once they give one.
+class _ClaimTurnEvidence {
+  _ClaimTurnEvidence({required this.question, required this.wasGrounded});
+
+  final String question;
+  final bool wasGrounded;
+  String? answer;
 }

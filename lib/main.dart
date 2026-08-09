@@ -31,7 +31,7 @@ import 'features/common/empty_state.dart';
 import 'features/dashboard/dashboard_screen.dart';
 import 'features/demo/demo_screen.dart';
 import 'features/enrolment/enrolment_screen.dart';
-import 'features/interview/interview_screen.dart';
+import 'features/interview/voice_interview_screen.dart';
 import 'features/interview_sessions/interview_sessions_screen.dart';
 import 'features/invitations/invitations_screen.dart';
 import 'features/reports/reports_screen.dart';
@@ -501,9 +501,10 @@ class _HomeScreenState extends State<HomeScreen> {
   void _startInterview(List<double> embedding) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => InterviewScreen(
+        builder: (_) => VoiceInterviewScreen(
           claims: _draft.effectiveClaims,
           enrolledEmbedding: embedding,
+          jobRequirements: _draft.targetRole?.requiredSkills ?? const [],
           store: widget.store,
           candidateLabel: _draft.sessionTitle,
           researchConsentGranted: _draft.researchConsent,
@@ -543,9 +544,10 @@ class _HomeScreenState extends State<HomeScreen> {
             // still holding the camera.
             Navigator.of(context).pushReplacement(
               MaterialPageRoute(
-                builder: (_) => InterviewScreen(
+                builder: (_) => VoiceInterviewScreen(
                   claims: _draft.effectiveClaims,
                   enrolledEmbedding: capture.embedding,
+                  jobRequirements: _draft.targetRole?.requiredSkills ?? const [],
                   store: widget.store,
                   candidateLabel: _draft.sessionTitle,
                   researchConsentGranted: _draft.researchConsent,

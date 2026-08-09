@@ -144,6 +144,13 @@ def test_every_ai_stage_imports_the_grounding_gate():
                              a link was already gated when the answer that
                              produced it was analyzed
       - report_generation.py reshapes evidence_linking's output; same reason
+      - embeddings.py        transport, like provider.py; returns a raw vector
+                             for a fixed pretrained model, produces no claim
+                             of its own
+      - semantic_similarity.py ranks/matches text that was already gated
+                             upstream (claims from claim_extraction, concepts
+                             defined by the interviewer) — a similarity score
+                             is not a new fact about the candidate
     Every other module in ai/ produces a claim or an inference and must call
     the gate.
     """
@@ -155,6 +162,8 @@ def test_every_ai_stage_imports_the_grounding_gate():
         "interview.py",
         "evidence_linking.py",
         "report_generation.py",
+        "embeddings.py",
+        "semantic_similarity.py",
     }
     missing = []
     for path in _modules_in("ai"):

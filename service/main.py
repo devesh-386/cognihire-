@@ -29,14 +29,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from ai import claim_extraction
-from demo import form_registration
+from candidates import self_registration
 from demo import reset as demo_reset
 from demo import seed as demo_seed
 from demo import tester_account
 from notifications import store as email_store
-from notifications import templates
 from notifications import workflow as email_workflow
-from notifications.provider import get_provider as get_email_provider
 from pipeline import demo_store, profile_builder, supabase_store
 from security import rate_limit
 from session import codes_store, interview_codes, interview_session, session_store
@@ -145,6 +143,22 @@ def health() -> dict:
     `printenv` or waiting for the first real request to 503."""
     from ai.provider import LLM_PROVIDER
 
+    email_kind = os.environ.get("EMAIL_PROVIDER", "smtp")
+    # Mirrors notifications/provider.get_provider()'s own credential check per
+    # kind — this is a report of the same decision, not a second opinion, so
+    # the two must be kept in sync by hand if a provider's required vars change.
+    email_configured = (
+        bool(os.environ.get("SENDGRID_API_KEY")) and bool(os.environ.get("EMAIL_FROM_ADDRESS"))
+        if email_kind == "sendgrid"
+        else bool(os.environ.get("ACS_ENDPOINT"))
+        and bool(os.environ.get("ACS_ACCESS_KEY"))
+        and bool(os.environ.get("EMAIL_FROM_ADDRESS"))
+        if email_kind == "acs"
+        else bool(os.environ.get("SMTP_HOST"))
+        and bool(os.environ.get("SMTP_USERNAME"))
+        and bool(os.environ.get("SMTP_PASSWORD"))
+    )
+
     return {
         "status": "ok",
         "engine_available": _face_app is not None,
@@ -154,6 +168,8 @@ def health() -> dict:
         "supabase_url_set": bool(supabase_store.SUPABASE_URL),
         "supabase_service_role_key_set": bool(supabase_store.SUPABASE_SERVICE_ROLE_KEY),
         "allowed_origins": _allowed_origins,
+        "email_provider": email_kind,
+        "email_provider_configured": email_configured,
     }
 
 
@@ -350,9 +366,9 @@ async def auto_invite_candidate(
     other path; this route only adds the plumbing to trigger them from a DB
     state transition instead of a person.
 
-    Protected by a shared secret rather than a login, same reasoning as
-    `/candidates/register-from-form`: the caller is a Postgres trigger, not a
-    person with a bearer token. Idempotent: a candidate who already has an
+    Protected by a shared secret rather than a login — the caller is a
+    Postgres trigger, not a person with a bearer token. Idempotent: a
+    candidate who already has an
     active code is returned as-is rather than double-invited, so a retried
     or duplicated trigger firing is harmless."""
     expected_secret = os.environ.get("INTERNAL_AUTOINVITE_SECRET", "")
@@ -550,98 +566,59 @@ async def interview_finish(req: InterviewFinishRequest) -> dict:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-class RegisterInterestRequest(BaseModel):
-    email: str
-
-
-@app.post("/register-interest", dependencies=[Depends(rate_limit.limit("register-interest", 5))])
-async def register_interest(req: RegisterInterestRequest) -> dict:
-    """Public: emails the registration form link to whoever asks for it.
-
-    Deliberately says the same thing whether or not the send actually
-    succeeded, and never reveals whether this address is already a candidate
-    — this route is unauthenticated and reachable from the marketing site, so
-    a distinguishable response would make it an email-enumeration oracle. The
-    real outcome is logged server-side instead.
-    """
-    form_url = os.environ.get("APPLY_FORM_URL", "")
-    email = req.email.strip()
-
-    # Cheap sanity check only — real validation is the mail server's job, and
-    # anything stricter here rejects valid addresses.
-    if "@" not in email or len(email) < 5:
-        raise HTTPException(status_code=400, detail="that doesn't look like an email address")
-
-    if not form_url:
-        logger.error("register-interest called but APPLY_FORM_URL is not configured")
-        raise HTTPException(
-            status_code=503,
-            detail="registration isn't available right now — please try again later",
-        )
-
-    message = templates.registration_email(candidate_email=email, form_url=form_url)
-    result = await get_email_provider().send(message)
-    if result.ok:
-        logger.info("registration link sent to %s", email)
-    else:
-        logger.warning("registration link to %s failed: %s", email, result.error)
-
+@app.get(
+    "/roles/{role_id}/apply-info",
+    dependencies=[Depends(rate_limit.limit("roles-apply-info", 30))],
+)
+async def role_apply_info(role_id: str) -> dict:
+    """Public: lets the portal's apply page show "You're applying for
+    {role} at {organization}" before the candidate submits anything. Deliberately
+    minimal — title and org name only, never required_skills or notes, since
+    this is reachable by anyone with the link."""
+    try:
+        role = await demo_store.fetch_role(role_id)
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if role is None:
+        raise HTTPException(status_code=404, detail="that application link is no longer valid")
+    try:
+        org = await demo_store.fetch_organization(role["organization_id"])
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {
-        "status": "ok",
-        "message": (
-            f"If {email} is a valid address, the registration link is on its "
-            "way. Check your inbox — and your spam folder, just in case."
-        ),
+        "role_title": role["title"],
+        "organization_name": org["name"] if org else "",
     }
 
 
-class FormRegistrationRequest(BaseModel):
+class SelfRegisterRequest(BaseModel):
+    role_id: str
     name: str
     email: str
-    role_title: str = "General"
     resume_base64: str
     preferred_time: Optional[datetime] = None
 
 
 @app.post(
-    "/candidates/register-from-form",
-    dependencies=[Depends(rate_limit.limit("candidates-register-from-form", 20))],
+    "/candidates/apply",
+    dependencies=[Depends(rate_limit.limit("candidates-apply", 10))],
 )
-async def register_candidate_from_form(
-    req: FormRegistrationRequest,
-    x_form_secret: str | None = Header(default=None),
-) -> dict:
-    """Called by the Google Form's on-submit Apps Script, not by a browser —
-    this is what the `/register-interest` email link ultimately leads to.
-    Creates the candidate, runs their resume through the real pipeline, and
-    emails them their interview code, all in one call.
-
-    Every self-registered candidate lands in `APPLY_FORM_ORGANIZATION_NAME`
-    (there's no per-role apply link yet, so there's no other way to know
-    which company they mean) — see that env var's comment for how to change
-    it later.
-    """
-    configured_secret = os.environ.get("FORM_WEBHOOK_SECRET", "")
-    if not configured_secret:
-        raise HTTPException(status_code=503, detail="form registration isn't configured")
-    if not x_form_secret or not secrets.compare_digest(x_form_secret, configured_secret):
-        raise HTTPException(status_code=401, detail="invalid or missing form secret")
-
-    organization_name = os.environ.get("APPLY_FORM_ORGANIZATION_NAME", "")
-    if not organization_name:
-        raise HTTPException(status_code=503, detail="APPLY_FORM_ORGANIZATION_NAME isn't configured")
-
+async def candidate_apply(req: SelfRegisterRequest) -> dict:
+    """Public: a candidate applying directly from the portal, no Google Form
+    or Apps Script involved. See `candidates/self_registration.py` for the
+    actual pipeline — this route only maps its errors to HTTP status."""
     try:
-        return await form_registration.register_candidate(
-            organization_name=organization_name,
+        return await self_registration.register_candidate(
+            role_id=req.role_id,
             name=req.name,
             email=req.email,
-            role_title=req.role_title,
             resume_base64=req.resume_base64,
             preferred_time=req.preferred_time,
         )
-    except form_registration.FormRegistrationError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except self_registration.SelfRegistrationError as exc:
+        message = str(exc)
+        status_code = 404 if "application link" in message else 400
+        raise HTTPException(status_code=status_code, detail=message) from exc
     except supabase_store.SupabaseError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

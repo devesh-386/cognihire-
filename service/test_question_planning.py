@@ -12,7 +12,7 @@ import json
 
 import httpx
 
-from ai import provider, question_planning
+from ai import embeddings, provider, question_planning
 from ai.knowledge_profile import CandidateKnowledgeProfile, Inference
 
 CLAIMS = [
@@ -248,6 +248,47 @@ def test_provider_outage_falls_back_to_claim_order(monkeypatch):
     assert "time" in result.degraded_reason
     assert [t.topic for t in result.topics] == CLAIMS
     assert all(t.grounded_in for t in result.topics)
+
+
+def test_provider_outage_orders_fallback_by_relevance_to_required_skills(monkeypatch):
+    """The fallback plan is claim-order by default (see
+    test_provider_outage_falls_back_to_claim_order), but when required_skills
+    are given and embeddings are available, the more relevant claim goes
+    first — this is the "ML-based question selection" the heuristic path
+    otherwise has no way to do."""
+    _patch_model(monkeypatch, error=httpx.TimeoutException("slow"))
+
+    vectors = {
+        "Rust": [0.0, 1.0],
+        "Built and shipped a React dashboard used by 200+ staff.": [0.1, 0.9],
+        "Led a team of 4 engineers.": [1.0, 0.0],
+    }
+
+    async def _fake_embed(text, *, timeout=30, provider_override=None):
+        return vectors.get(text)
+
+    monkeypatch.setattr(embeddings, "embed", _fake_embed)
+
+    result = _run(_plan(available_minutes=20, required_skills=["Rust"]))
+
+    assert result.kind == "heuristic_rule"
+    assert [t.topic for t in result.topics] == [
+        "Built and shipped a React dashboard used by 200+ staff.",
+        "Led a team of 4 engineers.",
+    ]
+
+
+def test_provider_outage_with_unavailable_embeddings_keeps_claim_order(monkeypatch):
+    _patch_model(monkeypatch, error=httpx.TimeoutException("slow"))
+
+    async def _always_none(text, *, timeout=30, provider_override=None):
+        return None
+
+    monkeypatch.setattr(embeddings, "embed", _always_none)
+
+    result = _run(_plan(available_minutes=20, required_skills=["Rust"]))
+
+    assert [t.topic for t in result.topics] == CLAIMS
 
 
 def test_malformed_json_falls_back(monkeypatch):

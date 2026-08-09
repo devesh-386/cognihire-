@@ -75,6 +75,10 @@ async def find_organization_by_name(name: str) -> dict | None:
     return await _get_one("organizations", {"name": f"eq.{name}", "select": "*"})
 
 
+async def fetch_organization(organization_id: str) -> dict | None:
+    return await _get_one("organizations", {"id": f"eq.{organization_id}", "select": "*"})
+
+
 async def create_organization(name: str) -> dict:
     return await _insert_one("organizations", {"name": name})
 

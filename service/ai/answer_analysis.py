@@ -24,7 +24,7 @@ from dataclasses import asdict, dataclass
 
 from deterministic import grounding
 
-from . import provider
+from . import embeddings, provider
 
 logger = logging.getLogger("cognihire.ai.answer_analysis")
 
@@ -65,22 +65,42 @@ class AnswerAnalysis:
         return asdict(self)
 
 
-def _fallback(answer_text: str, claim_text: str, reason: str) -> AnswerAnalysis:
-    """Keyword-overlap heuristic: crude, but honest about being weak.
+async def _fallback(answer_text: str, claim_text: str, reason: str) -> AnswerAnalysis:
+    """Semantic-similarity heuristic: weaker than the model's judgement, but
+    reads meaning instead of counting shared words.
 
     Never claims support with confidence — a degraded verdict always asks for
     a follow-up, because the alternative (silently accepting a claim on a
-    heuristic this shallow) is worse than one extra question.
+    heuristic this shallow) is worse than one extra question. If embeddings
+    are also unavailable, this falls back further to plain keyword overlap
+    rather than reporting zero relevance for an answer nobody actually
+    compared to anything.
     """
-    claim_words = {w.lower() for w in claim_text.split() if len(w) > 3}
-    answer_words = {w.lower() for w in answer_text.split() if len(w) > 3}
-    overlap = claim_words & answer_words
+    claim_vec = await embeddings.embed(claim_text)
+    answer_vec = await embeddings.embed(answer_text)
+    similarity = (
+        embeddings.cosine_similarity(claim_vec, answer_vec)
+        if claim_vec is not None and answer_vec is not None
+        else None
+    )
+
+    if similarity is not None:
+        # Clamp to [0, 1]: a confidence score, not a signed similarity —
+        # a negative cosine (opposite meaning) is exactly as unconvincing
+        # as no relation at all.
+        confidence = max(0.0, min(1.0, similarity))
+        check = "an unverified semantic-similarity check, not a judgement"
+    else:
+        claim_words = {w.lower() for w in claim_text.split() if len(w) > 3}
+        answer_words = {w.lower() for w in answer_text.split() if len(w) > 3}
+        confidence = 0.2 if claim_words & answer_words else 0.0
+        check = "an unverified keyword check, not a judgement"
 
     return AnswerAnalysis(
         supported=False,
-        confidence=0.2 if overlap else 0.0,
+        confidence=confidence,
         followup_required=True,
-        reason="the model was unavailable; this is an unverified keyword check, not a judgement",
+        reason=f"the model was unavailable; this is {check}",
         kind="heuristic_rule",
         degraded_reason=reason,
     )
@@ -111,11 +131,11 @@ async def analyze(
         _INSTRUCTION, user_message, timeout=30, provider=provider_override
     )
     if not reply.ok:
-        return _fallback(answer_text, claim_text, reply.error)
+        return await _fallback(answer_text, claim_text, reply.error)
 
     parsed = provider.parse_json_object(reply.content)
     if parsed is None:
-        return _fallback(
+        return await _fallback(
             answer_text, claim_text, f"the {reply.provider} model returned malformed JSON"
         )
 

@@ -41,7 +41,7 @@ from dataclasses import asdict, dataclass, field
 
 from deterministic import grounding
 
-from . import provider
+from . import embeddings, provider
 from .knowledge_profile import CandidateKnowledgeProfile
 
 logger = logging.getLogger("cognihire.ai.question_planning")
@@ -115,20 +115,53 @@ class QuestionPlan:
         return asdict(self)
 
 
-def _fallback(
-    claims: list[str], available_minutes: int, reason: str | None
-) -> QuestionPlan:
-    """Deterministic plan: cover the claims in the order they were extracted.
+async def _order_by_relevance(claims: list[str], required_skills: list[str]) -> list[str]:
+    """Rank claims by semantic similarity to the required skills, most
+    relevant first — ML-based topic selection for the path with no planner
+    model to ask. Falls back to `claims` unchanged (its original, extracted
+    order) if `required_skills` is empty or any embedding is unavailable: a
+    partial, half-scored reordering would be worse than none, since it would
+    look deliberate while actually being arbitrary for the un-embedded half.
+    """
+    if not required_skills:
+        return claims
 
-    Weaker than a planned interview — it has no notion of what matters for the
-    role — but it is real coverage of real claims, and it means a provider
-    outage costs interview *quality* rather than costing the candidate their
-    interview.
+    skill_vectors = await embeddings.embed_many(required_skills)
+    if any(v is None for v in skill_vectors):
+        return claims
+
+    claim_vectors = await embeddings.embed_many(claims)
+    if any(v is None for v in claim_vectors):
+        return claims
+
+    def relevance(claim_vec: list[float]) -> float:
+        scores = [embeddings.cosine_similarity(claim_vec, s) for s in skill_vectors]
+        return max((s for s in scores if s is not None), default=-1.0)
+
+    scored = sorted(zip(claims, claim_vectors), key=lambda pair: relevance(pair[1]), reverse=True)
+    return [claim for claim, _ in scored]
+
+
+async def _fallback(
+    claims: list[str],
+    available_minutes: int,
+    reason: str | None,
+    required_skills: list[str] | None = None,
+) -> QuestionPlan:
+    """Deterministic plan: cover the claims most relevant to the role first,
+    falling back to extraction order when relevance can't be scored.
+
+    Weaker than a planned interview — it has no notion of *why* a claim
+    matters beyond keyword-free similarity to the required skills — but it is
+    real coverage of real claims, and it means a provider outage costs
+    interview *quality* rather than costing the candidate their interview.
     """
     if not claims:
         return QuestionPlan(kind="heuristic_rule", degraded_reason=reason)
 
-    count = min(len(claims), max(1, available_minutes // 5))
+    ordered = await _order_by_relevance(claims, required_skills or [])
+
+    count = min(len(ordered), max(1, available_minutes // 5))
     per_topic = max(1, available_minutes // count) if count else available_minutes
 
     topics = [
@@ -138,7 +171,7 @@ def _fallback(
             grounded_in=[claim],
             minutes=per_topic,
         )
-        for claim in claims[:count]
+        for claim in ordered[:count]
     ]
 
     return QuestionPlan(
@@ -232,20 +265,24 @@ async def plan(
         provider=provider_override,
     )
     if not reply.ok:
-        return _fallback(claims, available_minutes, reply.error)
+        return await _fallback(claims, available_minutes, reply.error, required_skills)
 
     parsed = provider.parse_json_object(reply.content)
     if parsed is None:
-        return _fallback(
-            claims, available_minutes, f"the {reply.provider} model returned malformed JSON"
+        return await _fallback(
+            claims,
+            available_minutes,
+            f"the {reply.provider} model returned malformed JSON",
+            required_skills,
         )
 
     raw_topics = parsed.get("topics")
     if not isinstance(raw_topics, list):
-        return _fallback(
+        return await _fallback(
             claims,
             available_minutes,
             f"the {reply.provider} model did not return a topics list",
+            required_skills,
         )
 
     # A topic may only be grounded in something the candidate actually
@@ -292,10 +329,11 @@ async def plan(
         )
 
     if not topics:
-        return _fallback(
+        return await _fallback(
             claims,
             available_minutes,
             f"the {reply.provider} model produced no topics tied to a verified claim",
+            required_skills,
         )
 
     raw_coverage = parsed.get("coverage")

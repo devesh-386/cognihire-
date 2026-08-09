@@ -31,6 +31,9 @@ OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
 
+OLLAMA_EMBED_MODEL = os.environ.get("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+OPENAI_EMBED_MODEL = os.environ.get("OPENAI_EMBED_MODEL", "text-embedding-3-small")
+
 # Rate limiting (429) and momentary 5xx are exactly the responses a retry can
 # fix; anything else (400, 401, a malformed body) means retrying would just
 # get the same answer, so those still degrade on the first response.
@@ -193,3 +196,66 @@ def parse_json_object(reply_content: str) -> dict | None:
 def kind_for(provider: str) -> str:
     """The `*_llm` label recorded on a profile for this provider."""
     return "local_llm" if provider == "ollama" else "hosted_llm"
+
+
+async def _ollama_embed(text: str, timeout: int) -> list[float] | None:
+    try:
+        async with httpx.AsyncClient(timeout=max(timeout, 60)) as client:
+            response = await client.post(
+                f"{OLLAMA_BASE_URL}/api/embeddings",
+                json={"model": OLLAMA_EMBED_MODEL, "prompt": text},
+            )
+    except httpx.HTTPError:
+        return None
+
+    if response.status_code != 200:
+        return None
+
+    try:
+        vector = response.json()["embedding"]
+    except (KeyError, ValueError):
+        return None
+    if not isinstance(vector, list) or not vector:
+        return None
+    return [float(x) for x in vector]
+
+
+async def _openai_embed(text: str, timeout: int) -> list[float] | None:
+    if not OPENAI_API_KEY:
+        return None
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                f"{OPENAI_BASE_URL}/embeddings",
+                headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+                json={"model": OPENAI_EMBED_MODEL, "input": text},
+            )
+    except httpx.HTTPError:
+        return None
+
+    if response.status_code != 200:
+        return None
+
+    try:
+        vector = response.json()["data"][0]["embedding"]
+    except (KeyError, IndexError, ValueError):
+        return None
+    if not isinstance(vector, list) or not vector:
+        return None
+    return [float(x) for x in vector]
+
+
+async def embed(text: str, timeout: int = 30, provider: str | None = None) -> list[float] | None:
+    """Ask the configured model for a text embedding. Never raises.
+
+    Same shape as `chat_json`: an unreachable or unconfigured provider
+    returns None rather than raising, so callers (`ai/embeddings.py`)
+    degrade instead of crashing a request.
+    """
+    if not text or not text.strip():
+        return None
+    active = provider or LLM_PROVIDER
+    if active == "ollama":
+        return await _ollama_embed(text, timeout)
+    return await _openai_embed(text, timeout)

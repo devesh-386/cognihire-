@@ -3,6 +3,8 @@ import 'dart:convert';
 
 import 'package:cognihire/core/claims/claim.dart';
 import 'package:cognihire/core/interview/live_turn_client.dart';
+import 'package:cognihire/core/session/session_event_log.dart';
+import 'package:cognihire/core/verification/verification_result.dart';
 import 'package:cognihire/features/interview/interview_voice_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -198,5 +200,129 @@ void main() {
     gate.complete();
     await first;
     expect(controller.transcript, hasLength(2));
+  });
+
+  // --- Audit building ---------------------------------------------------
+
+  test('a covered, grounded, answered claim is substantiated', () async {
+    final controller = InterviewVoiceController(
+      claims: const [_claim],
+      jobRequirements: const [],
+      client: LiveTurnClient(
+        client: _alwaysReturning({
+          'say': 'How did you handle authentication?',
+          'kind': 'followup',
+          'quote': 'using Django',
+          'difficulty_delta': 0,
+          'covered': ['c1'],
+          'why': 'Depth probe.',
+        }),
+      ),
+    );
+
+    await controller
+        .submitCandidateUtterance('I built it using Django and Postgres.');
+    // This answers the turn c1's question raised — it lands via the *next*
+    // submission, same as a real back-and-forth.
+    await controller.submitCandidateUtterance('Session-based auth with Django.');
+
+    final audit = controller.buildAudit();
+    final finding = audit.findings.firstWhere((f) => f.claim.id == 'c1');
+    expect(finding.status, ClaimStatus.substantiated);
+    // Two evidence entries: the mock re-covers c1 on every turn, so the
+    // second (still-unanswered) covering turn is also on record — a claim
+    // being substantiated does not erase the fact it was asked about twice.
+    expect(finding.evidence, hasLength(2));
+    expect(finding.evidence.first.observation, contains('Session-based auth'));
+  });
+
+  test('a covered claim with no reply yet is notDemonstrated, not substantiated',
+      () async {
+    final controller = InterviewVoiceController(
+      claims: const [_claim],
+      jobRequirements: const [],
+      client: LiveTurnClient(
+        client: _alwaysReturning({
+          'say': 'How did you handle authentication?',
+          'kind': 'followup',
+          'quote': 'using Django',
+          'difficulty_delta': 0,
+          'covered': ['c1'],
+          'why': 'Depth probe.',
+        }),
+      ),
+    );
+
+    await controller
+        .submitCandidateUtterance('I built it using Django and Postgres.');
+
+    final audit = controller.buildAudit();
+    final finding = audit.findings.firstWhere((f) => f.claim.id == 'c1');
+    expect(finding.status, ClaimStatus.notDemonstrated);
+    expect(finding.evidence.single.observation, contains('no response recorded'));
+  });
+
+  test('a claim never covered is notExamined', () async {
+    final controller = InterviewVoiceController(
+      claims: const [_claim],
+      jobRequirements: const [],
+      client: LiveTurnClient(
+        client: _alwaysReturning({
+          'say': 'Tell me about the React app instead.',
+          'kind': 'newtopic',
+          'quote': '',
+          'difficulty_delta': 0,
+          'covered': [],
+          'why': 'Opening a different topic.',
+        }),
+      ),
+    );
+
+    await controller.submitCandidateUtterance('Sure.');
+
+    final audit = controller.buildAudit();
+    final finding = audit.findings.firstWhere((f) => f.claim.id == 'c1');
+    expect(finding.status, ClaimStatus.notExamined);
+    expect(finding.evidence, isEmpty);
+  });
+
+  test('recordIdentityAttempt feeds the audit and event log', () async {
+    final controller = InterviewVoiceController(
+      claims: const [_claim],
+      jobRequirements: const [],
+      client: LiveTurnClient(client: _failingWith(503)),
+    );
+
+    final at = DateTime.now();
+    controller.recordIdentityAttempt(Verified(similarity: 96.0, at: at));
+    controller.recordIdentityAttempt(
+      Unchecked(reason: UncheckedReason.noFaceInFrame, at: at),
+    );
+
+    expect(controller.identityAttempts, hasLength(2));
+
+    final audit = controller.buildAudit();
+    expect(audit.identityAttempts, hasLength(2));
+    expect(audit.identityChecksPerformed, 1);
+    expect(
+      controller.eventLog.entries.where((e) => e.kind == SessionEventKind.identityChecked),
+      hasLength(2),
+    );
+  });
+
+  test('end() logs sessionEnded exactly once even if called twice', () {
+    final controller = InterviewVoiceController(
+      claims: const [_claim],
+      jobRequirements: const [],
+      client: LiveTurnClient(client: _failingWith(503)),
+    );
+
+    controller.end();
+    controller.end();
+
+    expect(
+      controller.eventLog.entries.where((e) => e.kind == SessionEventKind.sessionEnded),
+      hasLength(1),
+    );
   });
 }

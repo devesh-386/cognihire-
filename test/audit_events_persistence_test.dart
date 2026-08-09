@@ -2,8 +2,6 @@ import 'package:cognihire/core/claims/claim.dart';
 import 'package:cognihire/core/claims/claim_audit.dart';
 import 'package:cognihire/core/persistence/json_codec.dart';
 import 'package:cognihire/core/session/session_event_log.dart';
-import 'package:cognihire/core/verification/verification_result.dart';
-import 'package:cognihire/features/interview/interview_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -68,26 +66,9 @@ void main() {
     });
   });
 
-  group('the controller feeds its own log into the audit', () {
-    test('buildAudit carries the events that actually happened', () {
-      final c = InterviewController(
-        claims: const [Claim(id: 'c1', text: 'x', source: 'resume')],
-        startedAt: t0,
-      );
-      c.recordIdentityAttempt(Verified(similarity: 91, at: t0.add(const Duration(seconds: 2))));
-      c.end(at: t0.add(const Duration(minutes: 1)));
-
-      final audit = c.buildAudit();
-      final log = SessionEventLog.fromJsonl(audit.sessionEventsJsonl);
-      expect(log.verifyIntegrity(), const IntegrityOk());
-      expect(
-        log.entries.map((e) => e.kind),
-        containsAll([
-          SessionEventKind.sessionStarted,
-          SessionEventKind.identityChecked,
-          SessionEventKind.sessionEnded,
-        ]),
-      );
-    });
-  });
+  // The "a controller feeds its own log into the audit" guarantee now lives
+  // in test/interview_voice_controller_test.dart ("recordIdentityAttempt
+  // feeds the audit and event log") — InterviewVoiceController is the only
+  // controller a real screen builds an audit from since the typed flow's
+  // InterviewController and InterviewScreen were retired.
 }

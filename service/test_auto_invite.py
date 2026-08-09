@@ -2,7 +2,7 @@
 trigger-facing endpoint that turns a candidate_ai_profile transition into
 READY_FOR_INTERVIEW into a real interview code + invitation email, reusing
 `interview_codes.generate()` and `notifications/workflow.send_invitation_for_code()`
-exactly as `/interview-codes/generate` and `/candidates/register-from-form` do.
+exactly as `/interview-codes/generate` does.
 
 This isolates the endpoint's own orchestration logic (auth, existence checks,
 idempotency, failure containment) by faking its three collaborators —
