@@ -61,6 +61,10 @@ service/.venv/
 __pycache__/
 .pytest_cache/
 
+# Local embedding cache for training resume_fit — thousands of vectors,
+# regenerable from the HF dataset, not something to version.
+service/ml/resume_fit/cache/
+
 # Local session data. The app writes audits and face enrolments to the OS
 # app-support directory, not here — but never let a stray copy be committed:
 # an enrolment profile is a face embedding of a real person.

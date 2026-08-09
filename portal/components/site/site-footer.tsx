@@ -5,10 +5,9 @@ const columns = [
   {
     heading: 'Platform',
     links: [
-      { label: 'Product', href: '/#product' },
       { label: 'How it Works', href: '/#how-it-works' },
-      { label: 'For Companies', href: '/#for-companies' },
-      { label: 'For Candidates', href: '/#for-candidates' },
+      { label: 'Have a code?', href: '/#for-candidates' },
+      { label: 'For Companies', href: '/company' },
     ],
   },
   {

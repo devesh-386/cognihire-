@@ -1,12 +1,11 @@
 import { SiteHeader } from '@/components/site/site-header'
 import { SiteFooter } from '@/components/site/site-footer'
 import { Hero } from '@/components/marketing/hero'
-import { WhyCogniHire } from '@/components/marketing/why-cognihire'
-import { HowItWorks } from '@/components/marketing/how-it-works'
-import { EvidenceReport } from '@/components/marketing/evidence-report'
-import { ForCompanies } from '@/components/marketing/for-companies'
 import { ForCandidates } from '@/components/marketing/for-candidates'
-import { CompanyCta } from '@/components/marketing/company-cta'
+import { HowItWorks } from '@/components/marketing/how-it-works'
+import { WhyCogniHire } from '@/components/marketing/why-cognihire'
+import { EvidenceReport } from '@/components/marketing/evidence-report'
+import { CandidateCta } from '@/components/marketing/candidate-cta'
 
 export default function HomePage() {
   return (
@@ -14,12 +13,11 @@ export default function HomePage() {
       <SiteHeader />
       <main>
         <Hero />
-        <WhyCogniHire />
-        <HowItWorks />
-        <EvidenceReport />
-        <ForCompanies />
         <ForCandidates />
-        <CompanyCta />
+        <HowItWorks />
+        <WhyCogniHire />
+        <EvidenceReport />
+        <CandidateCta />
       </main>
       <SiteFooter />
     </>

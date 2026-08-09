@@ -14,27 +14,28 @@ export function Hero() {
             Evidence over opaque scores
           </p>
           <h1 className="rise mt-6 text-[2.5rem] leading-[1.05] font-medium tracking-[-0.035em] text-balance sm:text-6xl lg:text-[4.25rem]">
-            See the evidence behind{' '}
+            Let your{' '}
             <span className="relative inline-block">
-              <span className="relative z-10">every interview</span>
+              <span className="relative z-10">real work</span>
               <span
                 aria-hidden="true"
                 className="absolute inset-x-0 bottom-[0.1em] z-0 h-[0.32em] bg-evidence/70"
               />
-            </span>
-            .
+            </span>{' '}
+            speak for you.
           </h1>
           <p className="rise mt-7 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-            CogniHire turns candidate claims and interview conversations into
-            grounded evidence that hiring teams can review.
+            Apply, talk through what you&apos;ve actually built, and walk away
+            with a report that quotes your own words back — not a score no one
+            explains.
           </p>
 
           <div className="rise mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
             <ButtonLink
-              href="/signup"
+              href="/apply"
               className="h-11 rounded-full px-6 text-sm"
             >
-              Get Started
+              Start your application
             </ButtonLink>
             <ButtonLink
               href="/#how-it-works"

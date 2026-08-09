@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "trainedOnRealData": true,
+  "datasetSource": "huggingface:cnamuangtoun/resume-job-description-fit",
+  "feature": "cosine_similarity",
+  "weight": 5.276997203730566,
+  "bias": -3.4186092486058466
+}

@@ -8,10 +8,8 @@ import { Logo } from '@/components/site/logo'
 import { cn } from '@/lib/utils'
 
 const navigation = [
-  { label: 'Product', href: '/#product' },
   { label: 'How it Works', href: '/#how-it-works' },
-  { label: 'For Companies', href: '/#for-companies' },
-  { label: 'For Candidates', href: '/#for-candidates' },
+  { label: 'Have a code?', href: '/#for-candidates' },
   { label: 'Desktop App', href: '/desktop' },
   { label: 'About', href: '/about' },
 ]
@@ -61,19 +59,18 @@ export function SiteHeader() {
           </ul>
         </nav>
 
-        <div className="hidden items-center gap-2 lg:flex">
-          <ButtonLink
-            href="/login"
-            variant="ghost"
-            className="h-9 px-3 text-[0.8125rem] text-muted-foreground hover:text-foreground"
+        <div className="hidden items-center gap-4 lg:flex">
+          <Link
+            href="/company"
+            className="text-[0.8125rem] text-muted-foreground transition-colors hover:text-foreground"
           >
-            Sign In
-          </ButtonLink>
+            For companies
+          </Link>
           <ButtonLink
-            href="/signup"
+            href="/apply"
             className="h-9 rounded-full px-4 text-[0.8125rem]"
           >
-            Get Started
+            Apply now
           </ButtonLink>
         </div>
 
@@ -109,19 +106,19 @@ export function SiteHeader() {
             </nav>
             <div className="flex flex-col gap-3">
               <ButtonLink
-                href="/signup"
+                href="/apply"
                 onClick={() => setOpen(false)}
                 className="h-12 rounded-full text-sm"
               >
-                Get Started
+                Apply now
               </ButtonLink>
               <ButtonLink
-                href="/login"
+                href="/company"
                 onClick={() => setOpen(false)}
                 variant="outline"
                 className="h-12 rounded-full text-sm"
               >
-                Sign In
+                For companies
               </ButtonLink>
             </div>
           </div>

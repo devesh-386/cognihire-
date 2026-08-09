@@ -1,0 +1,90 @@
+{
+  "trainedOnRealData": true,
+  "datasetSource": "huggingface:cnamuangtoun/resume-job-description-fit",
+  "trainRows": 1200,
+  "testRows": 400,
+  "heldOut": {
+    "count": 400,
+    "positiveCount": 200,
+    "auc": 0.641725,
+    "brier": 0.23639553578168793,
+    "logLoss": 0.6653468765774891,
+    "accuracy": 0.5975,
+    "expectedCalibrationError": 0.05774877454476315,
+    "reliabilityBins": [
+      {
+        "lowerEdge": 0.0,
+        "upperEdge": 0.1,
+        "count": 0,
+        "meanConfidence": 0.0,
+        "observedAccuracy": 0.0
+      },
+      {
+        "lowerEdge": 0.1,
+        "upperEdge": 0.2,
+        "count": 0,
+        "meanConfidence": 0.0,
+        "observedAccuracy": 0.0
+      },
+      {
+        "lowerEdge": 0.2,
+        "upperEdge": 0.3,
+        "count": 7,
+        "meanConfidence": 0.28262590677119787,
+        "observedAccuracy": 0.0
+      },
+      {
+        "lowerEdge": 0.3,
+        "upperEdge": 0.4,
+        "count": 57,
+        "meanConfidence": 0.3683169580078866,
+        "observedAccuracy": 0.2631578947368421
+      },
+      {
+        "lowerEdge": 0.4,
+        "upperEdge": 0.5,
+        "count": 155,
+        "meanConfidence": 0.45653554536961755,
+        "observedAccuracy": 0.4838709677419355
+      },
+      {
+        "lowerEdge": 0.5,
+        "upperEdge": 0.6,
+        "count": 149,
+        "meanConfidence": 0.5467328882223811,
+        "observedAccuracy": 0.610738255033557
+      },
+      {
+        "lowerEdge": 0.6,
+        "upperEdge": 0.7,
+        "count": 31,
+        "meanConfidence": 0.6337242023703911,
+        "observedAccuracy": 0.6129032258064516
+      },
+      {
+        "lowerEdge": 0.7,
+        "upperEdge": 0.8,
+        "count": 1,
+        "meanConfidence": 0.7078214680007133,
+        "observedAccuracy": 0.0
+      },
+      {
+        "lowerEdge": 0.8,
+        "upperEdge": 0.9,
+        "count": 0,
+        "meanConfidence": 0.0,
+        "observedAccuracy": 0.0
+      },
+      {
+        "lowerEdge": 0.9,
+        "upperEdge": 1.0,
+        "count": 0,
+        "meanConfidence": 0.0,
+        "observedAccuracy": 0.0
+      }
+    ]
+  },
+  "naiveFixedThresholdAccuracy": 0.515,
+  "weight": 5.276997203730566,
+  "bias": -3.4186092486058466
+}
