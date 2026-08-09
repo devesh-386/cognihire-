@@ -41,37 +41,19 @@ jobs:
           debug: true
           envs: SMTP_HOST,SMTP_USERNAME,SMTP_PASSWORD
           script: |
-            set -e
             cd ~/CogniHire
 
-            # Idempotent: replace the line if the key already exists (even if
-            # empty, which is how it starts), append it if it's genuinely
-            # never been in this .env before.
-            #
-            # The explicit `return 0` at the end is deliberate, not cosmetic:
-            # under `set -e`, a function whose last executed statement is a
-            # command inside an `if` branch can have that command's exit
-            # status mistaken for the function's own — even though POSIX
-            # exempts commands used as an `if` *condition* from errexit, the
-            # branch *body* is not the condition, and grep -q (used as the
-            # condition) still returning 1 on "not found" was enough to abort
-            # the whole script here with zero output. Forcing a clean 0
-            # removes the ambiguity instead of relying on shell semantics
-            # that clearly aren't behaving as expected on this box.
-            set_env_var() {
-              local key="$1"
-              local value="$2"
-              if grep -q "^${key}=" .env 2>/dev/null; then
-                sed -i "s#^${key}=.*#${key}=${value}#" .env
-              else
-                echo "${key}=${value}" >> .env
-              fi
-              return 0
-            }
-
-            set_env_var SMTP_HOST "$SMTP_HOST"
-            set_env_var SMTP_USERNAME "$SMTP_USERNAME"
-            set_env_var SMTP_PASSWORD "$SMTP_PASSWORD"
+            # No `set -e` and no function — a shell function whose body
+            # branches on `if grep -q ...` reliably killed this script
+            # instantly with zero output on this box even with an explicit
+            # trailing `return 0`, for reasons that didn't reproduce in
+            # isolation. Three flat, repeated commands with explicit `|| exit 1`
+            # after the one command that can actually fail (the sed) is less
+            # elegant but has no shell semantics left to get wrong.
+            grep -q '^SMTP_HOST=' .env 2>/dev/null && sed -i "s#^SMTP_HOST=.*#SMTP_HOST=${SMTP_HOST}#" .env || echo "SMTP_HOST=${SMTP_HOST}" >> .env
+            grep -q '^SMTP_USERNAME=' .env 2>/dev/null && sed -i "s#^SMTP_USERNAME=.*#SMTP_USERNAME=${SMTP_USERNAME}#" .env || echo "SMTP_USERNAME=${SMTP_USERNAME}" >> .env
+            grep -q '^SMTP_PASSWORD=' .env 2>/dev/null && sed -i "s#^SMTP_PASSWORD=.*#SMTP_PASSWORD=${SMTP_PASSWORD}#" .env || echo "SMTP_PASSWORD=${SMTP_PASSWORD}" >> .env
+            echo ".env updated"
 
             # force-recreate: `up -d` alone won't restart a container just
             # because .env changed underneath it — Compose only recreates on
