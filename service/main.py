@@ -567,6 +567,30 @@ async def interview_finish(req: InterviewFinishRequest) -> dict:
 
 
 @app.get(
+    "/roles/open",
+    dependencies=[Depends(rate_limit.limit("roles-open", 30))],
+)
+async def roles_open() -> dict:
+    """Public: lets a candidate with no link yet browse open roles and pick
+    one to apply to. Same minimal shape as apply-info — title and org name,
+    never required_skills or notes — since this is reachable by anyone."""
+    try:
+        roles = await demo_store.list_open_roles()
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {
+        "roles": [
+            {
+                "id": role["id"],
+                "title": role["title"],
+                "organization_name": (role.get("organizations") or {}).get("name", ""),
+            }
+            for role in roles
+        ]
+    }
+
+
+@app.get(
     "/roles/{role_id}/apply-info",
     dependencies=[Depends(rate_limit.limit("roles-apply-info", 30))],
 )

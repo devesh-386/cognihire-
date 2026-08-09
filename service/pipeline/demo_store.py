@@ -237,6 +237,18 @@ async def list_roles(organization_id: str) -> list[dict]:
     })
 
 
+async def list_open_roles() -> list[dict]:
+    """Public: every role across every organization, with just enough to
+    render a "browse open roles" list and link into `/apply/{role_id}`.
+    There is no closed/open status column yet — every role that exists is
+    open — so this is the full table, org name embedded via PostgREST's
+    resource embedding rather than a second round trip per role."""
+    return await _get_many("roles", {
+        "select": "id,title,created_at,organizations(name)",
+        "order": "created_at.desc",
+    })
+
+
 async def list_candidates(organization_id: str) -> list[dict]:
     """Powers the portal's Candidates list. `processing_status` is attached
     from `candidate_ai_profile` (a separate table — a candidate row exists

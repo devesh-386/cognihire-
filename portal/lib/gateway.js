@@ -117,6 +117,11 @@ export function getRoleApplyInfo(roleId) {
   return request(`/roles/${roleId}/apply-info`);
 }
 
+/** Public: every open role, for a candidate with no direct link yet. */
+export function listOpenRoles() {
+  return request("/roles/open");
+}
+
 /**
  * @param {{
  *   roleId: string,
