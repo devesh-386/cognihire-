@@ -83,10 +83,27 @@ Deno.serve(async (req: Request) => {
     organizationId = orgs[0].id;
   }
 
-  const { name, email, roleTitle, resumeBase64, resumeFilename } = body;
+  const { name, email, roleTitle, preferredTimeIso, resumeBase64, resumeFilename } = body;
   if (!name || !email || !roleTitle) {
     return new Response(
       JSON.stringify({ error: "missing name, email, or roleTitle" }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  // Required now that the interview code is generated with window_start/
+  // window_end pinned to this value (see main.py's auto-invite endpoint) —
+  // a candidate with no preferred_time would get a code that never becomes
+  // redeemable, since window_start would be null and generate() has nothing
+  // to base window_end on either.
+  let preferredTime: Date | null = null;
+  if (preferredTimeIso) {
+    const parsed = new Date(preferredTimeIso);
+    if (!isNaN(parsed.getTime())) preferredTime = parsed;
+  }
+  if (!preferredTime) {
+    return new Response(
+      JSON.stringify({ error: "missing or invalid preferredTimeIso" }),
       { status: 400, headers: { "Content-Type": "application/json" } },
     );
   }
@@ -137,6 +154,7 @@ Deno.serve(async (req: Request) => {
     name,
     email,
     role_id: role.id,
+    preferred_time: preferredTime.toISOString(),
   };
   if (resumePath) {
     candidateRow.resume_path = resumePath;

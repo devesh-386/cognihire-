@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import base64
 import binascii
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from notifications import workflow as email_workflow
 from pipeline import demo_store, profile_builder
@@ -70,6 +70,7 @@ async def register_candidate(
         required_skills=role.get("required_skills") or [],
         difficulty="standard", available_minutes=20,
         window_start=preferred_time,
+        window_end=preferred_time + timedelta(hours=1) if preferred_time else None,
     )
 
     try:

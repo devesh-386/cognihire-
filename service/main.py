@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import os
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import cv2
@@ -424,11 +424,22 @@ async def auto_invite_candidate(
         if datetime.fromisoformat(existing["expires_at"]) > datetime.now(timezone.utc):
             return {"status": "existing", "code_id": existing["id"], "code": existing["code"]}
 
+    # The candidate's chosen slot (set by the Google Form intake path via
+    # intake-webhook; absent for HR-invited or self-registered candidates).
+    # window_end is deliberately a full hour after window_start rather than
+    # tied to available_minutes — the slot is when the candidate agreed to
+    # be free, not the interview's actual duration, and giving no join grace
+    # at all would fail anyone who starts a minute after the requested time.
+    preferred_time_raw = candidate.get("preferred_time")
+    window_start = datetime.fromisoformat(preferred_time_raw) if preferred_time_raw else None
+    window_end = window_start + timedelta(hours=1) if window_start else None
+
     try:
         code_row = await interview_codes.generate(
             candidate_id, organization_id, role["title"],
             required_skills=role.get("required_skills") or [],
             difficulty="standard", available_minutes=20,
+            window_start=window_start, window_end=window_end,
         )
     except supabase_store.SupabaseError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
