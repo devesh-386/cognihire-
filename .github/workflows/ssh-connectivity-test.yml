@@ -9,12 +9,22 @@ jobs:
     steps:
       - name: Minimal SSH echo test
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
         with:
           host: ${{ secrets.AZURE_VM_HOST }}
           username: ${{ secrets.AZURE_VM_USER }}
           key: ${{ secrets.AZURE_VM_SSH_KEY }}
           debug: true
+          script_stop: true
+          envs: SMTP_HOST,SMTP_USERNAME,SMTP_PASSWORD
           script: |
-            echo "connected ok"
-            whoami
-            pwd
+            set -e
+            echo "step 1: before cd"
+            cd ~/CogniHire
+            echo "step 2: after cd, pwd is $(pwd)"
+            ls -la .env 2>&1 || echo "no .env found"
+            echo "step 3: env vars visible: SMTP_HOST=[$SMTP_HOST] SMTP_USERNAME=[$SMTP_USERNAME]"
+            echo "step 4: done"
