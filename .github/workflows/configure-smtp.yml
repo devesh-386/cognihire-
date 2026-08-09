@@ -22,6 +22,17 @@ jobs:
     steps:
       - name: SSH in, update .env, recreate the api container
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          # `envs:` below only forwards variables that already exist in this
+          # step's own environment — it does not read `secrets.*` itself.
+          # Missing this env: block was the bug in the first version of this
+          # workflow: `envs:` named the three variables to forward, but
+          # nothing ever set them, so the action's own input validation
+          # failed before it even opened the SSH connection (hence the
+          # near-instant, zero-output failure).
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
         with:
           host: ${{ secrets.AZURE_VM_HOST }}
           username: ${{ secrets.AZURE_VM_USER }}
