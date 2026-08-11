@@ -28,6 +28,8 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../../core/candidates/candidate.dart';
+import '../../core/candidates/candidate_store.dart';
 import '../../core/claims/claim.dart';
 import '../../core/claims/claim_audit.dart';
 import '../../core/design/app_theme.dart';
@@ -46,10 +48,18 @@ class CandidatesScreen extends StatefulWidget {
   const CandidatesScreen({
     super.key,
     required this.store,
+    this.candidateStore = const InMemoryCandidateStore(),
     this.onStartSession,
   });
 
   final AuditStore store;
+
+  /// The real recruiting pipeline (organization -> role -> intake ->
+  /// candidate), separate from [store]'s local session labels — see the
+  /// library doc comment above for why the two are shown side by side
+  /// rather than merged into one list.
+  final CandidateStore candidateStore;
+
   final VoidCallback? onStartSession;
 
   @override
@@ -58,6 +68,8 @@ class CandidatesScreen extends StatefulWidget {
 
 class CandidatesScreenState extends State<CandidatesScreen> {
   WorkspaceSnapshot? _snapshot;
+  List<Candidate>? _pipelineCandidates;
+  String? _pipelineError;
   bool _loading = true;
   String _query = '';
 
@@ -78,9 +90,18 @@ class CandidatesScreenState extends State<CandidatesScreen> {
   Future<void> reload() async {
     setState(() => _loading = true);
     final snapshot = await loadWorkspace(widget.store);
+    List<Candidate>? pipelineCandidates;
+    String? pipelineError;
+    try {
+      pipelineCandidates = await widget.candidateStore.listCandidates();
+    } catch (error) {
+      pipelineError = error.toString();
+    }
     if (!mounted) return;
     setState(() {
       _snapshot = snapshot;
+      _pipelineCandidates = pipelineCandidates;
+      _pipelineError = pipelineError;
       _loading = false;
     });
   }
@@ -118,6 +139,66 @@ class CandidatesScreenState extends State<CandidatesScreen> {
     ));
   }
 
+  Widget _pipelineSection(BuildContext context) {
+    final theme = Theme.of(context);
+    final candidates = _pipelineCandidates;
+
+    if (_loading && candidates == null && _pipelineError == null) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: Spacing.lg),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_pipelineError != null) {
+      return InlineNotice(
+        tone: NoticeTone.fault,
+        message: 'Recruiting pipeline candidates could not be read: $_pipelineError',
+      );
+    }
+    if (candidates == null || candidates.isEmpty) {
+      return SectionCard(
+        title: 'Recruiting pipeline',
+        icon: Icons.route_outlined,
+        description: 'Nobody has applied through an intake yet — see the '
+            'Roles tab to create one and connect a Google Form.',
+        child: const SizedBox.shrink(),
+      );
+    }
+
+    final byIntake = <String, List<Candidate>>{};
+    for (final c in candidates) {
+      byIntake.putIfAbsent(c.intakeId ?? '', () => []).add(c);
+    }
+
+    return SectionCard(
+      title: 'Recruiting pipeline',
+      icon: Icons.route_outlined,
+      description: '${candidates.length} candidate(s) who applied through an '
+          'intake, grouped by campaign. Organization -> role -> intake -> '
+          'candidate — established at application time, never guessed later.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final entry in byIntake.entries) ...[
+            Text(
+              entry.key.isEmpty
+                  ? 'Unassigned (applied before intakes existed)'
+                  : (entry.value.first.intakeName ?? entry.key),
+              style: theme.textTheme.titleSmall,
+            ),
+            const SizedBox(height: Spacing.sm),
+            for (final candidate in entry.value)
+              Padding(
+                padding: const EdgeInsets.only(bottom: Spacing.sm),
+                child: _PipelineCandidateCard(candidate: candidate),
+              ),
+            const SizedBox(height: Spacing.md),
+          ],
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -136,6 +217,17 @@ class CandidatesScreenState extends State<CandidatesScreen> {
         ),
       ],
       children: [
+        _pipelineSection(context),
+        const SizedBox(height: Spacing.section),
+        Text('Local sessions', style: theme.textTheme.titleMedium),
+        const SizedBox(height: Spacing.sm),
+        Text(
+          'Sessions run through this app directly, grouped by the free-text '
+          'label they were filed under — not an identity record. See above '
+          'for candidates who applied through the recruiting pipeline.',
+          style: theme.textTheme.bodySmall,
+        ),
+        const SizedBox(height: Spacing.lg),
         SizedBox(
           height: 44,
           child: TextField(
@@ -299,6 +391,44 @@ class _CandidateCard extends StatelessWidget {
     final l = time.toLocal();
     String two(int n) => n.toString().padLeft(2, '0');
     return '${l.year}-${two(l.month)}-${two(l.day)}';
+  }
+}
+
+class _PipelineCandidateCard extends StatelessWidget {
+  const _PipelineCandidateCard({required this.candidate});
+
+  final Candidate candidate;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(Spacing.lg),
+        child: Row(
+          children: [
+            Monogram(name: candidate.name, diameter: 40),
+            const SizedBox(width: Spacing.lg),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(candidate.name, style: theme.textTheme.titleMedium),
+                  Text(
+                    '${candidate.email}'
+                    '${candidate.roleTitle == null ? '' : ' · ${candidate.roleTitle}'}',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+            if (candidate.processingStatus != null)
+              Tag(label: candidate.processingStatus!.toLowerCase().replaceAll('_', ' ')),
+          ],
+        ),
+      ),
+    );
   }
 }
 

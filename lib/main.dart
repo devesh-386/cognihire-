@@ -5,6 +5,8 @@ import 'core/auth/auth_store.dart';
 import 'core/auth/principal.dart';
 import 'core/auth/supabase_auth_store.dart';
 import 'core/auth/user_role.dart';
+import 'core/candidates/candidate_store.dart';
+import 'core/candidates/candidate_store_supabase.dart';
 import 'core/claims/claim.dart';
 import 'core/config.dart';
 import 'core/email/email_sender.dart';
@@ -53,6 +55,7 @@ Future<void> main() async {
   final authStore = SupabaseAuthStore(client);
   final roleStore = SupabaseRoleStore(client);
   final intakeStore = SupabaseIntakeStore(client);
+  final candidateStore = SupabaseCandidateStore(client);
   final invitationStore = SupabaseInvitationStore(client);
 
   // Claim audits (interview reports) are unaffected by this ticket and stay
@@ -76,6 +79,7 @@ Future<void> main() async {
     store: store,
     roleStore: roleStore,
     intakeStore: intakeStore,
+    candidateStore: candidateStore,
     invitationStore: invitationStore,
     authStore: authStore,
     provisionOrganization: (name) =>
@@ -129,6 +133,7 @@ class CogniHireApp extends StatefulWidget {
     required this.store,
     required this.roleStore,
     required this.intakeStore,
+    required this.candidateStore,
     required this.invitationStore,
     required this.authStore,
     required this.emailSender,
@@ -140,6 +145,7 @@ class CogniHireApp extends StatefulWidget {
   final AuditStore store;
   final RoleStore roleStore;
   final IntakeStore intakeStore;
+  final CandidateStore candidateStore;
   final InvitationStore invitationStore;
   final AuthStore authStore;
   final Future<Principal?> Function(String organizationName)?
@@ -193,6 +199,7 @@ class _CogniHireAppState extends State<CogniHireApp> {
               store: widget.store,
               roleStore: widget.roleStore,
               intakeStore: widget.intakeStore,
+              candidateStore: widget.candidateStore,
               invitationStore: widget.invitationStore,
               emailSender: widget.emailSender,
               redeemedInvitation: _redeemedInvitation,
@@ -346,6 +353,7 @@ class HomeScreen extends StatefulWidget {
     required this.store,
     RoleStore? roleStore,
     IntakeStore? intakeStore,
+    this.candidateStore = const InMemoryCandidateStore(),
     InvitationStore? invitationStore,
     this.emailSender = const NullEmailSender(),
     required this.storageLocation,
@@ -389,6 +397,11 @@ class HomeScreen extends StatefulWidget {
   /// Defaults to an inert store when the caller does not supply one, for the
   /// same reason [roleStore] does.
   final IntakeStore intakeStore;
+
+  /// Defaults to an empty in-memory store when the caller does not supply
+  /// one — unlike [roleStore]/[intakeStore], reading it never throws (there
+  /// is no write path here for a test/preview call site to need to refuse).
+  final CandidateStore candidateStore;
 
   /// Defaults to an inert store when the caller does not supply one, for the
   /// same reason [roleStore] does.
@@ -547,6 +560,7 @@ class _HomeScreenState extends State<HomeScreen> {
           builder: (_) => CandidatesScreen(
             key: _candidatesKey,
             store: widget.store,
+            candidateStore: widget.candidateStore,
             onStartSession: _goToInvitations,
           ),
         ),
