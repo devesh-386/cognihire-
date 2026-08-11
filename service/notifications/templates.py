@@ -33,11 +33,18 @@ def invitation_email(
     available_minutes: int,
     code: str,
     portal_url: str,
+    organization_name: str | None = None,
 ) -> EmailMessage:
     when = _format_when(scheduled_at)
+    # Best-effort: a missing org name (lookup failure, deleted org) never
+    # blocks sending — the line is just omitted, same fail-open rule as
+    # everything else in this module.
+    company_line = f" at {organization_name}" if organization_name else ""
+    company_line_html = f" at <strong>{organization_name}</strong>" if organization_name else ""
     text = (
         f"Hi {candidate_name},\n\n"
-        f"You've been invited to a CogniHire interview for {role_title}.\n\n"
+        f"You've been invited to a CogniHire interview for {role_title}"
+        f"{company_line}.\n\n"
         f"When: {when}\n"
         f"Duration: about {available_minutes} minutes\n"
         f"Your interview code: {code}\n"
@@ -51,7 +58,7 @@ def invitation_email(
     html = (
         f"<p>Hi {candidate_name},</p>"
         f"<p>You've been invited to a CogniHire interview for "
-        f"<strong>{role_title}</strong>.</p>"
+        f"<strong>{role_title}</strong>{company_line_html}.</p>"
         f"<p><strong>When:</strong> {when}<br>"
         f"<strong>Duration:</strong> about {available_minutes} minutes<br>"
         f"<strong>Your interview code:</strong> "
@@ -118,12 +125,15 @@ def reminder_email(
     minutes_before: int,
     code: str,
     portal_url: str,
+    organization_name: str | None = None,
 ) -> EmailMessage:
     when_phrase = "in about an hour" if minutes_before >= 60 else f"in about {minutes_before} minutes"
+    company_line = f" at {organization_name}" if organization_name else ""
+    company_line_html = f" at <strong>{organization_name}</strong>" if organization_name else ""
     text = (
         f"Hi {candidate_name},\n\n"
-        f"Reminder: your CogniHire interview for {role_title} starts "
-        f"{when_phrase}.\n\n"
+        f"Reminder: your CogniHire interview for {role_title}{company_line} "
+        f"starts {when_phrase}.\n\n"
         f"Your interview code: {code}\n"
         f"Start here: {portal_url}\n\n"
         "— CogniHire"
@@ -131,7 +141,7 @@ def reminder_email(
     html = (
         f"<p>Hi {candidate_name},</p>"
         f"<p>Reminder: your CogniHire interview for <strong>{role_title}"
-        f"</strong> starts {when_phrase}.</p>"
+        f"</strong>{company_line_html} starts {when_phrase}.</p>"
         f"<p><strong>Your interview code:</strong> "
         f"<code style=\"font-size:1.1em\">{code}</code></p>"
         f"<p><a href=\"{portal_url}\">Start your interview</a></p>"

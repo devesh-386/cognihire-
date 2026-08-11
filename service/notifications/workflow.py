@@ -16,6 +16,7 @@ from typing import Awaitable, Callable
 from . import store as email_store
 from . import templates
 from .delivery import attempt_send
+from pipeline import supabase_store
 
 PORTAL_URL_DEFAULT = "http://localhost:3000"
 
@@ -26,6 +27,17 @@ def _portal_url() -> str:
 
 def _parse(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value) if value else None
+
+
+async def _organization_name(organization_id: str) -> str | None:
+    """Best-effort only — a lookup failure must never block an invitation or
+    reminder from sending. The email just omits the company line, same
+    fail-open rule the rest of this module already follows."""
+    try:
+        org = await supabase_store.fetch_organization(organization_id)
+    except supabase_store.SupabaseError:
+        return None
+    return org.get("name") if org else None
 
 
 async def send_invitation_for_code(code_row: dict, candidate: dict) -> dict:
@@ -46,6 +58,7 @@ async def send_invitation_for_code(code_row: dict, candidate: dict) -> dict:
         available_minutes=code_row.get("available_minutes") or 20,
         code=code_row["code"],
         portal_url=_portal_url(),
+        organization_name=await _organization_name(code_row["organization_id"]),
     )
     return await attempt_send(row, message)
 
@@ -66,6 +79,7 @@ async def resend_invitation(code_row: dict, candidate: dict) -> dict:
         available_minutes=code_row.get("available_minutes") or 20,
         code=code_row["code"],
         portal_url=_portal_url(),
+        organization_name=await _organization_name(code_row["organization_id"]),
     )
     return await attempt_send(row, message)
 
@@ -90,6 +104,7 @@ async def send_reminder_for_code(
         minutes_before=minutes_before,
         code=code_row["code"],
         portal_url=_portal_url(),
+        organization_name=await _organization_name(code_row["organization_id"]),
     )
     return await attempt_send(row, message)
 
@@ -139,7 +154,18 @@ async def send_due_reminders(
             if candidate is None:
                 skipped += 1
                 continue
-            result = await send_reminder_for_code(code_row, candidate, email_type, minutes_before)
+            try:
+                result = await send_reminder_for_code(code_row, candidate, email_type, minutes_before)
+            except supabase_store.SupabaseError:
+                # A failure on one code (including a genuine create_pending
+                # race against another scheduler tick — the unique
+                # (code_id, email_type) constraint is what actually
+                # guarantees no duplicate send, this is just the exception
+                # path when two ticks lose that race at the same instant)
+                # must never abort reminders for every other due candidate
+                # in this same batch. The next tick retries it.
+                skipped += 1
+                continue
             sent.append({
                 "code_id": code_row["id"], "email_type": email_type,
                 "status": result.get("status"),

@@ -58,6 +58,19 @@ async def fetch_candidate(candidate_id: str) -> dict | None:
     return rows[0] if rows else None
 
 
+async def fetch_organization(organization_id: str) -> dict | None:
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        response = await client.get(
+            f"{SUPABASE_URL}/rest/v1/organizations",
+            headers=_headers(),
+            params={"id": f"eq.{organization_id}", "select": "id,name"},
+        )
+    if response.status_code != 200:
+        raise SupabaseError(f"organization lookup failed: HTTP {response.status_code}")
+    rows = response.json()
+    return rows[0] if rows else None
+
+
 async def download_resume(resume_path: str) -> bytes:
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         response = await client.get(

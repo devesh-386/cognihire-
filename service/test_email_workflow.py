@@ -17,6 +17,7 @@ from notifications import delivery, workflow
 from notifications import store as email_store
 from notifications.provider import EmailSendResult
 from notifications.templates import invitation_email
+from pipeline import supabase_store
 
 
 def _run(coro):
@@ -260,3 +261,88 @@ def test_send_due_reminders_only_fires_for_codes_within_the_reminder_window(fake
     result_again = _run(workflow.send_due_reminders(fetch_candidate))
     assert result_again["sent"] == []
     assert calls == ["reminder_1h"]
+
+
+def test_a_race_on_one_codes_reminder_row_does_not_abort_the_rest_of_the_batch(
+    fake_store, monkeypatch,
+):
+    """create_pending racing another scheduler tick raises SupabaseError
+    (a real HTTP 409 from the DB's unique (code_id, email_type) constraint
+    in production) — that must skip only the one code that lost the race,
+    not silently drop every other due candidate in this same tick."""
+    calls = []
+
+    async def fake_attempt_send(row, message, provider=None):
+        calls.append(row["code_id"])
+        await email_store.update(row["id"], {"status": "sent", "attempts": 1})
+        return {**row, "status": "sent", "attempts": 1}
+
+    monkeypatch.setattr(workflow, "attempt_send", fake_attempt_send)
+
+    real_create_pending = email_store.create_pending
+
+    async def racy_create_pending(code_id, organization_id, email_type):
+        if code_id == "code-racing":
+            raise supabase_store.SupabaseError("email row create failed: HTTP 409 conflict")
+        return await real_create_pending(code_id, organization_id, email_type)
+
+    monkeypatch.setattr(workflow.email_store, "create_pending", racy_create_pending)
+
+    now = datetime.now(timezone.utc)
+    racing = _code_row(id="code-racing", candidate_id="cand-1",
+                        window_start=(now + timedelta(minutes=59)).isoformat())
+    healthy = _code_row(id="code-healthy", candidate_id="cand-2",
+                         window_start=(now + timedelta(minutes=59)).isoformat())
+    fake_store.set_active_codes([racing, healthy])
+
+    async def fetch_candidate(candidate_id):
+        return _candidate(id=candidate_id, email=f"{candidate_id}@example.com")
+
+    result = _run(workflow.send_due_reminders(fetch_candidate))
+
+    sent_code_ids = {s["code_id"] for s in result["sent"]}
+    assert sent_code_ids == {"code-healthy"}, (
+        "the racing code should be skipped, but code-healthy must still send"
+    )
+    assert calls == ["code-healthy"]
+    assert result["skipped"] == 1
+
+
+def test_invitation_and_reminder_include_the_candidates_organization_name(
+    fake_store, monkeypatch,
+):
+    """The invitation vision spec lists company/organization name as a
+    required field; the templates already took it as a param, this proves
+    the workflow actually resolves and threads it through, and that a
+    lookup failure degrades to omitting the line rather than blocking the
+    send."""
+    sent_messages: list = []
+
+    async def fake_attempt_send(row, message, provider=None):
+        sent_messages.append(message)
+        await email_store.update(row["id"], {"status": "sent", "attempts": 1})
+        return {**row, "status": "sent", "attempts": 1}
+
+    monkeypatch.setattr(workflow, "attempt_send", fake_attempt_send)
+
+    async def fake_fetch_organization(organization_id):
+        assert organization_id == "org-1"
+        return {"id": "org-1", "name": "Meridian Health"}
+
+    monkeypatch.setattr(supabase_store, "fetch_organization", fake_fetch_organization)
+
+    _run(workflow.send_invitation_for_code(_code_row(), _candidate()))
+    assert "Meridian Health" in sent_messages[0].text_body
+    assert "Meridian Health" in sent_messages[0].html_body
+
+    async def failing_fetch_organization(organization_id):
+        raise supabase_store.SupabaseError("org lookup down")
+
+    monkeypatch.setattr(supabase_store, "fetch_organization", failing_fetch_organization)
+
+    _run(workflow.send_reminder_for_code(
+        _code_row(id="code-2"), _candidate(), "reminder_1h", 60,
+    ))
+    assert "Meridian Health" not in sent_messages[1].text_body
+    # A degraded org lookup must never stop the reminder from sending.
+    assert sent_messages[1].text_body
