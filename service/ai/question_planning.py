@@ -70,6 +70,14 @@ Rules:
 3. Prefer depth on a few real claims over shallow coverage of many.
 4. "objective" states what asking about this topic is meant to establish.
 5. Allocate "minutes" realistically against the total time you are given.
+6. If a technology or skill appears in PROFILE FACTS but no project or
+   experience entry describes actually using it, that is worth verifying —
+   not because it is false, but because a resume can list a technology
+   without the candidate having applied it. Give such a claim a topic and
+   phrase its "objective" as checking for demonstrated depth (e.g. "check
+   whether the candidate can describe real, hands-on use of Kubernetes"),
+   never as an accusation. Do not do this for a technology that a project
+   or experience entry already names.
 
 Reply with JSON only, in this exact shape:
 {

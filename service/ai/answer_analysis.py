@@ -43,7 +43,11 @@ Rules:
 4. "evidence_quote": the exact sentence or phrase FROM THE ANSWER that most
    supports your verdict, copied verbatim. Null if nothing in the answer
    supports it.
-5. "reason": one sentence explaining the verdict.
+5. "reason": one sentence explaining the verdict. Describe what the answer
+   did or did not demonstrate — never what the candidate is. "The answer did
+   not describe how invalidation was handled", not "the candidate does not
+   know Redis" and never any suggestion of lying, faking, or exaggerating.
+   This sentence is shown verbatim to a recruiter.
 
 Reply with JSON only, in this exact shape:
 {"supported": true, "confidence": 0.8, "followup_required": false, "evidence_quote": "<verbatim from the answer, or null>", "reason": "<one sentence>"}
