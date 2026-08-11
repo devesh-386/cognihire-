@@ -31,6 +31,11 @@ void main() {
         store: InMemoryAuditStore(),
         storageLocation: '/tmp/cognihire',
         storageIsDurable: true,
+        // Pinned: the dashboard's greeting and date come from the wall
+        // clock, so without this these goldens only matched during the
+        // part of the day they happened to be recorded in — "Good morning"
+        // is two characters shorter than "Good afternoon".
+        clock: () => DateTime(2026, 1, 15, 9, 30),
       ),
     ));
     await tester.pumpAndSettle();

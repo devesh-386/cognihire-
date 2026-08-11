@@ -329,10 +329,16 @@ class HomeScreen extends StatefulWidget {
     this.principal,
     this.onSignOut,
     this.redeemedInvitation,
+    this.clock,
   })  : roleStore = roleStore ?? const _NoRoleStore(),
         invitationStore = invitationStore ?? const _NoInvitationStore();
 
   final AuditStore store;
+
+  /// Passed to [DashboardScreen] so the preview goldens can pin the
+  /// time-of-day greeting. Null everywhere but those tests — see
+  /// `DashboardScreen.clock`.
+  final DateTime Function()? clock;
 
   /// The signed-in person, when the app was entered through the sign-in
   /// chooser. Optional because most existing call sites (tests, previews)
@@ -499,6 +505,7 @@ class _HomeScreenState extends State<HomeScreen> {
             storageLocation: widget.storageLocation,
             storageIsDurable: widget.storageIsDurable,
             onStartSession: _goToInvitations,
+            clock: widget.clock,
           ),
         ),
         if (_showFor(_hr))

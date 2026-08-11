@@ -50,6 +50,7 @@ class DashboardScreen extends StatefulWidget {
     required this.storageLocation,
     required this.storageIsDurable,
     this.onStartSession,
+    this.clock,
   });
 
   final AuditStore store;
@@ -59,6 +60,13 @@ class DashboardScreen extends StatefulWidget {
   /// Where the "run a session" affordances go. Provided by the app rather than
   /// hardcoded so this screen does not need to know how navigation works.
   final VoidCallback? onStartSession;
+
+  /// Reads the current time. Injectable because the greeting and the date
+  /// below it are the only things on this screen that change without any
+  /// data changing — which made the preview goldens (`test/preview/`) pass
+  /// or fail depending on what time of day they were recorded. Defaults to
+  /// the real clock; only tests pass anything else.
+  final DateTime Function()? clock;
 
   @override
   State<DashboardScreen> createState() => DashboardScreenState();
@@ -500,18 +508,20 @@ class DashboardScreenState extends State<DashboardScreen> {
   /// Time-of-day greeting from the actual clock. Trivial, and the mockup's
   /// hardcoded "Good morning" would have been wrong two-thirds of the day.
   String _greeting() {
-    final hour = DateTime.now().hour;
+    final hour = _now().hour;
     if (hour < 12) return 'Good morning';
     if (hour < 18) return 'Good afternoon';
     return 'Good evening';
   }
 
-  static String _today() {
+  DateTime _now() => widget.clock?.call() ?? DateTime.now();
+
+  String _today() {
     const months = [
       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
     ];
-    final now = DateTime.now();
+    final now = _now();
     return '${months[now.month - 1]} ${now.day}, ${now.year}';
   }
 

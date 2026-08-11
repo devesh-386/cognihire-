@@ -76,3 +76,7 @@ service/ml/resume_fit/resume_fit_model.joblib
 # an enrolment profile is a face embedding of a real person.
 *.enrolment.json
 audit_store/
+
+# Golden-test debug output — regenerated on every failed run of
+# test/preview, never an input to anything.
+test/preview/failures/
