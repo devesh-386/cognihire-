@@ -47,21 +47,6 @@ void main() {
     expect(find.text('New session'), findsNothing);
   });
 
-  testWidgets('candidate sees their interview flow, not HR management tabs',
-      (tester) async {
-    tester.view.physicalSize = const Size(1400, 900);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    await tester.pumpWidget(appFor(candidate));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Resume analysis'), findsWidgets);
-    expect(find.text('Roles'), findsNothing);
-    expect(find.text('Candidates'), findsNothing);
-  });
-
   testWidgets('both roles keep Settings and Reports', (tester) async {
     tester.view.physicalSize = const Size(1400, 900);
     tester.view.devicePixelRatio = 1.0;

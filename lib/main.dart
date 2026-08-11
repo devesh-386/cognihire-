@@ -12,26 +12,20 @@ import 'core/email/gmail_smtp_email_sender.dart';
 import 'core/claims/claim_audit.dart';
 import 'core/design/app_theme.dart';
 import 'core/persistence/audit_store.dart';
-import 'core/persistence/json_codec.dart';
 import 'core/persistence/store_factory.dart';
 import 'core/roles/role.dart';
 import 'core/roles/role_store.dart';
 import 'core/roles/role_store_supabase.dart';
-import 'core/session/session_draft.dart';
 import 'core/verification/verification_result.dart';
 import 'core/workspace/workspace_loader.dart';
-import 'features/analysis/resume_analysis_screen.dart';
 import 'features/auth/sign_in_screen.dart';
 import 'core/invitations/invitation.dart';
 import 'core/invitations/invitation_store.dart';
 import 'core/invitations/invitation_store_supabase.dart';
 import 'features/audit/claim_audit_screen.dart';
 import 'features/candidates/candidates_screen.dart';
-import 'features/common/empty_state.dart';
 import 'features/dashboard/dashboard_screen.dart';
 import 'features/demo/demo_screen.dart';
-import 'features/enrolment/enrolment_screen.dart';
-import 'features/interview/voice_interview_screen.dart';
 import 'features/interview_sessions/interview_sessions_screen.dart';
 import 'features/invitations/invitations_screen.dart';
 import 'features/reports/reports_screen.dart';
@@ -40,8 +34,6 @@ import 'features/sessions/session_history_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/task/task_screen.dart';
 import 'ui/app_shell.dart';
-import 'ui/components.dart';
-import 'ui/tokens.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -385,101 +377,12 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  /// Shared across the setup screen and the resume-analysis screen — see
-  /// `core/session/session_draft.dart` for why this has to be one object
-  /// rather than state duplicated in each screen.
-  final _draft = SessionDraft();
-
-  EnrolmentProfile? _enrolment;
-
-  /// Set when a stored enrolment exists but cannot be read. Kept distinct from
-  /// "not enrolled": one is a choice, the other is a fault, and running a
-  /// session unverified because of a fault should never look deliberate.
-  String? _enrolmentError;
-
-  bool _loadingEnrolment = true;
-
-  /// Roles available to pick for the session being set up. Loaded once and
-  /// refreshed by [_refreshWorkspaceViews], same as the other workspace-derived
-  /// views — a role saved or deleted on the Roles screen should be reflected
-  /// here without the operator having to leave and come back.
-  RoleIndex? _roleIndex;
-
   final _dashboardKey = GlobalKey<DashboardScreenState>();
   final _candidatesKey = GlobalKey<CandidatesScreenState>();
   final _reportsKey = GlobalKey<ReportsScreenState>();
   final _rolesKey = GlobalKey<RolesScreenState>();
   final _invitationsKey = GlobalKey<InvitationsScreenState>();
   final _settingsKey = GlobalKey<SettingsScreenState>();
-
-  @override
-  void initState() {
-    super.initState();
-    _loadEnrolment();
-    _loadRoles();
-  }
-
-  Future<void> _loadRoles() async {
-    final index = await widget.roleStore.listRoles();
-    if (!mounted) return;
-    setState(() => _roleIndex = index);
-    _applyRedeemedInvitation(index);
-
-    // A role the draft was pointing at may have been deleted since this list
-    // last loaded — the session setup should not go on silently ordering
-    // claims against a role that no longer exists.
-    final current = _draft.targetRole;
-    if (current == null) return;
-    final stillExists = index.roles.any((r) => r.id == current.id);
-    if (!stillExists) _draft.targetRole = null;
-  }
-
-  /// Binds the session draft to the role and candidate name from a redeemed
-  /// invitation, once, on the first roles load after signing in. A candidate
-  /// who entered via a code should not have to find their own role in the
-  /// picker — the whole point of the invitation was to hand them that.
-  bool _invitationApplied = false;
-
-  void _applyRedeemedInvitation(RoleIndex index) {
-    if (_invitationApplied) return;
-    final invitation = widget.redeemedInvitation;
-    if (invitation == null) return;
-    _invitationApplied = true;
-
-    _draft.label = invitation.candidateName;
-    for (final role in index.roles) {
-      if (role.id == invitation.roleId) {
-        _draft.targetRole = role;
-        break;
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _draft.dispose();
-    super.dispose();
-  }
-
-  Future<void> _loadEnrolment() async {
-    setState(() => _loadingEnrolment = true);
-    try {
-      final profile = await widget.store.loadEnrolment();
-      if (!mounted) return;
-      setState(() {
-        _enrolment = profile;
-        _enrolmentError = null;
-        _loadingEnrolment = false;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _enrolment = null;
-        _enrolmentError = '$error';
-        _loadingEnrolment = false;
-      });
-    }
-  }
 
   /// Called after a session ends, or after data-changing actions in Settings,
   /// so every other screen's numbers reflect what just happened rather than
@@ -491,95 +394,10 @@ class _HomeScreenState extends State<HomeScreen> {
     _rolesKey.currentState?.reload();
     _invitationsKey.currentState?.reload();
     _settingsKey.currentState?.reload();
-    _loadRoles();
   }
 
-  /// Starts a session against an already-enrolled reference.
-  ///
-  /// Takes a non-null embedding by design: enrolment is a precondition for
-  /// running at all, so there is no unverified path to reach this from.
-  void _startInterview(List<double> embedding) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => VoiceInterviewScreen(
-          claims: _draft.effectiveClaims,
-          enrolledEmbedding: embedding,
-          jobRequirements: _draft.targetRole?.requiredSkills ?? const [],
-          store: widget.store,
-          candidateLabel: _draft.sessionTitle,
-          researchConsentGranted: _draft.researchConsent,
-        ),
-      ),
-    ).then((_) => _refreshWorkspaceViews());
-  }
-
-  /// Capture a fresh reference face, keep it, then go straight into the
-  /// session.
-  void _enrolThenInterview() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => EnrolmentScreen(
-          onEnrolled: (capture) async {
-            final profile = EnrolmentProfile(
-              embedding: capture.embedding,
-              capturedAt: DateTime.now(),
-              faceSize: capture.faceSize,
-            );
-
-            String? saveError;
-            try {
-              await widget.store.saveEnrolment(profile);
-            } catch (error) {
-              saveError = '$error';
-            }
-
-            if (!mounted) return;
-            setState(() {
-              _enrolment = profile;
-              _enrolmentError = null;
-            });
-
-            final messenger = ScaffoldMessenger.of(context);
-            // Replace enrolment so back-navigation cannot land on a screen
-            // still holding the camera.
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(
-                builder: (_) => VoiceInterviewScreen(
-                  claims: _draft.effectiveClaims,
-                  enrolledEmbedding: capture.embedding,
-                  jobRequirements: _draft.targetRole?.requiredSkills ?? const [],
-                  store: widget.store,
-                  candidateLabel: _draft.sessionTitle,
-                  researchConsentGranted: _draft.researchConsent,
-                ),
-              ),
-            ).then((_) => _refreshWorkspaceViews());
-
-            if (saveError != null) {
-              messenger.showSnackBar(SnackBar(
-                duration: const Duration(seconds: 6),
-                content: Text(
-                  'Enrolment used for this session but not saved: $saveError',
-                ),
-              ));
-            }
-          },
-        ),
-      ),
-    );
-  }
-
-  Future<void> _clearEnrolment() async {
-    await widget.store.clearEnrolment();
-    if (!mounted) return;
-    setState(() {
-      _enrolment = null;
-      _enrolmentError = null;
-    });
-  }
-
-  void _goToNewSession() =>
-      AppShellController.of(context)?.goTo('New session');
+  void _goToInvitations() =>
+      AppShellController.of(context)?.goTo('Invitations');
 
   /// Confirms, then returns to the sign-in chooser. Confirmed because signing
   /// out is a context switch a stray tap on the identity chip should not cause
@@ -625,7 +443,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Which experience each destination belongs to.
   static const _hr = {UserRole.recruiter};
-  static const _candidate = {UserRole.candidate};
   static const _both = {UserRole.recruiter, UserRole.candidate};
 
   @override
@@ -638,32 +455,24 @@ class _HomeScreenState extends State<HomeScreen> {
           tone: ShellNoticeTone.caution,
           onTap: () => AppShellController.of(context)?.goTo('Settings'),
         ),
-      if (_enrolmentError != null)
-        ShellNotice(
-          title: 'Enrolled face is unreadable',
-          detail: _enrolmentError!,
-          tone: ShellNoticeTone.fault,
-          onTap: () => AppShellController.of(context)?.goTo('Settings'),
-        ),
     ];
 
     return AppShell(
       title: 'CogniHire',
       tagline: 'Verified-claim interviewing',
-      // "New session" is the candidate's action (they run the interview); it is
-      // not offered to HR, who has no New session destination. Null principal
-      // (direct-mount call sites) keeps the action, preserving prior behaviour.
-      primaryAction: _showFor(_candidate)
+      // Recruiter-only app: the candidate interview now runs entirely on the
+      // web candidate portal, so there is no in-app "start a session" action.
+      primaryAction: _showFor(_hr)
           ? ShellPrimaryAction(
-              label: 'New session',
+              label: 'Invite candidate',
               icon: Icons.add,
-              onPressed: _goToNewSession,
+              onPressed: _goToInvitations,
             )
           : null,
       identity: ShellIdentity(
         name: widget.principal?.displayName ??
             widget.principal?.email ??
-            _draft.label,
+            'Recruiter',
         role: widget.principal?.role.label ?? 'Session operator',
         onTap: widget.onSignOut == null
             ? () => AppShellController.of(context)?.goTo('Settings')
@@ -689,7 +498,7 @@ class _HomeScreenState extends State<HomeScreen> {
             store: widget.store,
             storageLocation: widget.storageLocation,
             storageIsDurable: widget.storageIsDurable,
-            onStartSession: _goToNewSession,
+            onStartSession: _goToInvitations,
           ),
         ),
         if (_showFor(_hr))
@@ -700,7 +509,7 @@ class _HomeScreenState extends State<HomeScreen> {
           builder: (_) => CandidatesScreen(
             key: _candidatesKey,
             store: widget.store,
-            onStartSession: _goToNewSession,
+            onStartSession: _goToInvitations,
           ),
         ),
         if (_showFor(_hr))
@@ -728,22 +537,6 @@ class _HomeScreenState extends State<HomeScreen> {
             loadSessions: () => loadWorkspace(widget.store),
           ),
         ),
-        if (_showFor(_candidate))
-          ShellDestination(
-          icon: Icons.play_circle_outline,
-          selectedIcon: Icons.play_circle_fill,
-          label: 'New session',
-          shortLabel: 'New',
-          builder: _setupPage,
-        ),
-        if (_showFor(_candidate))
-          ShellDestination(
-          icon: Icons.document_scanner_outlined,
-          selectedIcon: Icons.document_scanner,
-          label: 'Resume analysis',
-          shortLabel: 'Resume',
-          builder: (_) => ResumeAnalysisScreen(draft: _draft),
-        ),
         if (_showFor(_hr))
           ShellDestination(
           icon: Icons.history_outlined,
@@ -767,7 +560,7 @@ class _HomeScreenState extends State<HomeScreen> {
               audit: _sample,
               label: 'Sample audit — illustrative data, not a real candidate',
             ),
-            onStartSession: _goToNewSession,
+            onStartSession: _goToInvitations,
           ),
         ),
         if (_showFor(_hr))
@@ -805,388 +598,10 @@ class _HomeScreenState extends State<HomeScreen> {
             storageIsDurable: widget.storageIsDurable,
             themeMode: widget.themeMode,
             onThemeModeChanged: widget.onThemeModeChanged ?? (_) {},
-            onDataChanged: () {
-              _loadEnrolment();
-              _refreshWorkspaceViews();
-            },
+            onDataChanged: _refreshWorkspaceViews,
           ),
         ),
       ],
     );
-  }
-
-  Widget _setupPage(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return AnimatedBuilder(
-      animation: _draft,
-      builder: (context, _) => ShellPage(
-        title: 'New session',
-        subtitle:
-            'Continuous provenance for technical interviews — who did the '
-            'work, how, and what could not be checked.',
-        maxWidth: Measures.form,
-        children: [
-          SectionCard(
-            title: 'Candidate',
-            icon: Icons.badge_outlined,
-            description: 'How this session is filed in Sessions and grouped in '
-                'Candidates.',
-            // TextFormField, not TextField: this field can arrive pre-filled
-            // (a redeemed invitation sets _draft.label before this screen is
-            // ever built), and TextField has no way to show an initial value —
-            // it would silently discard the candidate's own name.
-            //
-            // Keyed on _invitationApplied, not on the live text: that flag
-            // flips false->true at most once, right when the pre-fill lands,
-            // forcing exactly one rebuild to pick up the new initialValue.
-            // Keying on the text itself would rebuild on every keystroke and
-            // throw the cursor to the end as the candidate types.
-            child: TextFormField(
-              key: ValueKey(_invitationApplied),
-              initialValue: _draft.rawLabel,
-              onChanged: (value) => _draft.label = value,
-              textInputAction: TextInputAction.done,
-              decoration: const InputDecoration(
-                labelText: 'Candidate reference',
-                hintText: 'e.g. Alice Nguyen — backend screen',
-              ),
-            ),
-          ),
-          const SizedBox(height: Spacing.md),
-          _enrolmentCard(theme),
-          const SizedBox(height: Spacing.md),
-          _rolePickerCard(theme),
-          const SizedBox(height: Spacing.md),
-          _claimsSummaryCard(context),
-          const SizedBox(height: Spacing.md),
-          _researchConsentTile(theme),
-          const SizedBox(height: Spacing.xl),
-
-          // One action. Enrolment is a precondition, so there is no second,
-          // unverified way in.
-          SectionCard(
-            title: 'Start',
-            icon: Icons.verified_user_outlined,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                FilledButton.icon(
-                  onPressed: _enrolment == null
-                      ? _enrolThenInterview
-                      : () => _startInterview(_enrolment!.embedding),
-                  icon: const Icon(Icons.verified_user_outlined, size: 19),
-                  label: Text(
-                    _enrolment == null
-                        ? 'Enrol and start verified interview'
-                        : 'Start verified interview',
-                  ),
-                ),
-                const SizedBox(height: Spacing.sm),
-                Text(
-                  _enrolment == null
-                      ? 'A reference face is captured first. Every session '
-                          'runs with identity verification — there is no '
-                          'unverified mode.'
-                      : 'Identity is re-checked throughout the session. '
-                          'Checks that cannot be performed are reported as '
-                          'unmeasured, never as passes.',
-                  style: theme.textTheme.bodySmall,
-                ),
-              ],
-            ),
-          ),
-
-          if (!widget.storageIsDurable) ...[
-            const SizedBox(height: Spacing.xl),
-            _storageNotice(theme),
-          ],
-        ],
-      ),
-    );
-  }
-
-  /// Optional — a session runs without a role picked, same as before this
-  /// existed. Picking one only reorders which claim opens first (see
-  /// `orderClaimsForRole`'s doc); it adds nothing to the audit and changes no
-  /// verdict.
-  Widget _rolePickerCard(ThemeData theme) {
-    final roles = _roleIndex?.roles ?? const <Role>[];
-
-    return SectionCard(
-      title: 'Role this session is screening for',
-      icon: Icons.work_outline,
-      description: roles.isEmpty
-          ? 'No roles defined yet. Add one on the Roles screen to have this '
-              "session probe that role's required skills first."
-          : 'Optional. Reorders the claim queue so this role\'s required '
-              'skills are examined before the rest — every claim is still '
-              'asked about, nothing is dropped.',
-      child: roles.isEmpty
-          ? const SizedBox.shrink()
-          : DropdownButtonFormField<String>(
-              initialValue: _draft.targetRole?.id,
-              decoration: const InputDecoration(
-                labelText: 'Role (optional)',
-              ),
-              items: [
-                const DropdownMenuItem(value: null, child: Text('None')),
-                for (final role in roles)
-                  DropdownMenuItem(value: role.id, child: Text(role.title)),
-              ],
-              onChanged: (id) => setState(() {
-                _draft.targetRole =
-                    id == null ? null : roles.firstWhere((r) => r.id == id);
-              }),
-            ),
-    );
-  }
-
-  Widget _claimsSummaryCard(BuildContext context) {
-    final theme = Theme.of(context);
-    final role = _draft.targetRole;
-
-    return SectionCard(
-      title: 'Claims this session will examine',
-      icon: Icons.fact_check_outlined,
-      trailing: TextButton(
-        onPressed: () => AppShellController.of(context)?.goTo('Resume analysis'),
-        child: Text(_draft.usingDemoClaims ? 'Add a resume' : 'Review'),
-      ),
-      description: [
-        if (_draft.usingDemoClaims)
-          'No resume has been confirmed yet, so this session would run on '
-              'two labelled demo claims.'
-        else
-          '${_draft.confirmedClaims.length} claim(s) confirmed from the '
-              "candidate's own resume on the Resume analysis screen.",
-        if (role != null)
-          'Ordered with "${role.title}"\'s required skills first.',
-      ].join(' '),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (final claim in _draft.effectiveClaims)
-            Padding(
-              padding: const EdgeInsets.only(bottom: Spacing.xs),
-              child: Text(
-                '· ${claim.text}',
-                style: theme.textTheme.bodyMedium,
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _storageNotice(ThemeData theme) => Card(
-        color: theme.colorScheme.errorContainer,
-        child: Padding(
-          padding: const EdgeInsets.all(Spacing.lg),
-          child: _statusRow(
-            theme,
-            icon: Icons.warning_amber,
-            label: 'Storage is not durable on this platform',
-            value: widget.storageLocation,
-            note: 'Sessions will not survive closing the app.',
-            tone: theme.colorScheme.error,
-          ),
-        ),
-      );
-
-  Widget _statusRow(
-    ThemeData theme, {
-    required IconData icon,
-    required String label,
-    required String value,
-    required String note,
-    Color? tone,
-  }) =>
-      Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            icon,
-            size: 17,
-            color: tone ?? theme.colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(width: Spacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: theme.textTheme.labelMedium?.copyWith(color: tone),
-                ),
-                SelectableText(value, style: theme.textTheme.bodySmall),
-                Text(note, style: theme.textTheme.bodySmall),
-              ],
-            ),
-          ),
-        ],
-      );
-
-  /// A second, separate consent from identity verification — this one governs
-  /// research-release use of the session's data, not whether the session can
-  /// run at all. Opt-in and unchecked by default: the checkbox is the whole
-  /// mechanism, there is no "ask me later" state that quietly defaults to yes.
-  Widget _researchConsentTile(ThemeData theme) => Card(
-        child: CheckboxListTile(
-          value: _draft.researchConsent,
-          onChanged: (checked) => _draft.researchConsent = checked ?? false,
-          controlAffinity: ListTileControlAffinity.leading,
-          title: const Text('Allow this session for research release'),
-          subtitle: Text(
-            'Separate from identity verification, which always runs. If '
-            'checked, this session may be included in the de-identified '
-            'research dataset. The choice is recorded either way.',
-            style: theme.textTheme.bodySmall,
-          ),
-        ),
-      );
-
-  Widget _enrolmentCard(ThemeData theme) {
-    if (_loadingEnrolment) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(Spacing.lg),
-          child: Row(
-            children: [
-              const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-              const SizedBox(width: Spacing.md),
-              // Expanded so the message wraps within the card on a narrow
-              // window rather than pushing past the row's right edge.
-              Expanded(
-                child: Text(
-                  'Checking for a saved reference face…',
-                  style: theme.textTheme.bodyMedium,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    // An unreadable profile is a fault, and is shown as one. It must not be
-    // mistaken for "nobody has enrolled".
-    if (_enrolmentError != null) {
-      return Card(
-        color: theme.colorScheme.errorContainer,
-        child: Padding(
-          padding: const EdgeInsets.all(Spacing.lg),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              StatusChip(
-                icon: Icons.error_outline,
-                label: 'Enrolment unreadable',
-                colour: theme.colorScheme.error,
-              ),
-              const SizedBox(height: Spacing.md),
-              Text(_enrolmentError!, style: theme.textTheme.bodySmall),
-              const SizedBox(height: Spacing.xs),
-              Text(
-                'This is a fault, not "nobody has enrolled". Re-enrol before '
-                'running a verified session.',
-                style: theme.textTheme.bodySmall,
-              ),
-              const SizedBox(height: Spacing.sm),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: _clearEnrolment,
-                  child: const Text('Discard it'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    final profile = _enrolment;
-    if (profile == null) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(Spacing.lg),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(
-                Icons.person_outline,
-                size: 18,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-              const SizedBox(width: Spacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'No reference face enrolled',
-                      style: theme.textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Starting a verified interview will capture one first.',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(Spacing.lg),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            StatusChip(
-              icon: Icons.verified_user_outlined,
-              label: 'Reference face enrolled',
-              colour: context.evidence.verified,
-            ),
-            const SizedBox(height: Spacing.md),
-            Text(
-              'Captured ${_formatDate(profile.capturedAt)} · '
-              'face size ${profile.faceSize}px²',
-              style: theme.textTheme.bodySmall,
-            ),
-            const SizedBox(height: Spacing.xs),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: _enrolThenInterview,
-                  child: const Text('Re-enrol'),
-                ),
-                TextButton(
-                  onPressed: _clearEnrolment,
-                  child: const Text('Clear'),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  static String _formatDate(DateTime time) {
-    final local = time.toLocal();
-    String two(int n) => n.toString().padLeft(2, '0');
-    return '${local.year}-${two(local.month)}-${two(local.day)} '
-        '${two(local.hour)}:${two(local.minute)}';
   }
 }

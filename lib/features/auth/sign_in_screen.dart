@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/auth/auth_store.dart';
 import '../../core/auth/principal.dart';
 import '../../core/auth/user_role.dart';
+import '../../core/config.dart';
 import '../../core/design/app_theme.dart';
 import '../../core/invitations/invitation.dart';
 import '../../core/invitations/invitation_store.dart';
@@ -35,17 +37,9 @@ class SignInScreen extends StatelessWidget {
     required this.authStore,
     required this.onSignIn,
     this.provisionOrganization,
-    this.showRecruiterOption = true,
   });
 
   final InvitationStore invitationStore;
-
-  /// False on the candidate web build (Ticket 13) — that deployment is
-  /// candidate-only, so there is no reason to expose an HR sign-in/register
-  /// form on a link that gets shared with candidates. `authStore` is still
-  /// required in that build (the constructor needs *something*), it's just
-  /// never exercised.
-  final bool showRecruiterOption;
 
   /// Real credential verification (Ticket 10) — [InMemoryAuthStore] in tests
   /// and local dev, `SupabaseAuthStore` in the running app.
@@ -100,62 +94,20 @@ class SignInScreen extends StatelessWidget {
                       textAlign: TextAlign.center),
                   const SizedBox(height: Spacing.sm),
                   Text(
-                    showRecruiterOption
-                        ? 'Verified-claim interviewing. Choose how you are signing in.'
-                        : 'Enter the invitation code your interviewer gave you.',
+                    'Verified-claim interviewing for recruiters.',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodyLarge
                         ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                   ),
                   const SizedBox(height: Spacing.section),
-                  if (!showRecruiterOption)
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 420),
-                      child: _CandidateCodeCard(
-                        invitationStore: invitationStore,
-                        onRedeemed: (principal, invitation) =>
-                            onSignIn(principal, invitation),
-                      ),
-                    )
-                  else
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final wide = constraints.maxWidth > 560;
-                        final cards = [
-                          _RecruiterAuthCard(
-                            authStore: authStore,
-                            provisionOrganization: provisionOrganization,
-                            onSignedIn: (principal) => onSignIn(principal, null),
-                          ),
-                          _CandidateCodeCard(
-                            invitationStore: invitationStore,
-                            onRedeemed: (principal, invitation) =>
-                                onSignIn(principal, invitation),
-                          ),
-                        ];
-                        return wide
-                            // IntrinsicHeight so the two cards match height
-                            // without being handed the scroll view's unbounded
-                            // height.
-                            ? IntrinsicHeight(
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                                  children: [
-                                    Expanded(child: cards[0]),
-                                    const SizedBox(width: Spacing.lg),
-                                    Expanded(child: cards[1]),
-                                  ],
-                                ),
-                              )
-                            : Column(
-                                children: [
-                                  cards[0],
-                                  const SizedBox(height: Spacing.lg),
-                                  cards[1],
-                                ],
-                              );
-                      },
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 420),
+                    child: _RecruiterAuthCard(
+                      authStore: authStore,
+                      provisionOrganization: provisionOrganization,
+                      onSignedIn: (principal) => onSignIn(principal, null),
                     ),
+                  ),
                 ],
               ),
             ),
@@ -237,7 +189,6 @@ class _RecruiterAuthCard extends StatefulWidget {
 class _RecruiterAuthCardState extends State<_RecruiterAuthCard> {
   final _email = TextEditingController();
   final _password = TextEditingController();
-  final _orgName = TextEditingController();
   bool _registering = false;
   bool _submitting = false;
   String? _error;
@@ -246,8 +197,21 @@ class _RecruiterAuthCardState extends State<_RecruiterAuthCard> {
   void dispose() {
     _email.dispose();
     _password.dispose();
-    _orgName.dispose();
     super.dispose();
+  }
+
+  /// Registration now happens on the web portal (Supabase Auth there), not
+  /// in-app — a brand new organisation/recruiter account is created through
+  /// the same flow candidates never see, then the recruiter comes back here
+  /// and signs in normally. Opens in a new tab rather than navigating this
+  /// one away, since this is a Flutter *web* app (see launch.json — there is
+  /// no native mobile/desktop target to deep-link back into) and signing in
+  /// afterwards needs this tab still open.
+  Future<void> _openBrowserRegistration() async {
+    final uri = Uri.parse('${AppConfig.portalUrl}/signup');
+    // webOnlyWindowName opens a new tab under Flutter web rather than
+    // navigating this one away; ignored on other platforms.
+    await launchUrl(uri, webOnlyWindowName: '_blank');
   }
 
   String _messageFor(AuthFailure failure, String? detail) {
@@ -270,14 +234,9 @@ class _RecruiterAuthCardState extends State<_RecruiterAuthCard> {
   Future<void> _submit() async {
     final email = _email.text.trim();
     final password = _password.text;
-    final orgName = _orgName.text.trim();
 
     if (email.isEmpty || password.isEmpty) {
       setState(() => _error = 'Enter your email and password.');
-      return;
-    }
-    if (_registering && orgName.isEmpty) {
-      setState(() => _error = 'Enter your organisation\'s name.');
       return;
     }
 
@@ -286,17 +245,11 @@ class _RecruiterAuthCardState extends State<_RecruiterAuthCard> {
       _error = null;
     });
 
-    final result = _registering
-        ? await widget.authStore.register(
-            email: email,
-            password: password,
-            asRole: UserRole.recruiter,
-          )
-        : await widget.authStore.signIn(
-            email: email,
-            password: password,
-            asRole: UserRole.recruiter,
-          );
+    final result = await widget.authStore.signIn(
+      email: email,
+      password: password,
+      asRole: UserRole.recruiter,
+    );
     if (!mounted) return;
 
     switch (result) {
@@ -306,29 +259,7 @@ class _RecruiterAuthCardState extends State<_RecruiterAuthCard> {
           _error = _messageFor(failure, message);
         });
       case AuthSuccess(:final principal):
-        if (!_registering || principal.organisationId != null) {
-          widget.onSignedIn(principal);
-          return;
-        }
-        final provision = widget.provisionOrganization;
-        if (provision == null) {
-          setState(() {
-            _submitting = false;
-            _error = 'Account created, but organisation setup is unavailable.';
-          });
-          return;
-        }
-        final withOrg = await provision(orgName);
-        if (!mounted) return;
-        if (withOrg == null) {
-          setState(() {
-            _submitting = false;
-            _error = 'Account created, but setting up your organisation '
-                'failed. Try signing in.';
-          });
-          return;
-        }
-        widget.onSignedIn(withOrg);
+        widget.onSignedIn(principal);
     }
   }
 
@@ -359,47 +290,54 @@ class _RecruiterAuthCardState extends State<_RecruiterAuthCard> {
                   ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
             ),
             const SizedBox(height: Spacing.lg),
-            TextField(
-              controller: _email,
-              keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(labelText: 'Work email'),
-            ),
-            const SizedBox(height: Spacing.sm),
-            TextField(
-              controller: _password,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: 'Password'),
-              onSubmitted: (_) => _submit(),
-            ),
             if (_registering) ...[
+              Text(
+                'Account creation happens on the CogniHire website — opens '
+                'in a new tab. Come back here and sign in once it\'s done.',
+                style: theme.textTheme.bodyMedium
+                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: Spacing.lg),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _openBrowserRegistration,
+                  icon: const Icon(Icons.open_in_new, size: 18),
+                  label: const Text('Create account on cognihire.online'),
+                ),
+              ),
+            ] else ...[
+              TextField(
+                controller: _email,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(labelText: 'Work email'),
+              ),
               const SizedBox(height: Spacing.sm),
               TextField(
-                controller: _orgName,
-                decoration:
-                    const InputDecoration(labelText: 'Organisation name'),
+                controller: _password,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Password'),
                 onSubmitted: (_) => _submit(),
               ),
-            ],
-            if (_error != null) ...[
-              const SizedBox(height: Spacing.sm),
-              Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
-            ],
-            const SizedBox(height: Spacing.lg),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: _submitting ? null : _submit,
-                child: _submitting
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Text(_registering
-                        ? 'Create account'
-                        : 'Enter as ${UserRole.recruiter.label}'),
+              if (_error != null) ...[
+                const SizedBox(height: Spacing.sm),
+                Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
+              ],
+              const SizedBox(height: Spacing.lg),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: _submitting ? null : _submit,
+                  child: _submitting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text('Enter as ${UserRole.recruiter.label}'),
+                ),
               ),
-            ),
+            ],
             const SizedBox(height: Spacing.sm),
             Center(
               child: TextButton(
@@ -421,128 +359,3 @@ class _RecruiterAuthCardState extends State<_RecruiterAuthCard> {
   }
 }
 
-/// The candidate's entry point: type the code HR gave you.
-///
-/// A [StatefulWidget] (unlike the recruiter card) because it owns a text
-/// field and an in-progress error message that only this card cares about.
-class _CandidateCodeCard extends StatefulWidget {
-  const _CandidateCodeCard({
-    required this.invitationStore,
-    required this.onRedeemed,
-  });
-
-  final InvitationStore invitationStore;
-  final void Function(Principal principal, Invitation invitation) onRedeemed;
-
-  @override
-  State<_CandidateCodeCard> createState() => _CandidateCodeCardState();
-}
-
-class _CandidateCodeCardState extends State<_CandidateCodeCard> {
-  final _code = TextEditingController();
-  String? _error;
-  bool _checking = false;
-
-  @override
-  void dispose() {
-    _code.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submit() async {
-    final code = _code.text.trim();
-    if (code.isEmpty) {
-      setState(() => _error = 'Enter the code you were given.');
-      return;
-    }
-    setState(() {
-      _checking = true;
-      _error = null;
-    });
-
-    final invitation = await widget.invitationStore.findRedeemable(code);
-    if (!mounted) return;
-
-    if (invitation == null) {
-      setState(() {
-        _checking = false;
-        _error = 'That code is not recognised, or has already been used.';
-      });
-      return;
-    }
-
-    await widget.invitationStore
-        .saveInvitation(invitation.copyWith(status: InvitationStatus.accepted));
-    if (!mounted) return;
-
-    widget.onRedeemed(
-      Principal(
-        id: 'candidate-${invitation.id}',
-        email: invitation.candidateEmail.isEmpty
-            ? '${invitation.id}@invited.example'
-            : invitation.candidateEmail,
-        role: UserRole.candidate,
-        displayName: invitation.candidateName,
-      ),
-      invitation,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(Radii.surface),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(Spacing.xl),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _CardIcon(
-              icon: Icons.person_outline,
-              colour: theme.colorScheme.tertiary,
-            ),
-            const SizedBox(height: Spacing.lg),
-            Text('Continue as ${UserRole.candidate.label}',
-                style: theme.textTheme.titleLarge),
-            const SizedBox(height: Spacing.sm),
-            Text(
-              'Enter the invitation code your interviewer gave you.',
-              style: theme.textTheme.bodyMedium
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-            ),
-            const SizedBox(height: Spacing.lg),
-            TextField(
-              controller: _code,
-              textCapitalization: TextCapitalization.characters,
-              decoration: const InputDecoration(labelText: 'Invitation code'),
-              onSubmitted: (_) => _submit(),
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: Spacing.sm),
-              Text(_error!,
-                  style: TextStyle(color: theme.colorScheme.error)),
-            ],
-            const SizedBox(height: Spacing.lg),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: _checking ? null : _submit,
-                child: _checking
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Enter interview'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

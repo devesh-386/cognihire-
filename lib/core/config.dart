@@ -56,4 +56,18 @@ class AppConfig {
     defaultValue:
         'sb_publishable_UKR2UuhjY3--RhlvZbGt8A_L3_Mf_dN',
   );
+
+  /// Base URL of the candidate/recruiter web portal (`portal/`). Used only to
+  /// open the browser-based recruiter registration flow — the Flutter app
+  /// never talks to it over HTTP itself. See sign_in_screen.dart.
+  ///
+  /// No production portal domain is documented anywhere in this repo (the
+  /// backend's own `PORTAL_URL` env var defaults to empty — see
+  /// docker-compose.api.yml) so this defaults to local dev rather than
+  /// guessing a real-looking prod URL. Override at build/run time:
+  ///   flutter run --dart-define=PORTAL_URL=https://your-portal-domain
+  static const portalUrl = String.fromEnvironment(
+    'PORTAL_URL',
+    defaultValue: 'http://localhost:3000',
+  );
 }

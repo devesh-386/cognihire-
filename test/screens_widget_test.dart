@@ -19,7 +19,6 @@ import 'package:cognihire/core/verification/verification_result.dart';
 import 'package:cognihire/features/audit/claim_audit_screen.dart';
 import 'package:cognihire/features/graph/evidence_graph_screen.dart';
 import 'package:cognihire/features/sessions/session_history_screen.dart';
-import 'package:cognihire/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -138,66 +137,6 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
-    });
-  });
-
-  group('HomeScreen — enrolment is a precondition', () {
-    Widget home() => _wrap(
-          HomeScreen(
-            store: InMemoryAuditStore(),
-            storageLocation: '/tmp/cognihire',
-            storageIsDurable: true,
-          ),
-        );
-
-    // This is a desktop app; the default test surface is far smaller than any
-    // real window, which makes every layout look like it overflows. Size the
-    // viewport to something the app actually runs at.
-    setUp(() {
-      final view = TestWidgetsFlutterBinding.instance.platformDispatcher
-          .implicitView!;
-      view.physicalSize = const Size(1280, 900);
-      view.devicePixelRatio = 1.0;
-      addTearDown(() {
-        view.resetPhysicalSize();
-        view.resetDevicePixelRatio();
-      });
-    });
-
-    // The setup form now lives behind the shell's "New session" destination
-    // rather than being the whole app's home content.
-    Future<void> openSetup(WidgetTester tester) async {
-      await tester.pumpWidget(home());
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('New session').last);
-      await tester.pumpAndSettle();
-    }
-
-    testWidgets('offers no way to start an unverified session', (tester) async {
-      await openSetup(tester);
-
-      // The product decision: a session cannot begin without an enrolled
-      // reference. If someone reintroduces an "skip verification" affordance,
-      // this fails.
-      expect(find.textContaining('without identity'), findsNothing);
-      expect(find.textContaining('without verification'), findsNothing);
-      expect(find.byIcon(Icons.videocam_off_outlined), findsNothing);
-    });
-
-    testWidgets('the only start action leads through enrolment', (tester) async {
-      await openSetup(tester);
-
-      expect(
-        find.text('Enrol and start verified interview'),
-        findsOneWidget,
-      );
-      expect(find.byType(FilledButton), findsOneWidget);
-    });
-
-    testWidgets('says plainly that there is no unverified mode', (tester) async {
-      await openSetup(tester);
-
-      expect(find.textContaining('no unverified mode'), findsOneWidget);
     });
   });
 

@@ -34,15 +34,14 @@ void main() {
   );
 
   group('SignInScreen', () {
-    testWidgets('offers recruiter entry and a candidate code field', (
+    testWidgets('offers recruiter sign-in — no candidate entry point', (
       tester,
     ) async {
       await tester.pumpWidget(screenWith(InMemoryInvitationStore(), (_, _) {}));
 
-      expect(find.text('Continue as Recruiter'), findsOneWidget);
-      expect(find.text('Continue as Candidate'), findsOneWidget);
-      expect(find.widgetWithText(TextField, 'Invitation code'), findsOneWidget);
       expect(find.widgetWithText(TextField, 'Work email'), findsOneWidget);
+      expect(find.text('Continue as Candidate'), findsNothing);
+      expect(find.widgetWithText(TextField, 'Invitation code'), findsNothing);
     });
 
     testWidgets(
@@ -119,132 +118,23 @@ void main() {
     });
 
     testWidgets(
-      'registering a new recruiter provisions an organisation and signs in',
+      'choosing to register swaps the form for the browser-registration CTA',
       (tester) async {
         setRealisticSize(tester);
-        final authStore = InMemoryAuthStore();
-
-        Principal? chosen;
         await tester.pumpWidget(
-          screenWith(
-            InMemoryInvitationStore(),
-            (p, i) => chosen = p,
-            authStore: authStore,
-            provisionOrganization: (name) async => Principal(
-              id: 'user-1',
-              email: 'new@meridianhealth.example',
-              role: UserRole.recruiter,
-              organisationId: 'org-$name',
-            ),
-          ),
+          screenWith(InMemoryInvitationStore(), (_, _) {}),
         );
 
         await tester.tap(find.text('New organisation? Create an account'));
         await tester.pump();
 
-        await tester.enterText(
-          find.widgetWithText(TextField, 'Work email'),
-          'new@meridianhealth.example',
-        );
-        await tester.enterText(
-          find.widgetWithText(TextField, 'Password'),
-          'a very long passphrase',
-        );
-        await tester.enterText(
-          find.widgetWithText(TextField, 'Organisation name'),
-          'meridian-health',
-        );
-        await tester.tap(find.text('Create account'));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 50));
-
-        expect(chosen, isNotNull);
-        expect(chosen!.organisationId, 'org-meridian-health');
+        // Registration now happens on the web portal — no in-app password/org
+        // fields, just a link out and an "already have an account" way back.
+        expect(find.widgetWithText(TextField, 'Work email'), findsNothing);
+        expect(find.widgetWithText(TextField, 'Organisation name'), findsNothing);
+        expect(find.text('Create account on cognihire.online'), findsOneWidget);
+        expect(find.text('Already have an account? Sign in'), findsOneWidget);
       },
     );
-
-    testWidgets('a valid code signs the invited candidate in and binds them', (
-      tester,
-    ) async {
-      final store = InMemoryInvitationStore();
-      await store.saveInvitation(
-        Invitation(
-          id: 'inv-1',
-          candidateName: 'Jordan Rivera',
-          roleId: 'role-backend',
-          code: 'ABC123',
-          createdAt: DateTime(2026, 8, 1),
-        ),
-      );
-
-      Principal? chosen;
-      Invitation? boundInvitation;
-      await tester.pumpWidget(
-        screenWith(store, (p, i) {
-          chosen = p;
-          boundInvitation = i;
-        }),
-      );
-
-      await tester.enterText(
-        find.widgetWithText(TextField, 'Invitation code'),
-        'abc123',
-      );
-      await tester.tap(find.text('Enter interview'));
-      // Not pumpAndSettle: in this isolated test nothing swaps SignInScreen
-      // out on success, so its (now-pointless) spinner would animate forever.
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 50));
-
-      expect(chosen, isNotNull);
-      expect(chosen!.role, UserRole.candidate);
-      expect(chosen!.displayName, 'Jordan Rivera');
-      expect(chosen!.organisationId, isNull);
-      expect(boundInvitation, isNotNull);
-      expect(boundInvitation!.roleId, 'role-backend');
-
-      // Redeeming marks the invitation accepted so the code cannot be reused.
-      expect(await store.findRedeemable('ABC123'), isNull);
-    });
-
-    testWidgets('an unknown code shows an error and does not sign in', (
-      tester,
-    ) async {
-      var signedIn = false;
-      await tester.pumpWidget(
-        screenWith(InMemoryInvitationStore(), (_, _) => signedIn = true),
-      );
-
-      await tester.enterText(
-        find.widgetWithText(TextField, 'Invitation code'),
-        'NOPE99',
-      );
-      await tester.tap(find.text('Enter interview'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 50));
-
-      expect(signedIn, isFalse);
-      expect(
-        find.text('That code is not recognised, or has already been used.'),
-        findsOneWidget,
-      );
-    });
-
-    testWidgets(
-        'the candidate web build (showRecruiterOption: false) has no HR entry',
-        (tester) async {
-      await tester.pumpWidget(MaterialApp(
-        home: SignInScreen(
-          invitationStore: InMemoryInvitationStore(),
-          authStore: InMemoryAuthStore(),
-          showRecruiterOption: false,
-          onSignIn: (_, _) {},
-        ),
-      ));
-
-      expect(find.text('Continue as Recruiter'), findsNothing);
-      expect(find.widgetWithText(TextField, 'Work email'), findsNothing);
-      expect(find.widgetWithText(TextField, 'Invitation code'), findsOneWidget);
-    });
   });
 }

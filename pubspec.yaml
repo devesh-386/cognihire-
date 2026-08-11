@@ -63,6 +63,10 @@ dependencies:
   mailer: ^6.4.1
   archive: ^4.0.7
   xml: ^6.5.0
+  # Opens the browser-based recruiter registration flow (sign_in_screen.dart)
+  # — platform-agnostic, unlike dart:html, so it also works under `flutter
+  # test`'s VM runner rather than only in a real web build.
+  url_launcher: ^6.3.2
   # Stand-in for the Kokoro streaming TTS in the target architecture — speaks
   # the OS/browser voice instead of a real spoken accent. Swap point: once a
   # Kokoro server exists, replace the `speak()` call in
