@@ -71,6 +71,16 @@ services:
       # FORM_WEBHOOK_SECRET above.
       INTERNAL_AUTOINVITE_SECRET: ${INTERNAL_AUTOINVITE_SECRET:-}
 
+      # Per-organization Google OAuth (Forms automation). Unset -> every
+      # route in service/google_integration/oauth.py 503s with a clear
+      # "Google OAuth is not configured" message rather than crashing or
+      # silently no-opping — see infra/README.md's "Google Forms
+      # automation" section for how to obtain these.
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-}
+      GOOGLE_OAUTH_STATE_SECRET: ${GOOGLE_OAUTH_STATE_SECRET:-}
+
       # Email (Ticket 21). Unset -> NullEmailProvider, which records an
       # honest "not configured" failure rather than pretending to send.
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-smtp}
