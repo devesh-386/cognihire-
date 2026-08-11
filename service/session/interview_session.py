@@ -288,9 +288,22 @@ async def report(session_id: str) -> dict:
 
     links = evidence_linking.build_links(plan, events)
     result = report_generation.build_report(
-        plan, coverage, links, row["role_title"], row["status"],
+        plan, coverage, links, row["role_title"], row["status"], events,
     )
     return result.to_dict()
+
+
+async def record_event(session_id: str, event_type: EventType, payload: dict) -> None:
+    """Append a single client-observed event (face verification result,
+    tab/window/fullscreen/connection signal). Recorded as-is — this layer
+    never turns a signal into a verdict; see `EventType`'s doc comment."""
+    row = await session_store.fetch_session(session_id)
+    if row is None:
+        raise SessionError(f"no session {session_id}")
+    sequence = await session_store.next_sequence(session_id)
+    await session_store.append_event(
+        SessionEvent(session_id, sequence, event_type, payload).to_dict()
+    )
 
 
 async def abandon(session_id: str, reason: str) -> None:

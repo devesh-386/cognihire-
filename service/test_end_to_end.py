@@ -351,6 +351,24 @@ def test_full_pipeline_resume_to_hr_report(fake_supabase, client):
     linked_code = fake_supabase.tables["interview_codes"][0]
     assert linked_code["status"] == "used"
 
+    # --- Stage: candidate portal -> /interview/event (face check + behavior) --
+    resp = client.post("/interview/event", json={
+        "session_id": session_id, "code": code,
+        "event_type": "face_verification",
+        "payload": {"face_detected": True, "similarity": 0.94},
+    })
+    assert resp.status_code == 200, resp.text
+    for event_type in ("tab_hidden", "tab_visible", "tab_hidden", "tab_visible"):
+        resp = client.post("/interview/event", json={
+            "session_id": session_id, "code": code, "event_type": event_type,
+        })
+        assert resp.status_code == 200, resp.text
+
+    resp = client.post("/interview/event", json={
+        "session_id": session_id, "code": code, "event_type": "not_a_real_event",
+    })
+    assert resp.status_code == 422, "unknown event_type should be rejected"
+
     # --- Stage: Evidence linking + report generation --------------------------
     resp = client.get(f"/interview/report/{session_id}", headers=_AUTH_E2E_ORG)
     assert resp.status_code == 200, resp.text
@@ -361,6 +379,9 @@ def test_full_pipeline_resume_to_hr_report(fake_supabase, client):
     assert all(t["outcome"] is not None for t in report["topics"]), (
         "every planned topic was answered, so none should be missing an outcome"
     )
+    assert report["behavior_signal_counts"]["tab_hidden"] == 2
+    assert report["behavior_signal_counts"]["tab_visible"] == 2
+    assert report["face_verification"] == {"face_detected": True, "similarity": 0.94}
 
     # --- Stage: HR desktop's read model ----------------------------------------
     # The Flutter "AI Interviews" screen reads interview_sessions/events

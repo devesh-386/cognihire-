@@ -38,6 +38,7 @@ from notifications import workflow as email_workflow
 from pipeline import demo_store, profile_builder, supabase_store
 from security import rate_limit
 from session import codes_store, interview_codes, interview_session, session_store
+from session.events import EventType
 
 # Ticket 20: without an explicit handler, Python's logging module only ever
 # surfaces WARNING+ (via its "handler of last resort") — every logger.info
@@ -288,6 +289,27 @@ class InterviewFinishRequest(BaseModel):
     reason: str = "interview complete"
 
 
+# Only signals the portal can actually observe honestly — no claim of
+# device/mobile detection a browser cannot make. See EventType's doc comment.
+_CLIENT_EVENT_TYPES = {
+    "face_verification",
+    "tab_hidden",
+    "tab_visible",
+    "window_blur",
+    "window_focus",
+    "fullscreen_exit",
+    "connection_lost",
+    "connection_restored",
+}
+
+
+class InterviewEventRequest(BaseModel):
+    session_id: str
+    code: str
+    event_type: str
+    payload: dict = {}
+
+
 async def _require_code_owns_session(code: str, session_id: str) -> None:
     try:
         code_row = await codes_store.fetch_by_code(code)
@@ -530,6 +552,26 @@ async def interview_answer(req: InterviewAnswerRequest) -> dict:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except supabase_store.SupabaseError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/interview/event")
+async def interview_event(req: InterviewEventRequest) -> dict:
+    """Record one client-observed signal (face verification result, tab/
+    window/fullscreen/connection change) against a session. Same code+session
+    auth as /interview/answer. Never interprets the signal — the report layer
+    surfaces it as a count, HR draws the conclusion."""
+    if req.event_type not in _CLIENT_EVENT_TYPES:
+        raise HTTPException(status_code=422, detail=f"unknown event_type: {req.event_type}")
+    await _require_code_owns_session(req.code, req.session_id)
+    try:
+        await interview_session.record_event(
+            req.session_id, EventType(req.event_type), req.payload,
+        )
+    except interview_session.SessionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"recorded": True}
 
 
 @app.get("/interview/report/{session_id}")

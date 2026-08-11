@@ -103,6 +103,31 @@ export function finishInterview({ sessionId, code, reason }) {
   return post("/interview/finish", { session_id: sessionId, code, reason });
 }
 
+// Records one client-observed signal (face verification result, tab/window/
+// fullscreen/connection change) against a session. Never sends a verdict —
+// only what was observed; see service/session/events.py's EventType doc.
+export function recordInterviewEvent({ sessionId, code, eventType, payload = {} }) {
+  return post("/interview/event", {
+    session_id: sessionId, code, event_type: eventType, payload,
+  });
+}
+
+// Multipart upload to /face/analyze — the one gateway call that isn't JSON,
+// so it bypasses `request()`/`post()` and talks to fetch directly.
+export async function analyzeFace(blob) {
+  const form = new FormData();
+  form.append("file", blob, "frame.jpg");
+  const response = await fetch(`${GATEWAY_URL}/face/analyze`, {
+    method: "POST",
+    body: form,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data?.detail || `face analysis failed: HTTP ${response.status}`);
+  }
+  return data;
+}
+
 // HR-only — reads the same bearer session /roles etc. use.
 export function getReport(sessionId) {
   return get(`/interview/report/${sessionId}`);

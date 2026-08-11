@@ -3,11 +3,11 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
-import { Camera, Check, Loader2, Mic, TriangleAlert } from 'lucide-react'
+import { Camera, Check, Loader2, Mic, MicOff, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { InterviewCodeForm } from '@/components/candidate/interview-code-form'
 import { cn } from '@/lib/utils'
-import { startInterview, submitAnswer } from '@/lib/gateway'
+import { analyzeFace, recordInterviewEvent, startInterview, submitAnswer } from '@/lib/gateway'
 
 // Mirrors portal/app/interview/page.js — /interview/start's code errors are
 // the one place the gateway sends a {reason, message} shape instead of a
@@ -43,14 +43,60 @@ export function InterviewFlow({ code }: { code?: string }) {
   const [turn, setTurn] = useState<Turn | null>(null)
   const [coverage, setCoverage] = useState<Coverage | null>(null)
   const [answerText, setAnswerText] = useState('')
+  const [listening, setListening] = useState(false)
+  const [voiceSupported, setVoiceSupported] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const recognitionRef = useRef<any>(null)
+  const spokenQuestionRef = useRef<string | null>(null)
+  // Captured once devices are ready, before a session exists to attach it
+  // to — held here and flushed as an event right after /interview/start
+  // returns a session_id. Quality/presence check only: the portal has no
+  // enrolment step, so this is not an identity match against a reference
+  // face the way the Flutter app's local enrolment flow was.
+  const faceCheckRef = useRef<Record<string, unknown> | null>(null)
 
   useEffect(() => {
     return () => {
       streamRef.current?.getTracks().forEach((track) => track.stop())
     }
   }, [])
+
+  // Records tab/window/fullscreen visibility changes once a session exists.
+  // Never a verdict — see service/session/events.py's EventType doc.
+  useEffect(() => {
+    if (!sessionId) return
+
+    const send = (eventType: string) =>
+      recordInterviewEvent({ sessionId, code: code!, eventType }).catch(() => {
+        // Best-effort: a dropped behavior signal should never interrupt the
+        // interview itself.
+      })
+
+    const onVisibility = () => send(document.hidden ? 'tab_hidden' : 'tab_visible')
+    const onBlur = () => send('window_blur')
+    const onFocus = () => send('window_focus')
+    const onFullscreenChange = () => {
+      if (!document.fullscreenElement) send('fullscreen_exit')
+    }
+    const onOnline = () => send('connection_restored')
+    const onOffline = () => send('connection_lost')
+
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('blur', onBlur)
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('fullscreenchange', onFullscreenChange)
+    window.addEventListener('online', onOnline)
+    window.addEventListener('offline', onOffline)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('blur', onBlur)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('fullscreenchange', onFullscreenChange)
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('offline', onOffline)
+    }
+  }, [sessionId, code])
 
   async function requestDevices() {
     setDeviceStatus('checking')
@@ -65,6 +111,8 @@ export function InterviewFlow({ code }: { code?: string }) {
         videoRef.current.srcObject = stream
       }
       setDeviceStatus('ready')
+      // Give the video element a frame to paint before capturing.
+      setTimeout(() => runFaceCheck(), 400)
     } catch (error) {
       console.log('[v0] device check failed:', error)
       setDeviceStatus('denied')
@@ -74,6 +122,31 @@ export function InterviewFlow({ code }: { code?: string }) {
     }
   }
 
+  async function runFaceCheck() {
+    const video = videoRef.current
+    if (!video || !video.videoWidth) return
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.drawImage(video, 0, 0)
+    canvas.toBlob(async (blob) => {
+      if (!blob) return
+      try {
+        const analysis = await analyzeFace(blob)
+        faceCheckRef.current = {
+          face_detected: analysis.face_detected,
+          engine_available: analysis.engine_available,
+          brightness: analysis.brightness,
+          sharpness: analysis.sharpness,
+        }
+      } catch {
+        faceCheckRef.current = { face_detected: false, error: 'analysis_failed' }
+      }
+    }, 'image/jpeg', 0.85)
+  }
+
   async function beginInterview() {
     setSessionStatus('starting')
     setMessage(null)
@@ -81,6 +154,14 @@ export function InterviewFlow({ code }: { code?: string }) {
       const result = await startInterview({ code })
       setSessionId(result.session_id)
       setCoverage(result.coverage)
+      if (faceCheckRef.current) {
+        recordInterviewEvent({
+          sessionId: result.session_id,
+          code: code!,
+          eventType: 'face_verification',
+          payload: faceCheckRef.current,
+        }).catch(() => {})
+      }
       if (result.turn.kind === 'complete') {
         router.push(`/interview/complete?session=${result.session_id}`)
         return
@@ -96,6 +177,7 @@ export function InterviewFlow({ code }: { code?: string }) {
   async function handleAnswerSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!answerText.trim() || !sessionId) return
+    recognitionRef.current?.stop()
     setSessionStatus('submitting')
     try {
       const result = await submitAnswer({
@@ -116,6 +198,67 @@ export function InterviewFlow({ code }: { code?: string }) {
       setMessage(error?.message ?? 'Something went wrong.')
     }
   }
+
+  // Voice layer around the existing text-turn contract: speaks each question
+  // (TTS) and transcribes spoken answers into the same answerText the text
+  // box uses (STT) — /interview/start and /interview/answer are untouched,
+  // this only changes how the candidate gets text into them. Web Speech API,
+  // not a paid provider: free, in-browser, no round-trip latency. Support is
+  // inconsistent (good in Chrome/Edge, partial in Safari, absent in
+  // Firefox) — the text box always stays as a working fallback, and the UI
+  // says so plainly rather than pretending voice always works.
+  useEffect(() => {
+    const hasRecognition =
+      typeof window !== 'undefined' &&
+      ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)
+    const hasSynthesis = typeof window !== 'undefined' && 'speechSynthesis' in window
+    setVoiceSupported(hasRecognition && hasSynthesis)
+  }, [])
+
+  // Speaks each new question/follow-up exactly once — guarded by the
+  // question text itself so React StrictMode's double-invoke and answer
+  // re-renders don't repeat it.
+  useEffect(() => {
+    if (!voiceSupported) return
+    if (sessionStatus !== 'asking') return
+    if (!turn?.question || turn.question === spokenQuestionRef.current) return
+    spokenQuestionRef.current = turn.question
+    window.speechSynthesis.cancel()
+    window.speechSynthesis.speak(new SpeechSynthesisUtterance(turn.question))
+  }, [turn, sessionStatus, voiceSupported])
+
+  function toggleListening() {
+    if (!voiceSupported) return
+    if (listening) {
+      recognitionRef.current?.stop()
+      return
+    }
+    const SpeechRecognitionCtor =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    const recognition = new SpeechRecognitionCtor()
+    recognition.continuous = true
+    recognition.interimResults = true
+    recognition.lang = 'en-US'
+    recognition.onresult = (event: any) => {
+      let transcript = ''
+      for (let i = 0; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript
+      }
+      setAnswerText(transcript)
+    }
+    recognition.onerror = () => setListening(false)
+    recognition.onend = () => setListening(false)
+    recognitionRef.current = recognition
+    recognition.start()
+    setListening(true)
+  }
+
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop()
+      window.speechSynthesis?.cancel()
+    }
+  }, [])
 
   if (!code) {
     return (
@@ -188,15 +331,43 @@ export function InterviewFlow({ code }: { code?: string }) {
           </div>
         ) : null}
 
-        <form onSubmit={handleAnswerSubmit} className="mt-8 flex flex-col gap-4">
-          <textarea
-            value={answerText}
-            onChange={(event) => setAnswerText(event.target.value)}
-            disabled={submitting}
-            rows={6}
-            placeholder="Type your answer…"
-            className="w-full rounded-xl border border-input bg-background px-4 py-3 text-sm leading-relaxed outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/25 disabled:opacity-60"
-          />
+        {voiceSupported ? (
+          <p className="mt-6 flex items-center gap-2 text-xs text-muted-foreground">
+            {listening ? 'Listening — tap the mic to stop.' : 'Speak your answer, or type it below.'}
+          </p>
+        ) : (
+          <p className="mt-6 text-xs text-muted-foreground">
+            Voice isn&apos;t supported in this browser — type your answer below.
+          </p>
+        )}
+
+        <form onSubmit={handleAnswerSubmit} className="mt-3 flex flex-col gap-4">
+          <div className="relative">
+            <textarea
+              value={answerText}
+              onChange={(event) => setAnswerText(event.target.value)}
+              disabled={submitting}
+              rows={6}
+              placeholder="Type your answer…"
+              className="w-full rounded-xl border border-input bg-background px-4 py-3 pr-14 text-sm leading-relaxed outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/25 disabled:opacity-60"
+            />
+            {voiceSupported ? (
+              <button
+                type="button"
+                onClick={toggleListening}
+                disabled={submitting}
+                aria-label={listening ? 'Stop voice input' : 'Start voice input'}
+                className={cn(
+                  'absolute right-3 top-3 flex size-9 items-center justify-center rounded-full border transition-colors',
+                  listening
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-border bg-background text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {listening ? <MicOff aria-hidden="true" className="size-4" /> : <Mic aria-hidden="true" className="size-4" />}
+              </button>
+            ) : null}
+          </div>
           <Button
             type="submit"
             disabled={submitting || !answerText.trim()}

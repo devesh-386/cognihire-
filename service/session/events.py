@@ -22,6 +22,21 @@ class EventType(str, Enum):
     SESSION_COMPLETE = "session_complete"
     SESSION_ABANDONED = "session_abandoned"
 
+    # Client-observed signals, recorded as-is — never a verdict. The report
+    # layer surfaces these as counts ("3 tab visibility changes"), never as
+    # "candidate cheated". See ADAPTIVE_INTERVIEW_ENGINE_DESIGN.md /
+    # PRODUCT_OVERVIEW.md for why: a browser cannot reliably attribute a tab
+    # switch to cheating vs. a dropped notes app, so this layer only records,
+    # it never interprets.
+    FACE_VERIFICATION = "face_verification"
+    TAB_HIDDEN = "tab_hidden"
+    TAB_VISIBLE = "tab_visible"
+    WINDOW_BLUR = "window_blur"
+    WINDOW_FOCUS = "window_focus"
+    FULLSCREEN_EXIT = "fullscreen_exit"
+    CONNECTION_LOST = "connection_lost"
+    CONNECTION_RESTORED = "connection_restored"
+
 
 @dataclass
 class SessionEvent:

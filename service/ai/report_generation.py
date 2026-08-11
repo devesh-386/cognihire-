@@ -97,9 +97,34 @@ class InterviewReport:
     # How much of this report is model judgement vs. what the gate refused.
     # Optional so an older stored report still loads; always set by build_report.
     transparency: TransparencyMetrics | None = None
+    # Raw counts of client-observed signals (tab/window/fullscreen/connection)
+    # keyed by event_type — never a verdict. "3 tab visibility changes" is the
+    # whole claim; HR decides what, if anything, that means.
+    behavior_signal_counts: dict[str, int] = field(default_factory=dict)
+    # Most recent face_verification event's payload, or None if the interview
+    # never recorded one (e.g. camera denied, or the check hasn't run yet).
+    face_verification: dict | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+_BEHAVIOR_EVENT_TYPES = {
+    "tab_hidden", "tab_visible", "window_blur", "window_focus",
+    "fullscreen_exit", "connection_lost", "connection_restored",
+}
+
+
+def _behavior_summary(events: list[dict]) -> tuple[dict[str, int], dict | None]:
+    counts: dict[str, int] = {}
+    face_verification: dict | None = None
+    for event in events:
+        event_type = event.get("event_type")
+        if event_type in _BEHAVIOR_EVENT_TYPES:
+            counts[event_type] = counts.get(event_type, 0) + 1
+        elif event_type == "face_verification":
+            face_verification = event.get("payload") or {}
+    return counts, face_verification
 
 
 def build_report(
@@ -108,6 +133,7 @@ def build_report(
     links: list[EvidenceLink],
     role_title: str,
     status: str,
+    events: list[dict] | None = None,
 ) -> InterviewReport:
     """One `TopicReport` per planned topic, using each topic's LAST attempt —
     a follow-up supersedes the question it followed, since it's a second,
@@ -145,6 +171,8 @@ def build_report(
             attempts=len(attempts),
         ))
 
+    behavior_signal_counts, face_verification = _behavior_summary(events or [])
+
     return InterviewReport(
         role_title=role_title,
         status=status,
@@ -152,6 +180,8 @@ def build_report(
         topics=topics,
         rejected_ungrounded_topics=list(plan.rejected_ungrounded),
         transparency=_transparency(plan, topics),
+        behavior_signal_counts=behavior_signal_counts,
+        face_verification=face_verification,
     )
 
 
