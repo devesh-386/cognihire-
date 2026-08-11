@@ -1,20 +1,34 @@
-# cognihire
+# CogniHire
 
-A new Flutter project.
+Evidence-based AI interview + candidate evaluation platform. AI provides
+evidence and analysis; the recruiter makes the final hiring decision.
 
-## Getting Started
+## Surfaces
 
-This project is a starting point for a Flutter application.
+- `lib/` — Flutter **recruiter-only** app (dashboard, roles, candidates,
+  invitations, interview sessions, reports).
+- `portal/` — Next.js **candidate** web app (application, interview code
+  entry, device check, interview) plus recruiter web workspace routes.
+- `service/` — FastAPI backend (resume processing, AI interview engine,
+  grounding gate, email workflow, face verification), deployed on an Azure VM
+  behind Coolify at `api.cognihire.online`.
+- `infra/` — Supabase migrations/edge functions, Google Form intake
+  (Apps Script → `intake-webhook` → auto-invite, "Ticket 21" pipeline),
+  reminder scheduler.
 
-A few resources to get you started if this is your first Flutter project:
+Candidate intake is canonical and single-path: Google Form → Apps Script →
+`intake-webhook` → Supabase `candidates` → resume processing →
+`READY_FOR_INTERVIEW` → auto-invite trigger → `interview_codes.generate()` →
+invitation email. Do not add a second intake pipeline — extend this one.
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+Grounding is enforced in `service/deterministic/grounding.py`: AI may select
+claim text, never author it. This module is architecturally isolated from
+`service/ai/` and checked by `service/test_architecture_boundary.py` — do not
+weaken this boundary.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+See `archive/flutter-candidate-code/` for the candidate-facing Flutter code
+(enrolment, voice interview, resume pick/analysis) removed when the app went
+recruiter-only — candidate experience now lives entirely in `portal/`.
 
 ## Local infrastructure (T-MVP)
 
