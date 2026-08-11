@@ -145,7 +145,12 @@ async def find_auth_user_by_email(email: str) -> dict | None:
 async def create_hr_user(
     email: str, password: str, organization_id: str, *, name: str | None = None,
 ) -> dict:
-    user_metadata = {"organization_id": organization_id}
+    # Every account this function creates is HR/recruiter — there is no
+    # candidate equivalent (candidates never get a Supabase Auth user, only
+    # an interview code) — so "role": "recruiter" is a fact, not a guess.
+    # Flutter's principalFromUser() (supabase_auth_store.dart) refuses to
+    # sign in any account missing this key rather than default it.
+    user_metadata = {"organization_id": organization_id, "role": "recruiter"}
     if name:
         user_metadata["name"] = name
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:

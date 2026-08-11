@@ -226,6 +226,11 @@ Principal? principalFromUser(supabase.User? user) {
     email: email,
     role: role,
     displayName: user.userMetadata?['display_name'] as String?,
-    organisationId: user.userMetadata?['organisation_id'] as String?,
+    // Wire key is `organization_id` (American spelling) — that's what the
+    // backend's demo_store.create_hr_user actually writes and what
+    // `_require_org` and every backend route already read back. This field
+    // stays `organisationId` on the Dart side; only the lookup key had to
+    // match the real contract.
+    organisationId: user.userMetadata?['organization_id'] as String?,
   );
 }

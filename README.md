@@ -30,6 +30,22 @@ See `archive/flutter-candidate-code/` for the candidate-facing Flutter code
 (enrolment, voice interview, resume pick/analysis) removed when the app went
 recruiter-only — candidate experience now lives entirely in `portal/`.
 
+## Building the Windows recruiter app
+
+`lib/core/config.dart`'s `FACE_SERVICE_URL`/`AI_GATEWAY_URL`/`PORTAL_URL` all
+default to `localhost` — correct for `flutter run`/`flutter test` against a
+local `service/`+`portal/`, wrong for a build meant to actually be used,
+which has neither running locally. A plain `flutter build windows --release`
+silently bakes in every localhost default (backend AND the "Create account"
+browser handoff) and produces an exe that can never reach anything real (the
+same failure mode `portal/.env.production` exists to prevent on the Next.js
+side — Flutter has no equivalent env-file split, so every override has to be
+passed explicitly, every time, or it's silently wrong). Build with:
+
+```bash
+flutter build windows --release --dart-define=FACE_SERVICE_URL=https://api.cognihire.online --dart-define=PORTAL_URL=https://cognihire.online
+```
+
 ## Local infrastructure (T-MVP)
 
 `docker-compose.yml` stands up the T-MVP datastore/gateway stack locally,
