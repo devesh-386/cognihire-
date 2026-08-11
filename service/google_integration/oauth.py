@@ -24,7 +24,11 @@ from pipeline.supabase_store import SupabaseError
 
 _AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _TOKEN_URL = "https://oauth2.googleapis.com/token"
-_SCOPES = "https://www.googleapis.com/auth/forms.body https://www.googleapis.com/auth/drive.file"
+_SCOPES = (
+    "https://www.googleapis.com/auth/forms.body "
+    "https://www.googleapis.com/auth/drive.file "
+    "https://www.googleapis.com/auth/userinfo.email"
+)
 _TIMEOUT = 30
 
 
