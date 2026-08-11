@@ -1068,7 +1068,7 @@ async def google_oauth_callback(code: str, state: str) -> Response:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     portal_url = os.environ.get("PORTAL_URL", "")
-    return RedirectResponse(f"{portal_url}/organization/settings?google=connected")
+    return RedirectResponse(f"{portal_url}/settings?google=connected")
 
 
 @app.post("/intakes/{intake_id}/google-form")
