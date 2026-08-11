@@ -50,6 +50,10 @@ Deno.serve(async (req: Request) => {
     preferredTimeIso?: string;
     resumeBase64?: string;
     resumeFilename?: string;
+    phone?: string;
+    linkedinUrl?: string;
+    yearsExperience?: string;
+    resumeLink?: string;
   };
   try {
     body = await req.json();
@@ -73,7 +77,10 @@ Deno.serve(async (req: Request) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
-  const { name, email, roleTitle, preferredTimeIso, resumeBase64, resumeFilename, formId } = body;
+  const {
+    name, email, roleTitle, preferredTimeIso, resumeBase64, resumeFilename, formId,
+    phone, linkedinUrl, yearsExperience, resumeLink,
+  } = body;
   if (!formId) {
     return new Response(
       JSON.stringify({ error: "missing formId — this submission cannot be matched to an intake" }),
@@ -163,6 +170,13 @@ Deno.serve(async (req: Request) => {
   if (resumePath) {
     candidateRow.resume_path = resumePath;
   }
+  // Optional fields — never sent unconditionally, same reasoning as
+  // resume_path above: a resubmission missing one of these shouldn't wipe
+  // out a value already captured from an earlier submission.
+  if (phone) candidateRow.phone = phone;
+  if (linkedinUrl) candidateRow.linkedin_url = linkedinUrl;
+  if (yearsExperience) candidateRow.years_experience = yearsExperience;
+  if (resumeLink) candidateRow.resume_link = resumeLink;
 
   const { data: upserted, error: candidateError } = await client
     .from("candidates")
