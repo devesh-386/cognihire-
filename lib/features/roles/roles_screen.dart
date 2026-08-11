@@ -22,6 +22,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../../core/design/app_theme.dart';
+import '../../core/intakes/intake_store.dart';
 import '../../core/roles/role.dart';
 import '../../core/roles/role_coverage.dart';
 import '../../core/roles/role_store.dart';
@@ -31,15 +32,18 @@ import '../../ui/app_shell.dart';
 import '../../ui/components.dart';
 import '../../ui/patterns.dart';
 import '../common/empty_state.dart';
+import '../intakes/intakes_screen.dart';
 
 class RolesScreen extends StatefulWidget {
   const RolesScreen({
     super.key,
     required this.roleStore,
+    required this.intakeStore,
     required this.loadSessions,
   });
 
   final RoleStore roleStore;
+  final IntakeStore intakeStore;
 
   /// Supplied rather than the store itself so this screen shares whatever
   /// snapshot the rest of the app already loaded instead of re-reading every
@@ -188,6 +192,9 @@ class RolesScreenState extends State<RolesScreen> {
                       : _snapshot?.recordFor(_againstSessionId!),
                   onEdit: () => _edit(existing: role),
                   onDelete: () => _delete(role),
+                  onViewIntakes: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => IntakesScreen(role: role, intakeStore: widget.intakeStore),
+                  )),
                 ),
               ),
           ],
@@ -251,12 +258,14 @@ class _RoleCard extends StatelessWidget {
     required this.against,
     required this.onEdit,
     required this.onDelete,
+    required this.onViewIntakes,
   });
 
   final Role role;
   final SessionRecord? against;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final VoidCallback onViewIntakes;
 
   @override
   Widget build(BuildContext context) {
@@ -287,6 +296,11 @@ class _RoleCard extends StatelessWidget {
                       ),
                     ],
                   ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: onViewIntakes,
+                  icon: const Icon(Icons.campaign_outlined, size: 16),
+                  label: const Text('Intakes'),
                 ),
                 IconButton(
                   onPressed: onEdit,

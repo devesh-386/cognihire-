@@ -236,6 +236,25 @@ async def resolve_user_from_token(access_token: str) -> dict:
     return response.json()
 
 
+async def create_intake(fields: dict) -> dict:
+    return await _insert_one("intakes", fields)
+
+
+async def fetch_intake(intake_id: str) -> dict | None:
+    return await _get_one("intakes", {"id": f"eq.{intake_id}", "select": "*"})
+
+
+async def list_intakes(organization_id: str, role_id: str | None = None) -> list[dict]:
+    params = {"organization_id": f"eq.{organization_id}", "select": "*", "order": "created_at.desc"}
+    if role_id:
+        params["role_id"] = f"eq.{role_id}"
+    return await _get_many("intakes", params)
+
+
+async def update_intake(intake_id: str, fields: dict) -> None:
+    await _update("intakes", intake_id, fields)
+
+
 async def list_roles(organization_id: str) -> list[dict]:
     return await _get_many("roles", {
         "organization_id": f"eq.{organization_id}", "select": "*", "order": "created_at.desc",

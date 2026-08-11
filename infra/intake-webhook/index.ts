@@ -9,19 +9,30 @@
 // that protects every other write path in this project, because intake has
 // no signed-in HR session to scope by.
 //
+// Multi-tenant intake note: the submission's `formId` (the Google Form's own
+// id — every submitting script sends it, see google-form-apps-script.gs) is
+// resolved directly against `intakes.google_form_id`, which carries its own
+// organization_id/role_id. This replaced an earlier "assume exactly one
+// organisation, fuzzy-match the role title" fallback that only worked for a
+// single-tenant deployment — deliberately removed rather than kept as a
+// silent default, since guessing the wrong org/role here is exactly the
+// "inferred ownership" this project's tenancy model forbids. A submission
+// whose form isn't a known, active intake is rejected, not defaulted.
+//
 // Canonicalization note: this function used to generate its own 6-char code
 // and write to a separate `invitations` table, polled by a cron
 // (`reminder-scheduler`) using its own Gmail-SMTP sender — a second,
 // parallel code+email system next to the real one
 // (`session/interview_codes.py` + `notifications/workflow.py`, Ticket 21).
 // That's gone: this function now only creates the candidate (with
-// `role_id` persisted so the AI pipeline knows what role they applied for)
-// and lets the existing `candidates_resume_uploaded` trigger kick off resume
-// processing. Once `candidate_ai_profile.processing_status` reaches
-// READY_FOR_INTERVIEW, the `candidate_ready_for_interview` trigger takes it
-// from there — generating the code and sending the invitation through the
-// one canonical path. The `invitations` table and `reminder-scheduler` are
-// deprecated, not deleted, in case anything still reads them.
+// `role_id`/`intake_id` persisted so the AI pipeline knows what role/campaign
+// they applied for) and lets the existing `candidates_resume_uploaded`
+// trigger kick off resume processing. Once `candidate_ai_profile.
+// processing_status` reaches READY_FOR_INTERVIEW, the
+// `candidate_ready_for_interview` trigger takes it from there — generating
+// the code and sending the invitation through the one canonical path. The
+// `invitations` table and `reminder-scheduler` are deprecated, not deleted,
+// in case anything still reads them.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -32,6 +43,7 @@ Deno.serve(async (req: Request) => {
 
   let body: {
     secret?: string;
+    formId?: string;
     name?: string;
     email?: string;
     roleTitle?: string;
@@ -61,35 +73,39 @@ Deno.serve(async (req: Request) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
-  // INTAKE_ORGANIZATION_ID is optional: for the common single-organisation
-  // demo deployment, there's exactly one row in organizations and no secret
-  // needs setting at all. Only ambiguous (multi-org) or empty (no HR account
-  // registered yet) deployments require the explicit secret.
-  let organizationId = Deno.env.get("INTAKE_ORGANIZATION_ID");
-  if (!organizationId) {
-    const { data: orgs, error: orgsError } = await client
-      .from("organizations")
-      .select("id");
-    if (orgsError || !orgs || orgs.length !== 1) {
-      return new Response(
-        JSON.stringify({
-          error: orgs && orgs.length > 1
-            ? "multiple organisations exist — set INTAKE_ORGANIZATION_ID explicitly"
-            : "no organisation registered yet — an HR account must sign up first",
-        }),
-        { status: 500, headers: { "Content-Type": "application/json" } },
-      );
-    }
-    organizationId = orgs[0].id;
+  const { name, email, roleTitle, preferredTimeIso, resumeBase64, resumeFilename, formId } = body;
+  if (!formId) {
+    return new Response(
+      JSON.stringify({ error: "missing formId — this submission cannot be matched to an intake" }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
   }
-
-  const { name, email, roleTitle, preferredTimeIso, resumeBase64, resumeFilename } = body;
   if (!name || !email || !roleTitle) {
     return new Response(
       JSON.stringify({ error: "missing name, email, or roleTitle" }),
       { status: 400, headers: { "Content-Type": "application/json" } },
     );
   }
+
+  const { data: intake, error: intakeError } = await client
+    .from("intakes")
+    .select("id, organization_id, role_id, status")
+    .eq("google_form_id", formId)
+    .maybeSingle();
+  if (intakeError || !intake) {
+    return new Response(
+      JSON.stringify({ error: `no intake is registered for form ${formId}` }),
+      { status: 404, headers: { "Content-Type": "application/json" } },
+    );
+  }
+  if (intake.status !== "active") {
+    return new Response(
+      JSON.stringify({ error: `intake for form ${formId} is ${intake.status}, not accepting applications` }),
+      { status: 409, headers: { "Content-Type": "application/json" } },
+    );
+  }
+  const organizationId = intake.organization_id;
+  const roleId = intake.role_id;
 
   // Required now that the interview code is generated with window_start/
   // window_end pinned to this value (see main.py's auto-invite endpoint) —
@@ -105,19 +121,6 @@ Deno.serve(async (req: Request) => {
     return new Response(
       JSON.stringify({ error: "missing or invalid preferredTimeIso" }),
       { status: 400, headers: { "Content-Type": "application/json" } },
-    );
-  }
-
-  const { data: role, error: roleError } = await client
-    .from("roles")
-    .select("id")
-    .eq("organization_id", organizationId)
-    .ilike("title", roleTitle)
-    .maybeSingle();
-  if (roleError || !role) {
-    return new Response(
-      JSON.stringify({ error: `no role matching "${roleTitle}" in this organisation` }),
-      { status: 422, headers: { "Content-Type": "application/json" } },
     );
   }
 
@@ -153,7 +156,8 @@ Deno.serve(async (req: Request) => {
     organization_id: organizationId,
     name,
     email,
-    role_id: role.id,
+    role_id: roleId,
+    intake_id: intake.id,
     preferred_time: preferredTime.toISOString(),
   };
   if (resumePath) {

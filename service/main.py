@@ -16,6 +16,8 @@ Run:
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import os
 import secrets
@@ -23,19 +25,24 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import cv2
+import httpx
 import numpy as np
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel
 
 from ai import claim_extraction
 from candidates import self_registration
+from demo import multi_tenant_seed
 from demo import reset as demo_reset
 from demo import seed as demo_seed
 from demo import tester_account
+from google_integration import forms as google_forms
+from google_integration import oauth as google_oauth
 from notifications import store as email_store
 from notifications import workflow as email_workflow
-from pipeline import demo_store, profile_builder, supabase_store
+from pipeline import demo_store, google_oauth_store, profile_builder, supabase_store
 from security import rate_limit
 from session import codes_store, interview_codes, interview_session, session_store
 from session.events import EventType
@@ -799,6 +806,312 @@ async def list_candidates(authorization: str | None = Header(default=None)) -> d
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+class CreateIntakeRequest(BaseModel):
+    role_id: str
+    name: str
+
+
+_INTAKE_STATUSES = {"draft", "active", "paused", "closed"}
+_INTAKE_TRANSITIONS = {
+    "draft": {"active", "closed"},
+    "active": {"paused", "closed"},
+    "paused": {"active", "closed"},
+    "closed": set(),  # terminal — matches interview_codes' revoked/expired/used states
+}
+
+
+class UpdateIntakeStatusRequest(BaseModel):
+    status: str
+
+
+@app.post("/intakes")
+async def create_intake(
+    req: CreateIntakeRequest, authorization: str | None = Header(default=None),
+) -> dict:
+    """A specific hiring campaign for a role ("Backend Engineer — August
+    2026 Intake"). organization_id is never taken from the request — it's
+    resolved from the bearer token, same as every other org-scoped write in
+    this file — and the database's own trigger (see infra/migrations/
+    0008_intakes.sql) refuses the insert outright if role_id somehow belongs
+    to a different org than the caller's, so a spoofed role_id fails closed
+    rather than silently creating a cross-org intake."""
+    organization_id = await _require_org(authorization)
+    try:
+        role = await demo_store.fetch_role(req.role_id)
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if role is None or role.get("organization_id") != organization_id:
+        raise HTTPException(status_code=404, detail="no such role")
+    try:
+        return await demo_store.create_intake({
+            "organization_id": organization_id, "role_id": req.role_id, "name": req.name,
+        })
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/intakes")
+async def list_intakes(
+    role_id: str | None = None, authorization: str | None = Header(default=None),
+) -> dict:
+    organization_id = await _require_org(authorization)
+    try:
+        return {"intakes": await demo_store.list_intakes(organization_id, role_id=role_id)}
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/intakes/{intake_id}")
+async def get_intake(
+    intake_id: str, authorization: str | None = Header(default=None),
+) -> dict:
+    organization_id = await _require_org(authorization)
+    try:
+        intake = await demo_store.fetch_intake(intake_id)
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    # Same org, same 404 whether missing or someone else's — don't let a
+    # caller distinguish "doesn't exist" from "exists, not yours".
+    if intake is None or intake.get("organization_id") != organization_id:
+        raise HTTPException(status_code=404, detail="no such intake")
+    return intake
+
+
+@app.patch("/intakes/{intake_id}")
+async def update_intake_status(
+    intake_id: str, req: UpdateIntakeStatusRequest, authorization: str | None = Header(default=None),
+) -> dict:
+    organization_id = await _require_org(authorization)
+    if req.status not in _INTAKE_STATUSES:
+        raise HTTPException(status_code=422, detail=f"unknown status: {req.status}")
+    try:
+        intake = await demo_store.fetch_intake(intake_id)
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if intake is None or intake.get("organization_id") != organization_id:
+        raise HTTPException(status_code=404, detail="no such intake")
+    current = intake["status"]
+    if req.status != current and req.status not in _INTAKE_TRANSITIONS[current]:
+        raise HTTPException(
+            status_code=409, detail=f"cannot move intake from {current} to {req.status}",
+        )
+    fields = {"status": req.status}
+    if req.status == "closed":
+        fields["closed_at"] = datetime.now(timezone.utc).isoformat()
+    try:
+        await demo_store.update_intake(intake_id, fields)
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {**intake, **fields}
+
+
+@app.get(
+    "/intakes/{intake_id}/apply-info",
+    dependencies=[Depends(rate_limit.limit("intakes-apply-info", 30))],
+)
+async def intake_apply_info(intake_id: str) -> dict:
+    """Public: the intake-aware sibling of /roles/{role_id}/apply-info — an
+    application form should belong to one specific campaign, not just a
+    role, so a role with two active intakes (e.g. an August and an October
+    cycle) never has candidates from one bleeding into the other."""
+    try:
+        intake = await demo_store.fetch_intake(intake_id)
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if intake is None or intake["status"] != "active":
+        raise HTTPException(status_code=404, detail="that application link is no longer valid")
+    try:
+        role = await demo_store.fetch_role(intake["role_id"])
+        org = await demo_store.fetch_organization(intake["organization_id"])
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {
+        "role_title": role["title"] if role else "",
+        "organization_name": org["name"] if org else "",
+        "intake_name": intake["name"],
+    }
+
+
+class IntakeApplyRequest(BaseModel):
+    name: str
+    email: str
+    resume_base64: str
+    preferred_time: Optional[datetime] = None
+
+
+@app.post(
+    "/intakes/{intake_id}/apply",
+    dependencies=[Depends(rate_limit.limit("intakes-apply", 10))],
+)
+async def intake_apply(intake_id: str, req: IntakeApplyRequest) -> dict:
+    """Public: intake-keyed candidate self-registration — the form/link
+    itself carries the campaign identity, so the candidate never chooses
+    (and can't spoof) an organization or role. See candidates/
+    self_registration.py; this route only maps its errors to HTTP status,
+    same as the legacy /candidates/apply route below."""
+    try:
+        return await self_registration.register_candidate(
+            intake_id=intake_id, name=req.name, email=req.email,
+            resume_base64=req.resume_base64, preferred_time=req.preferred_time,
+        )
+    except self_registration.SelfRegistrationError as exc:
+        message = str(exc)
+        status_code = 404 if "application link" in message else 400
+        raise HTTPException(status_code=status_code, detail=message) from exc
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Google Forms automation (Part 7-9 of the intake work). Per-organization
+# OAuth — each company connects its own Google account, so a form an org
+# creates lives in that org's own Drive, not a CogniHire-owned one.
+# ---------------------------------------------------------------------------
+
+
+def _sign_state(organization_id: str) -> str:
+    secret = os.environ.get("GOOGLE_OAUTH_STATE_SECRET", "")
+    if not secret:
+        raise HTTPException(status_code=503, detail="Google OAuth is not configured")
+    nonce = secrets.token_urlsafe(16)
+    payload = f"{organization_id}:{nonce}"
+    signature = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    return f"{payload}:{signature}"
+
+
+def _verify_state(state: str) -> str:
+    """Returns the organization_id if the state is genuine, raises
+    otherwise — this is what stops a forged callback from attaching an
+    attacker's Google account to someone else's organization."""
+    secret = os.environ.get("GOOGLE_OAUTH_STATE_SECRET", "")
+    try:
+        organization_id, nonce, signature = state.split(":", 2)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="malformed state")
+    expected = hmac.new(secret.encode(), f"{organization_id}:{nonce}".encode(), hashlib.sha256).hexdigest()
+    if not secret or not secrets.compare_digest(signature, expected):
+        raise HTTPException(status_code=400, detail="invalid or expired state")
+    return organization_id
+
+
+@app.get("/organizations/{organization_id}/google/connect")
+async def google_connect(
+    organization_id: str, authorization: str | None = Header(default=None),
+) -> dict:
+    """Returns the Google consent URL for the caller's org — the portal
+    navigates the browser there itself (`window.location.href = ...`)
+    rather than this route redirecting directly, since a plain browser
+    navigation can't carry the bearer token this route needs to verify the
+    caller actually belongs to the org they're connecting."""
+    caller_org = await _require_org(authorization)
+    if caller_org != organization_id:
+        raise HTTPException(status_code=404, detail="no such organization")
+    state = _sign_state(organization_id)
+    try:
+        return {"authorize_url": google_oauth.build_authorize_url(state)}
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/organizations/{organization_id}/google/status")
+async def google_status(
+    organization_id: str, authorization: str | None = Header(default=None),
+) -> dict:
+    caller_org = await _require_org(authorization)
+    if caller_org != organization_id:
+        raise HTTPException(status_code=404, detail="no such organization")
+    try:
+        connection = await google_oauth_store.get_connection(organization_id)
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {
+        "connected": connection is not None,
+        "google_account_email": connection["google_account_email"] if connection else None,
+    }
+
+
+@app.get("/google/oauth/callback")
+async def google_oauth_callback(code: str, state: str) -> Response:
+    """Hit by Google directly, not the portal — no bearer token available,
+    only what `state` proves. See _verify_state."""
+    organization_id = _verify_state(state)
+    try:
+        tokens = await google_oauth.exchange_code_for_tokens(code)
+    except google_oauth.GoogleOAuthError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    # userinfo isn't strictly needed for the flow to work, only so the
+    # status endpoint can show HR *which* Google account is connected.
+    async with httpx.AsyncClient(timeout=10) as client:
+        userinfo_response = await client.get(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            headers={"Authorization": f"Bearer {tokens['access_token']}"},
+        )
+    google_email = (
+        userinfo_response.json().get("email", "") if userinfo_response.status_code == 200 else ""
+    )
+
+    try:
+        await google_oauth_store.upsert_connection({
+            "organization_id": organization_id,
+            "google_account_email": google_email,
+            "access_token": tokens["access_token"],
+            "refresh_token": tokens["refresh_token"],
+            "token_expires_at": (
+                datetime.now(timezone.utc) + timedelta(seconds=tokens["expires_in"])
+            ).isoformat(),
+            "scope": tokens.get("scope", ""),
+        })
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    portal_url = os.environ.get("PORTAL_URL", "")
+    return RedirectResponse(f"{portal_url}/organization/settings?google=connected")
+
+
+@app.post("/intakes/{intake_id}/google-form")
+async def create_google_form_for_intake(
+    intake_id: str, authorization: str | None = Header(default=None),
+) -> dict:
+    """The only step that needs no further browser redirect — once an org
+    is connected, creating any number of forms afterward is a plain
+    server-to-server call, triggerable straight from Flutter."""
+    organization_id = await _require_org(authorization)
+    try:
+        intake = await demo_store.fetch_intake(intake_id)
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if intake is None or intake.get("organization_id") != organization_id:
+        raise HTTPException(status_code=404, detail="no such intake")
+
+    try:
+        access_token = await google_oauth.get_valid_access_token(organization_id)
+    except supabase_store.SupabaseError:
+        raise HTTPException(
+            status_code=409, detail="connect this organization's Google account first",
+        )
+
+    role = await demo_store.fetch_role(intake["role_id"])
+    org = await demo_store.fetch_organization(organization_id)
+    title = f"CogniHire — {org['name'] if org else organization_id} — " \
+            f"{role['title'] if role else 'Role'} — {intake['name']}"
+    try:
+        form = await google_forms.create_intake_form(access_token, title=title)
+    except google_forms.GoogleFormsError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    try:
+        await demo_store.update_intake(intake_id, {
+            "google_form_id": form["form_id"], "application_url": form["application_url"],
+        })
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return {**intake, **form}
+
+
 @app.get("/interviews")
 async def list_interviews(authorization: str | None = Header(default=None)) -> dict:
     organization_id = await _require_org(authorization)
@@ -855,6 +1168,24 @@ async def demo_seed_environment() -> dict:
     _require_non_production()
     try:
         return await demo_seed.seed_demo_environment()
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/dev/seed-multi-tenant-demo")
+async def seed_multi_tenant_demo_route() -> dict:
+    """Seeds two ADDITIONAL organizations ("Innotech Solutions", "Vertex
+    Systems") beyond /demo/seed's single "CogniHire Demo Co" — both run a
+    "Backend Engineer" role with no collision, and one role runs two
+    separate intakes whose candidates never mix. See demo/
+    multi_tenant_seed.py for exactly what this proves and why it's a
+    separate module rather than a change to /demo/seed's existing,
+    tested, single-org shape.
+
+    Same non-production guard as every other /dev/* route."""
+    _require_non_production()
+    try:
+        return await multi_tenant_seed.seed_multi_tenant_demo()
     except supabase_store.SupabaseError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

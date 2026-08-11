@@ -11,6 +11,9 @@ import 'core/email/email_sender.dart';
 import 'core/email/gmail_smtp_email_sender.dart';
 import 'core/claims/claim_audit.dart';
 import 'core/design/app_theme.dart';
+import 'core/intakes/intake.dart';
+import 'core/intakes/intake_store.dart';
+import 'core/intakes/intake_store_supabase.dart';
 import 'core/persistence/audit_store.dart';
 import 'core/persistence/store_factory.dart';
 import 'core/roles/role.dart';
@@ -49,6 +52,7 @@ Future<void> main() async {
   final client = supabase.Supabase.instance.client;
   final authStore = SupabaseAuthStore(client);
   final roleStore = SupabaseRoleStore(client);
+  final intakeStore = SupabaseIntakeStore(client);
   final invitationStore = SupabaseInvitationStore(client);
 
   // Claim audits (interview reports) are unaffected by this ticket and stay
@@ -71,6 +75,7 @@ Future<void> main() async {
   runApp(CogniHireApp(
     store: store,
     roleStore: roleStore,
+    intakeStore: intakeStore,
     invitationStore: invitationStore,
     authStore: authStore,
     provisionOrganization: (name) =>
@@ -123,6 +128,7 @@ class CogniHireApp extends StatefulWidget {
     super.key,
     required this.store,
     required this.roleStore,
+    required this.intakeStore,
     required this.invitationStore,
     required this.authStore,
     required this.emailSender,
@@ -133,6 +139,7 @@ class CogniHireApp extends StatefulWidget {
 
   final AuditStore store;
   final RoleStore roleStore;
+  final IntakeStore intakeStore;
   final InvitationStore invitationStore;
   final AuthStore authStore;
   final Future<Principal?> Function(String organizationName)?
@@ -185,6 +192,7 @@ class _CogniHireAppState extends State<CogniHireApp> {
               key: ValueKey(_principal!.id),
               store: widget.store,
               roleStore: widget.roleStore,
+              intakeStore: widget.intakeStore,
               invitationStore: widget.invitationStore,
               emailSender: widget.emailSender,
               redeemedInvitation: _redeemedInvitation,
@@ -293,6 +301,23 @@ class _NoRoleStore implements RoleStore {
       );
 }
 
+/// Stands in for [IntakeStore] when a caller has not supplied one, for the
+/// same reason [_NoRoleStore] does.
+class _NoIntakeStore implements IntakeStore {
+  const _NoIntakeStore();
+
+  @override
+  Future<List<Intake>> listForRole(String roleId) async => const [];
+
+  @override
+  Future<Intake> create({required String roleId, required String name}) =>
+      throw UnsupportedError('No intake store was supplied to this HomeScreen.');
+
+  @override
+  Future<void> updateStatus(String intakeId, IntakeStatus status) =>
+      throw UnsupportedError('No intake store was supplied to this HomeScreen.');
+}
+
 /// Stands in for [InvitationStore] when a caller has not supplied one, for the
 /// same reason [_NoRoleStore] does: pre-Invitations call sites (tests,
 /// previews) have no opinion about it.
@@ -320,6 +345,7 @@ class HomeScreen extends StatefulWidget {
     super.key,
     required this.store,
     RoleStore? roleStore,
+    IntakeStore? intakeStore,
     InvitationStore? invitationStore,
     this.emailSender = const NullEmailSender(),
     required this.storageLocation,
@@ -331,6 +357,7 @@ class HomeScreen extends StatefulWidget {
     this.redeemedInvitation,
     this.clock,
   })  : roleStore = roleStore ?? const _NoRoleStore(),
+        intakeStore = intakeStore ?? const _NoIntakeStore(),
         invitationStore = invitationStore ?? const _NoInvitationStore();
 
   final AuditStore store;
@@ -358,6 +385,10 @@ class HomeScreen extends StatefulWidget {
   /// existing call sites (tests, previews) predate the Roles feature and have
   /// no opinion about role persistence.
   final RoleStore roleStore;
+
+  /// Defaults to an inert store when the caller does not supply one, for the
+  /// same reason [roleStore] does.
+  final IntakeStore intakeStore;
 
   /// Defaults to an inert store when the caller does not supply one, for the
   /// same reason [roleStore] does.
@@ -527,6 +558,7 @@ class _HomeScreenState extends State<HomeScreen> {
           builder: (_) => RolesScreen(
             key: _rolesKey,
             roleStore: widget.roleStore,
+            intakeStore: widget.intakeStore,
             loadSessions: () => loadWorkspace(widget.store),
           ),
         ),

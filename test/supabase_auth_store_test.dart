@@ -42,7 +42,11 @@ void main() {
         userMetadata: const {
           'role': 'recruiter',
           'display_name': 'Ada',
-          'organisation_id': 'org-1',
+          // American spelling: matches the backend's demo_store.create_hr_user
+          // and every route that reads it back (_require_org) — see
+          // supabase_auth_store.dart's principalFromUser for why this must
+          // match exactly, not the organisationId Dart field name below.
+          'organization_id': 'org-1',
         },
       );
 

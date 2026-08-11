@@ -1,11 +1,16 @@
 """Public candidate self-registration, submitted directly from the portal's
 own apply page — no Google Form, no Apps Script webhook in the middle.
 
-A candidate reaches this by following a role's public apply link
-(`/apply/{role_id}`), which is generated and copied by HR from the Roles
-page. `role_id` is the only thing that identifies which organization and
-role the application is for; there is nothing else in the request for a
-caller to spoof into a different org.
+Two ways in:
+- `/apply/{role_id}` (legacy — role-keyed, no intake attached; kept working
+  for any link already handed out before intakes existed).
+- `/intakes/{intake_id}/apply` (current — intake-keyed, so a role running
+  two campaigns at once, e.g. an August and an October cycle, never mixes
+  their candidates). Prefer this path going forward.
+
+Either way, the id in the URL is the only thing that identifies which
+organization/role/intake the application is for — there is nothing else in
+the request for a caller to spoof into a different org.
 
 Runs the same pipeline a code-generated-by-HR candidate goes through:
 create the candidate row, upload the resume, run it through
@@ -27,18 +32,30 @@ from session import interview_codes
 
 
 class SelfRegistrationError(RuntimeError):
-    """A problem with the submitted data itself (bad role link, bad resume
-    encoding) — the caller maps this to a 400/404, not a 503."""
+    """A problem with the submitted data itself (bad role/intake link, bad
+    resume encoding) — the caller maps this to a 400/404, not a 503."""
 
 
 async def register_candidate(
     *,
-    role_id: str,
+    role_id: str | None = None,
+    intake_id: str | None = None,
     name: str,
     email: str,
     resume_base64: str,
     preferred_time: datetime | None,
 ) -> dict:
+    """Exactly one of role_id/intake_id is expected — intake_id is the
+    intake-aware path (also resolves role_id from it); role_id alone is the
+    legacy path and leaves the candidate's intake_id unset, same as every
+    candidate created before intakes existed."""
+    intake = None
+    if intake_id is not None:
+        intake = await demo_store.fetch_intake(intake_id)
+        if intake is None or intake["status"] != "active":
+            raise SelfRegistrationError("that application link is no longer valid")
+        role_id = intake["role_id"]
+
     role = await demo_store.fetch_role(role_id)
     if role is None:
         raise SelfRegistrationError("that application link is no longer valid")
@@ -51,9 +68,10 @@ async def register_candidate(
 
     candidate = await demo_store.find_candidate_by_email(organization_id, email)
     if candidate is None:
-        candidate = await demo_store.create_candidate({
-            "organization_id": organization_id, "name": name, "email": email,
-        })
+        fields = {"organization_id": organization_id, "name": name, "email": email, "role_id": role_id}
+        if intake is not None:
+            fields["intake_id"] = intake["id"]
+        candidate = await demo_store.create_candidate(fields)
     candidate_id = candidate["id"]
 
     resume_path = f"{organization_id}/{candidate_id}-resume.pdf"
@@ -83,6 +101,7 @@ async def register_candidate(
         "organization_id": organization_id,
         "candidate_id": candidate_id,
         "role_title": role["title"],
+        "intake_id": intake["id"] if intake is not None else None,
         "profile_status": profile_result.get("status"),
         "code": code_row["code"],
     }

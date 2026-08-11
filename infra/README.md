@@ -576,3 +576,41 @@ curl -X POST https://foffzvwmxnsmbixkilxt.supabase.co/functions/v1/reminder-sche
 A real end-to-end check needs an invitation with `code_send_at` already in the
 past — easiest via the Google Form (Ticket 11) with a preferred time an hour from
 now, or by hand-editing a test row's `code_send_at`.
+
+## Google Forms automation (per-organization OAuth)
+
+Each organization connects its own Google account (see the multi-tenant
+intake plan) — CogniHire never holds one shared Google account for every
+company. That means the human step is a one-time Google Cloud OAuth *client*
+registration, not a per-company action:
+
+1. In the [Google Cloud Console](https://console.cloud.google.com/), create
+   (or reuse) a project, then enable the **Google Forms API** and the
+   **Google Drive API**.
+2. Under **APIs & Services > OAuth consent screen**, configure it as
+   **External**, add the scopes `.../auth/forms.body` and
+   `.../auth/drive.file`, and add every Google account that will connect an
+   organization (yours, plus each company you onboard) as a **test user** —
+   this keeps the app in "Testing" mode, which needs no Google review, but
+   caps you at 100 test users. Submitting for verification (a separate,
+   later step) removes that cap for public self-serve signup.
+3. Under **APIs & Services > Credentials**, create an **OAuth 2.0 Client ID**
+   of type **Web application**. Add
+   `https://api.cognihire.online/google/oauth/callback` as an authorized
+   redirect URI.
+4. Set three secrets on the backend (same place `INTERNAL_AUTOINVITE_SECRET`
+   etc. already live — `docker-compose.api.yml`'s env, never committed):
+
+```bash
+GOOGLE_OAUTH_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_OAUTH_CLIENT_SECRET=your-client-secret
+GOOGLE_OAUTH_REDIRECT_URI=https://api.cognihire.online/google/oauth/callback
+GOOGLE_OAUTH_STATE_SECRET=generate-a-random-32-byte-value
+```
+
+Until these are set, `GET /organizations/{id}/google/connect` returns a
+clean `503` (not a crash) — see `service/google_integration/oauth.py`.
+
+Once set, an HR user connects their org from the portal ("Connect Google" on
+the org settings page), and every subsequent "Create Application Form" for
+that org is a plain backend call — no further browser step per form.
