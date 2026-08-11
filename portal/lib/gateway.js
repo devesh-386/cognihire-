@@ -194,6 +194,20 @@ export async function login({ email, password }) {
   return result;
 }
 
+// --- Google Forms automation (per-organization OAuth) ----------------------
+
+export function googleStatus(organizationId) {
+  return get(`/organizations/${organizationId}/google/status`);
+}
+
+/// Returns {authorize_url} — the caller navigates the browser there itself
+/// (window.location.href = ...) rather than this function redirecting,
+/// since the backend route needs the bearer token to verify the caller
+/// belongs to the org, which a plain navigation can't carry as a header.
+export function connectGoogle(organizationId) {
+  return get(`/organizations/${organizationId}/google/connect`);
+}
+
 export function listRoles() {
   return get("/roles");
 }

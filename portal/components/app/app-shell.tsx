@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   LogOut,
   MessageSquare,
+  Settings,
   Users,
 } from 'lucide-react'
 import { Logo } from '@/components/site/logo'
@@ -23,6 +24,7 @@ const workspaceNav = [
   { label: 'Candidates', href: '/candidates', icon: Users },
   { label: 'Interviews', href: '/interviews', icon: MessageSquare },
   { label: 'Reports', href: '/reports', icon: FileText },
+  { label: 'Settings', href: '/settings', icon: Settings },
 ]
 
 export function AppShell({ children }: { children: ReactNode }) {
