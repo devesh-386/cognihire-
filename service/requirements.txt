@@ -1,7 +1,10 @@
 fastapi>=0.115
-uvicorn>=0.30
+uvicorn[standard]>=0.30
 python-multipart>=0.0.9
 httpx>=0.27
+# Server-side leg of the real-time voice interview relay
+# (session/live_interview.py) to OpenAI's Realtime API.
+websockets>=12.0
 pypdf>=5.0
 pytesseract>=0.3.10
 pdf2image>=1.17

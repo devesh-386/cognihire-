@@ -16,8 +16,10 @@ Run:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
+import json
 import logging
 import os
 import secrets
@@ -27,7 +29,7 @@ from typing import Optional
 import cv2
 import httpx
 import numpy as np
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel
@@ -44,7 +46,7 @@ from notifications import store as email_store
 from notifications import workflow as email_workflow
 from pipeline import demo_store, google_oauth_store, profile_builder, supabase_store
 from security import rate_limit
-from session import codes_store, interview_codes, interview_session, session_store
+from session import codes_store, interview_codes, interview_session, live_interview, session_store
 from session.events import EventType
 
 # Ticket 20: without an explicit handler, Python's logging module only ever
@@ -559,6 +561,46 @@ async def interview_answer(req: InterviewAnswerRequest) -> dict:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except supabase_store.SupabaseError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.websocket("/interview/live/{session_id}")
+async def interview_live(websocket: WebSocket, session_id: str) -> None:
+    """Real-time voice channel: candidate mic audio in, AI speech out.
+    Strictly additive — `/interview/start` and `/interview/answer` are
+    untouched and remain the fallback path (see interview-flow.tsx's own
+    framing of voice as a layer around the text-turn contract, not a
+    replacement for it).
+
+    `CORSMiddleware` doesn't gate WebSocket upgrades, so the Origin check
+    below is manual, not inherited from the app-level middleware. The
+    interview code is required as the FIRST message after accept, not a
+    query param — a query param would put it in proxy/access logs, the
+    same leak `InterviewAnswerRequest.code`'s docstring already reasons
+    about for session_id."""
+    origin = websocket.headers.get("origin", "")
+    allowed = _allowed_origins == "*" or origin in _allowed_origins.split(",")
+    if not allowed:
+        await websocket.close(code=1008)
+        return
+
+    await websocket.accept()
+    try:
+        first_message = await asyncio.wait_for(websocket.receive_text(), timeout=10)
+        code = json.loads(first_message).get("code")
+    except (asyncio.TimeoutError, json.JSONDecodeError, KeyError):
+        await websocket.close(code=1008, reason="expected {\"code\": \"...\"} as the first message")
+        return
+    if not code:
+        await websocket.close(code=1008, reason="missing code")
+        return
+
+    try:
+        await live_interview.run_live_session(websocket, session_id, code)
+    except live_interview.LiveSessionError as exc:
+        logger.warning("live interview session %s rejected: %s", session_id, exc)
+        await websocket.close(code=1008, reason=str(exc)[:120])
+    except WebSocketDisconnect:
+        pass
 
 
 @app.post("/interview/event")
