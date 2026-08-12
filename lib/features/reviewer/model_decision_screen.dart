@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/design/app_theme.dart';
 import '../../core/ml/decision_guards.dart';
 import '../../core/ml/explanation_templater.dart';
+import '../../ui/patterns.dart';
 import '../../ui/tokens.dart';
 
 /// One model decision, laid out for a human reviewer — Phase 3.5.
@@ -45,6 +46,7 @@ class ModelDecisionScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Model decision'),
+        actions: const [HomeAppBarAction()],
         bottom: claimText == null
             ? null
             : PreferredSize(

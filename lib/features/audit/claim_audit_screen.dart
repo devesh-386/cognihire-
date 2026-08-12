@@ -11,6 +11,7 @@ import '../../core/graph/graph_from_audit.dart';
 import '../../core/ml/decision_from_audit.dart';
 import '../../core/ml/sufficiency_model.dart';
 import '../../core/ml/synthetic_sufficiency_dataset.dart';
+import '../../ui/patterns.dart';
 import '../graph/evidence_graph_screen.dart';
 import '../reviewer/model_decision_screen.dart';
 
@@ -80,6 +81,7 @@ class ClaimAuditScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Claim audit'),
         actions: [
+          const HomeAppBarAction(),
           TextButton.icon(
             onPressed: () => _openModelDecision(context),
             icon: const Icon(Icons.calculate_outlined, size: 18),

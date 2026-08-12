@@ -569,6 +569,7 @@ class _CandidateProfileScreenState extends State<CandidateProfileScreen> {
       appBar: AppBar(
         title: Text(widget.group.label),
         actions: [
+          const HomeAppBarAction(),
           if (widget.group.sessions.length > 1)
             PopupMenuButton<String>(
               tooltip: 'Choose which session to view',

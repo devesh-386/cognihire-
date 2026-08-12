@@ -1492,3 +1492,27 @@ class PageSection extends StatelessWidget {
     );
   }
 }
+
+/// An AppBar action that returns straight to the shell in one tap.
+///
+/// Flutter already gives a pushed route's AppBar a back arrow for free — this
+/// is not that. It exists for the stacks this app actually has (Candidates →
+/// profile → claim audit → evidence graph is four deep), where "back" only
+/// undoes one push at a time and there is no way to leave from the middle of
+/// the stack without tapping back repeatedly. `popUntil(isFirst)` is a no-op
+/// on a screen that has nothing above the shell to pop, so it is safe to place
+/// on every pushed screen uniformly rather than reasoning about depth per call
+/// site.
+class HomeAppBarAction extends StatelessWidget {
+  const HomeAppBarAction({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      onPressed: () =>
+          Navigator.of(context).popUntil((route) => route.isFirst),
+      tooltip: 'Back to home',
+      icon: const Icon(Icons.home_outlined),
+    );
+  }
+}

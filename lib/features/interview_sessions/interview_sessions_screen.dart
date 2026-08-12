@@ -316,7 +316,10 @@ class _InterviewSessionDetailScreenState
     final session = widget.session;
 
     return Scaffold(
-      appBar: AppBar(title: Text(session.roleTitle)),
+      appBar: AppBar(
+        title: Text(session.roleTitle),
+        actions: const [HomeAppBarAction()],
+      ),
       body: ShellPage(
         title: session.roleTitle,
         subtitle: 'Candidate ${session.candidateId} · ${session.status}',

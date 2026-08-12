@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/design/app_theme.dart';
 import '../../core/graph/evidence_graph.dart';
+import '../../ui/patterns.dart';
 import 'graph_layout.dart';
 
 /// The evidence graph for one claim, rendered as a node-link diagram.
@@ -60,6 +61,7 @@ class _EvidenceGraphScreenState extends State<EvidenceGraphScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Evidence graph'),
+        actions: const [HomeAppBarAction()],
         bottom: widget.claimText == null
             ? null
             : PreferredSize(
