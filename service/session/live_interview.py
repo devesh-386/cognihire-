@@ -172,6 +172,17 @@ class LiveOrchestrator:
             },
         })
 
+    async def _announce_turn(self, turn: dict, coverage: dict | None = None) -> None:
+        """Mirrors the spoken question to the candidate's UI as text, so the
+        on-screen question and progress stay in step with the audio — the
+        same fields `POST /interview/answer` already returns, just pushed
+        instead of polled. Display only; the audio is the real channel."""
+        await self.candidate_ws.send_text(json.dumps({
+            "type": "turn",
+            "turn": turn,
+            "coverage": coverage,
+        }))
+
     async def speak_current_turn(self) -> bool:
         """Speaks whatever question the session is currently waiting on —
         called once at connect time (greet with the pending question
@@ -184,6 +195,7 @@ class LiveOrchestrator:
         turn = interview_session.current_turn(row)
         if turn["kind"] not in _SPEAKABLE_KINDS or not turn.get("question"):
             return False
+        await self._announce_turn(turn, row.get("coverage_state"))
         await self.speak(turn["question"])
         return True
 
@@ -194,6 +206,7 @@ class LiveOrchestrator:
         result = await interview_session.answer(self.session_id, text)
         turn = result["turn"]
         if turn["kind"] in _SPEAKABLE_KINDS and turn.get("question"):
+            await self._announce_turn(turn, result.get("coverage"))
             await self.speak(turn["question"])
         else:
             await self.candidate_ws.send_text(json.dumps({"type": "interview_complete"}))

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { InterviewCodeForm } from '@/components/candidate/interview-code-form'
 import { cn } from '@/lib/utils'
 import { analyzeFace, recordInterviewEvent, startInterview, submitAnswer } from '@/lib/gateway'
+import { liveVoiceSupported, startLiveVoice } from '@/lib/live-voice-client'
 
 // Mirrors portal/app/interview/page.js — /interview/start's code errors are
 // the one place the gateway sends a {reason, message} shape instead of a
@@ -45,10 +46,15 @@ export function InterviewFlow({ code }: { code?: string }) {
   const [answerText, setAnswerText] = useState('')
   const [listening, setListening] = useState(false)
   const [voiceSupported, setVoiceSupported] = useState(false)
+  // 'off' until a session exists; 'live' once the real-time channel is up.
+  // 'unavailable' means we tried and it didn't work — the candidate falls
+  // back to the Web Speech API / typed path, which never stops working.
+  const [liveVoice, setLiveVoice] = useState<'off' | 'connecting' | 'live' | 'unavailable'>('off')
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const recognitionRef = useRef<any>(null)
   const spokenQuestionRef = useRef<string | null>(null)
+  const liveVoiceRef = useRef<{ stop: () => void } | null>(null)
   // Captured once devices are ready, before a session exists to attach it
   // to — held here and flushed as an event right after /interview/start
   // returns a session_id. Quality/presence check only: the portal has no
@@ -215,17 +221,71 @@ export function InterviewFlow({ code }: { code?: string }) {
     setVoiceSupported(hasRecognition && hasSynthesis)
   }, [])
 
+  // The real-time conversational channel: continuous listening, natural
+  // turn-taking, and barge-in, instead of the click-to-talk Web Speech
+  // path above. Strictly an upgrade layer — every failure here (no
+  // AudioWorklet, WS blocked, connection dropped) falls back to that path,
+  // which itself falls back to typing. The interview is never blocked by
+  // this not working.
+  useEffect(() => {
+    if (!sessionId || sessionStatus !== 'asking') return
+    if (liveVoice !== 'off') return
+    if (!liveVoiceSupported() || !streamRef.current) {
+      setLiveVoice('unavailable')
+      return
+    }
+
+    let cancelled = false
+    setLiveVoice('connecting')
+    startLiveVoice({
+      sessionId,
+      code: code!,
+      stream: streamRef.current,
+      onTurn: (nextTurn, nextCoverage) => {
+        setTurn(nextTurn)
+        if (nextCoverage) setCoverage(nextCoverage)
+        // The live channel speaks the question itself — stop the Web
+        // Speech TTS effect below from saying it a second time.
+        spokenQuestionRef.current = nextTurn.question ?? null
+      },
+      onComplete: () => router.push(`/interview/complete?session=${sessionId}`),
+      onError: () => {
+        if (!cancelled) setLiveVoice('unavailable')
+      },
+    })
+      .then((handle) => {
+        if (cancelled) {
+          handle.stop()
+          return
+        }
+        liveVoiceRef.current = handle
+        setLiveVoice('live')
+      })
+      .catch(() => {
+        if (!cancelled) setLiveVoice('unavailable')
+      })
+
+    return () => {
+      cancelled = true
+      liveVoiceRef.current?.stop()
+      liveVoiceRef.current = null
+    }
+  }, [sessionId, sessionStatus, liveVoice, code, router])
+
   // Speaks each new question/follow-up exactly once — guarded by the
   // question text itself so React StrictMode's double-invoke and answer
   // re-renders don't repeat it.
   useEffect(() => {
     if (!voiceSupported) return
+    // The live channel does its own speaking — this local TTS is only for
+    // the fallback path, or it would say every question twice at once.
+    if (liveVoice === 'live' || liveVoice === 'connecting') return
     if (sessionStatus !== 'asking') return
     if (!turn?.question || turn.question === spokenQuestionRef.current) return
     spokenQuestionRef.current = turn.question
     window.speechSynthesis.cancel()
     window.speechSynthesis.speak(new SpeechSynthesisUtterance(turn.question))
-  }, [turn, sessionStatus, voiceSupported])
+  }, [turn, sessionStatus, voiceSupported, liveVoice])
 
   function toggleListening() {
     if (!voiceSupported) return
@@ -331,7 +391,20 @@ export function InterviewFlow({ code }: { code?: string }) {
           </div>
         ) : null}
 
-        {voiceSupported ? (
+        {liveVoice === 'live' ? (
+          <p className="mt-6 flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="relative flex size-2">
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-75" />
+              <span className="relative inline-flex size-2 rounded-full bg-primary" />
+            </span>
+            Just talk — the interview is listening. You can interrupt at any time.
+          </p>
+        ) : liveVoice === 'connecting' ? (
+          <p className="mt-6 flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
+            Connecting the live conversation…
+          </p>
+        ) : voiceSupported ? (
           <p className="mt-6 flex items-center gap-2 text-xs text-muted-foreground">
             {listening ? 'Listening — tap the mic to stop.' : 'Speak your answer, or type it below.'}
           </p>

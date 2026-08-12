@@ -160,6 +160,29 @@ def test_candidate_utterance_calls_answer_and_speaks_next_question(monkeypatch):
     assert openai_ws.sent[-1]["response"]["input"][0]["content"][0]["text"] == "Tell me about caching."
 
 
+def test_candidate_utterance_announces_turn_to_the_ui(monkeypatch):
+    """The spoken question is mirrored to the browser as text so the
+    on-screen question tracks the audio instead of going stale."""
+    async def fake_answer(session_id, answer_text, provider_override=None):
+        return {
+            "session_id": session_id,
+            "turn": {"kind": "question", "topic": "systems-design", "question": "Tell me about caching."},
+            "coverage": {"completion_percent": 40},
+            "analysis": {},
+        }
+
+    monkeypatch.setattr(interview_session, "answer", fake_answer)
+    candidate_ws = FakeCandidateWS()
+    orch = live_interview.LiveOrchestrator(candidate_ws, FakeOpenAIWS(), "sess-1")
+
+    run(orch._on_candidate_utterance("Redis, mostly."))
+
+    announced = candidate_ws.sent_text[-1]
+    assert announced["type"] == "turn"
+    assert announced["turn"]["question"] == "Tell me about caching."
+    assert announced["coverage"] == {"completion_percent": 40}
+
+
 def test_candidate_utterance_on_completion_notifies_candidate_not_openai(monkeypatch):
     async def fake_answer(session_id, answer_text, provider_override=None):
         return {
