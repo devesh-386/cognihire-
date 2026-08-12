@@ -39,7 +39,9 @@ from session.events import EventType
 
 logger = logging.getLogger("cognihire.live_interview")
 
-OPENAI_REALTIME_URL = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
+# GA API (verified live 2026-08-12) — no OpenAI-Beta header, model is
+# gpt-realtime-2, not the retired gpt-4o-realtime-preview.
+OPENAI_REALTIME_URL = "wss://api.openai.com/v1/realtime?model=gpt-realtime-2"
 
 # Question/followup text is what gets spoken; other turn kinds (complete)
 # have no question text to speak — see _speak_turn.
@@ -117,17 +119,34 @@ class LiveOrchestrator:
         which we still confirm/finish handling in `_on_speech_started`
         rather than assuming it alone is sufficient (a `response.cancel`
         we send ourselves is idempotent against one OpenAI already
-        started)."""
+        started).
+
+        Shape verified live end-to-end against the GA Realtime API (the
+        Beta shape — flat `input_audio_format`/`output_audio_format`
+        strings, no `session.type` — was fully removed 2026-05-12 and 400s
+        with `beta_api_shape_disabled`). `format` is an object with both
+        `type` (`audio/pcm`, `audio/pcmu`, or `audio/pcma` — a bare
+        `"pcm16"` string 400s) and a required `rate` — confirmed via a
+        `session.updated` echo showing `create_response: false,
+        interrupt_response: true` actually applied, not just accepted."""
         await self._send_openai({
             "type": "session.update",
             "session": {
-                "turn_detection": {
-                    "type": "server_vad",
-                    "create_response": False,
-                    "interrupt_response": True,
+                "type": "realtime",
+                "audio": {
+                    "input": {
+                        "format": {"type": "audio/pcm", "rate": 24000},
+                        "turn_detection": {
+                            "type": "server_vad",
+                            "create_response": False,
+                            "interrupt_response": True,
+                        },
+                    },
+                    "output": {
+                        "format": {"type": "audio/pcm", "rate": 24000},
+                        "voice": "alloy",
+                    },
                 },
-                "input_audio_format": "pcm16",
-                "output_audio_format": "pcm16",
             },
         })
 
@@ -136,14 +155,18 @@ class LiveOrchestrator:
         `response.create` conditioned on conversation history — always a
         scripted item with `output_modalities: ["audio"]`, so OpenAI
         performs TTS on exactly this text rather than generating its own
-        reply."""
+        reply.
+
+        Content type is `output_text`, not `input_text` — verified against
+        the live API, which 400s an assistant-authored item's content with
+        `invalid_value: 'input_text'. Value must be 'output_text'`."""
         await self._send_openai({
             "type": "response.create",
             "response": {
                 "input": [{
                     "type": "message",
                     "role": "assistant",
-                    "content": [{"type": "input_text", "text": text}],
+                    "content": [{"type": "output_text", "text": text}],
                 }],
                 "output_modalities": ["audio"],
             },
@@ -273,12 +296,11 @@ async def _default_connect_openai() -> OpenAIRealtimeConnection:
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         raise LiveSessionError("OPENAI_API_KEY is not configured")
+    # No OpenAI-Beta header — the GA endpoint 400s with
+    # beta_api_shape_disabled if it's present (verified live).
     return await websockets.connect(
         OPENAI_REALTIME_URL,
-        additional_headers={
-            "Authorization": f"Bearer {api_key}",
-            "OpenAI-Beta": "realtime=v1",
-        },
+        additional_headers={"Authorization": f"Bearer {api_key}"},
     )
 
 

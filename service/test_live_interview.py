@@ -96,15 +96,20 @@ def test_authorize_rejects_unknown_code(monkeypatch):
 def test_configure_session_disables_auto_response():
     """create_response: false is the field that stops OpenAI from ever
     free-generating a reply — this is the single most important assertion
-    in this file."""
+    in this file. Shape verified against the live GA Realtime API."""
     openai_ws = FakeOpenAIWS()
     orch = live_interview.LiveOrchestrator(FakeCandidateWS(), openai_ws, "sess-1")
     run(orch.configure_session())
 
     assert len(openai_ws.sent) == 1
-    turn_detection = openai_ws.sent[0]["session"]["turn_detection"]
+    session = openai_ws.sent[0]["session"]
+    assert session["type"] == "realtime"
+    turn_detection = session["audio"]["input"]["turn_detection"]
     assert turn_detection["create_response"] is False
     assert turn_detection["interrupt_response"] is True
+    # "pcm16" alone 400s live — format must be an object with a rate.
+    assert session["audio"]["input"]["format"] == {"type": "audio/pcm", "rate": 24000}
+    assert session["audio"]["output"]["format"] == {"type": "audio/pcm", "rate": 24000}
 
 
 # --- speak() -------------------------------------------------------------
@@ -123,6 +128,9 @@ def test_speak_sends_scripted_text_not_bare_response_create():
     assert "input" in event["response"]
     item = event["response"]["input"][0]
     assert item["role"] == "assistant"
+    # "input_text" 400s live for an assistant-authored item — must be
+    # "output_text".
+    assert item["content"][0]["type"] == "output_text"
     assert item["content"][0]["text"] == "What's your experience with distributed systems?"
     assert event["response"]["output_modalities"] == ["audio"]
 
