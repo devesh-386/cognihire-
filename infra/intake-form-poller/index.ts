@@ -133,11 +133,21 @@ Deno.serve(async (req: Request) => {
       const sinceMs = intake.last_polled_response_at
         ? new Date(intake.last_polled_response_at as string).getTime()
         : 0;
+      // Only responses strictly after the watermark, oldest first — the
+      // watermark below only ever advances through an unbroken run of
+      // successes starting from sinceMs, so a failure partway through
+      // (Forms API doesn't guarantee response order) can't let a later
+      // success silently skip it on the next poll.
+      const pending = responses
+        .filter((r) => new Date(r.lastSubmittedTime).getTime() > sinceMs)
+        .sort(
+          (a, b) => new Date(a.lastSubmittedTime).getTime() - new Date(b.lastSubmittedTime).getTime(),
+        );
       let latestSeenMs = sinceMs;
+      let hitFailure = false;
 
-      for (const response of responses) {
+      for (const response of pending) {
         const submittedMs = new Date(response.lastSubmittedTime).getTime();
-        if (submittedMs <= sinceMs) continue;
         seen++;
 
         const answers: Record<string, string> = {};
@@ -178,12 +188,15 @@ Deno.serve(async (req: Request) => {
         });
         if (webhookRes.ok) {
           created++;
+          // Only advance the watermark while nothing before it has failed —
+          // otherwise a failed submission would never be retried, since the
+          // next poll starts strictly after this value.
+          if (!hitFailure && submittedMs > latestSeenMs) latestSeenMs = submittedMs;
         } else {
+          hitFailure = true;
           const errText = await webhookRes.text();
           failures.push(`${intake.id}:${response.responseId}: ${errText.slice(0, 200)}`);
         }
-
-        if (submittedMs > latestSeenMs) latestSeenMs = submittedMs;
       }
 
       if (latestSeenMs > sinceMs) {

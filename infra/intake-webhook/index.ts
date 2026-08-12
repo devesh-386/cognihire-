@@ -19,6 +19,16 @@
 // "inferred ownership" this project's tenancy model forbids. A submission
 // whose form isn't a known, active intake is rejected, not defaulted.
 //
+// One explicit, narrow exception (LEGACY_FORM_ID below): the original
+// hand-built form predates the intakes model and lets an applicant type or
+// pick ANY role via a single shared form/field, across two real candidates
+// already recorded against two different roles at the same org. Pinning it
+// to one intake would silently misroute or reject a real applicant choosing
+// a different role than whichever one got picked; retiring it outright was
+// a bigger call than this pass — so its old fuzzy-match behavior is kept
+// alive, but ONLY for this one specific form id. Every other form (all
+// auto-created per intake) always uses the strict lookup above.
+//
 // Canonicalization note: this function used to generate its own 6-char code
 // and write to a separate `invitations` table, polled by a cron
 // (`reminder-scheduler`) using its own Gmail-SMTP sender — a second,
@@ -35,6 +45,59 @@
 // in case anything still reads them.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+
+// See the "One explicit, narrow exception" comment above.
+const LEGACY_FORM_ID = "1Kl0zcEoh8Go2PeVFrRoSEg-ddSXZXt2uZ9gREcwTwV0";
+const LEGACY_ORGANIZATION_ID = "48f1c20f-c5ba-4d3c-9561-697742973f27"; // CogniHire Demo Co
+
+// Auto-created intake forms ask for a resume LINK, not an upload (Google's
+// Forms API can't create file-upload questions at all — see forms.py).
+// Without this, resume_path never gets set, the candidates_resume_uploaded
+// trigger never fires, and the whole downstream chain (AI profile ->
+// auto-invite -> interview code -> email) silently never runs — confirmed
+// by an actual end-to-end test, not assumed. Only Google Drive links set to
+// "Anyone with the link" are handled: that's a plain unauthenticated fetch,
+// no OAuth token involved, since drive.file scope wouldn't grant access to
+// a file the app never created anyway. Anything else (private links,
+// Dropbox, etc.) fails clearly — resume_link is still saved either way, so
+// nothing is lost, just not auto-processed.
+function extractDriveFileId(url: string): string | null {
+  const patterns = [/\/file\/d\/([a-zA-Z0-9_-]+)/, /[?&]id=([a-zA-Z0-9_-]+)/];
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) return match[1];
+  }
+  return null;
+}
+
+const EXTENSION_BY_CONTENT_TYPE: Record<string, string> = {
+  "application/pdf": "pdf",
+  "application/msword": "doc",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+};
+
+async function fetchDriveResume(
+  driveUrl: string,
+): Promise<{ bytes: Uint8Array; filename: string } | { error: string }> {
+  const fileId = extractDriveFileId(driveUrl);
+  if (!fileId) return { error: "not a recognizable Google Drive link" };
+
+  const response = await fetch(`https://drive.google.com/uc?export=download&id=${fileId}`);
+  if (!response.ok) return { error: `Drive fetch failed: HTTP ${response.status}` };
+
+  const contentType = response.headers.get("content-type") ?? "";
+  // An unauthenticated fetch of a non-public (or virus-scan-interstitial)
+  // file returns an HTML page instead of the file bytes — the one reliable
+  // signal available here that the "anyone with the link" fetch didn't
+  // actually get the resume.
+  if (contentType.includes("text/html")) {
+    return { error: "Drive link is not public (\"Anyone with the link\") or requires the virus-scan interstitial" };
+  }
+
+  const extension = EXTENSION_BY_CONTENT_TYPE[contentType.split(";")[0].trim()] ?? "pdf";
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  return { bytes, filename: `resume.${extension}` };
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") {
@@ -94,25 +157,47 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  const { data: intake, error: intakeError } = await client
-    .from("intakes")
-    .select("id, organization_id, role_id, status")
-    .eq("google_form_id", formId)
-    .maybeSingle();
-  if (intakeError || !intake) {
-    return new Response(
-      JSON.stringify({ error: `no intake is registered for form ${formId}` }),
-      { status: 404, headers: { "Content-Type": "application/json" } },
-    );
+  let organizationId: string;
+  let roleId: string;
+  let intakeId: string | null = null;
+
+  if (formId === LEGACY_FORM_ID) {
+    organizationId = LEGACY_ORGANIZATION_ID;
+    const { data: matchedRole, error: roleError } = await client
+      .from("roles")
+      .select("id")
+      .eq("organization_id", LEGACY_ORGANIZATION_ID)
+      .ilike("title", `%${roleTitle}%`)
+      .maybeSingle();
+    if (roleError || !matchedRole) {
+      return new Response(
+        JSON.stringify({ error: `no role matching "${roleTitle}" found for the legacy form's organization` }),
+        { status: 404, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    roleId = matchedRole.id;
+  } else {
+    const { data: intake, error: intakeError } = await client
+      .from("intakes")
+      .select("id, organization_id, role_id, status")
+      .eq("google_form_id", formId)
+      .maybeSingle();
+    if (intakeError || !intake) {
+      return new Response(
+        JSON.stringify({ error: `no intake is registered for form ${formId}` }),
+        { status: 404, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    if (intake.status !== "active") {
+      return new Response(
+        JSON.stringify({ error: `intake for form ${formId} is ${intake.status}, not accepting applications` }),
+        { status: 409, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    organizationId = intake.organization_id;
+    roleId = intake.role_id;
+    intakeId = intake.id;
   }
-  if (intake.status !== "active") {
-    return new Response(
-      JSON.stringify({ error: `intake for form ${formId} is ${intake.status}, not accepting applications` }),
-      { status: 409, headers: { "Content-Type": "application/json" } },
-    );
-  }
-  const organizationId = intake.organization_id;
-  const roleId = intake.role_id;
 
   // Required now that the interview code is generated with window_start/
   // window_end pinned to this value (see main.py's auto-invite endpoint) —
@@ -135,9 +220,24 @@ Deno.serve(async (req: Request) => {
   // candidate re-submitting the form) resolves to the SAME candidate row
   // instead of creating a duplicate — this is the fix for the duplicate-
   // candidate/duplicate-code/duplicate-email gap flagged during integration
-  // review. id is only set on first insert; on conflict it's left alone.
-  const candidateId = `cand-intake-${crypto.randomUUID()}`;
+  // review.
+  //
+  // The id must be looked up explicitly, not left to Supabase's upsert to
+  // "not touch on conflict" — it doesn't do that. `.upsert(row, {onConflict})`
+  // updates every column in `row` on a matching conflict, id included, which
+  // tried to overwrite an existing candidate's primary key and failed with a
+  // foreign key violation the moment that candidate already had a
+  // candidate_ai_profile row pointing at their real id (caught via an actual
+  // resubmission during testing, not by inspection).
+  const { data: existingCandidate } = await client
+    .from("candidates")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("email", email)
+    .maybeSingle();
+  const candidateId = existingCandidate?.id ?? `cand-intake-${crypto.randomUUID()}`;
   let resumePath: string | null = null;
+  let resumeFetchWarning: string | null = null;
   if (resumeBase64 && resumeFilename) {
     resumePath = `${organizationId}/${candidateId}-${resumeFilename}`;
     const bytes = Uint8Array.from(atob(resumeBase64), (c) => c.charCodeAt(0));
@@ -149,6 +249,25 @@ Deno.serve(async (req: Request) => {
         JSON.stringify({ error: `resume upload failed: ${uploadError.message}` }),
         { status: 500, headers: { "Content-Type": "application/json" } },
       );
+    }
+  } else if (resumeLink) {
+    const fetched = await fetchDriveResume(resumeLink);
+    if ("error" in fetched) {
+      // Not fatal: the candidate still gets created with resume_link saved
+      // (visible to a recruiter, who can fetch it manually) — only the
+      // automatic AI-profile/auto-invite chain doesn't fire. Blocking
+      // candidate creation over a resume-fetch failure would be worse: the
+      // candidate wouldn't exist at all.
+      resumeFetchWarning = fetched.error;
+    } else {
+      resumePath = `${organizationId}/${candidateId}-${fetched.filename}`;
+      const { error: uploadError } = await client.storage
+        .from("resumes")
+        .upload(resumePath, fetched.bytes, { upsert: true });
+      if (uploadError) {
+        resumePath = null;
+        resumeFetchWarning = `resume upload failed: ${uploadError.message}`;
+      }
     }
   }
 
@@ -164,7 +283,7 @@ Deno.serve(async (req: Request) => {
     name,
     email,
     role_id: roleId,
-    intake_id: intake.id,
+    intake_id: intakeId,
     preferred_time: preferredTime.toISOString(),
   };
   if (resumePath) {
@@ -195,7 +314,7 @@ Deno.serve(async (req: Request) => {
   // processing; the candidate_ready_for_interview trigger takes it from
   // READY_FOR_INTERVIEW to a code + invitation email automatically.
   return new Response(
-    JSON.stringify({ ok: true, candidateId: upserted.id }),
+    JSON.stringify({ ok: true, candidateId: upserted.id, resumeFetchWarning }),
     { status: 201, headers: { "Content-Type": "application/json" } },
   );
 });
