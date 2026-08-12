@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../core/claims/claim.dart';
 import '../../core/claims/claim_audit.dart';
 import '../../core/design/app_theme.dart';
+import '../../core/design/verdict_stamp.dart';
 import '../../core/export/audit_export.dart';
 import '../../core/export/export_writer.dart';
 import '../../core/graph/graph_from_audit.dart';
@@ -183,11 +184,11 @@ class ClaimAuditScreen extends StatelessWidget {
 
   Widget _findingCard(BuildContext context, ClaimFinding finding) {
     final theme = Theme.of(context);
-    final colour = switch (finding.status) {
-      ClaimStatus.substantiated => context.evidence.verified,
-      ClaimStatus.notDemonstrated => context.evidence.unmeasured,
-      ClaimStatus.contradicted => context.evidence.disputed,
-      ClaimStatus.notExamined => context.evidence.notExamined,
+    final verdictKind = switch (finding.status) {
+      ClaimStatus.substantiated => VerdictKind.verified,
+      ClaimStatus.notDemonstrated => VerdictKind.unmeasured,
+      ClaimStatus.contradicted => VerdictKind.disputed,
+      ClaimStatus.notExamined => VerdictKind.notExamined,
     };
 
     return Card(
@@ -208,19 +209,7 @@ class ClaimAuditScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 10),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: colour.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    finding.status.label,
-                    style: theme.textTheme.labelSmall
-                        ?.copyWith(color: colour, fontWeight: FontWeight.w700),
-                  ),
-                ),
+                VerdictStamp(kind: verdictKind, dense: true),
               ],
             ),
             const SizedBox(height: 4),

@@ -1123,7 +1123,7 @@ class TranscriptTurn extends StatelessWidget {
                   width: double.infinity,
                   padding: const EdgeInsets.all(Spacing.md),
                   decoration: BoxDecoration(
-                    color: isSystem ? brand.cream : scheme.surface,
+                    color: isSystem ? brand.paperTint : scheme.surface,
                     borderRadius: BorderRadius.circular(Radii.control),
                     border: Border.all(color: scheme.outlineVariant),
                   ),
@@ -1427,7 +1427,7 @@ class RecordRow extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: Spacing.sm),
       decoration: BoxDecoration(
-        color: context.brand.cream,
+        color: context.brand.paperTint,
         borderRadius: BorderRadius.circular(Radii.control),
         border: Border.all(color: theme.colorScheme.outlineVariant),
       ),

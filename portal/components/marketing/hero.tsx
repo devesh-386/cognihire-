@@ -1,5 +1,6 @@
 import { ButtonLink } from '@/components/ui/button-link'
 import { EvidenceFlow } from '@/components/marketing/evidence-flow'
+import { VerdictStamp } from '@/components/verdict-stamp'
 
 export function Hero() {
   return (
@@ -10,24 +11,28 @@ export function Hero() {
       />
       <div className="relative mx-auto w-full max-w-6xl px-5 pt-16 pb-16 lg:px-8 lg:pt-24 lg:pb-24">
         <div className="max-w-3xl">
-          <p className="rise label-mono text-muted-foreground">
-            Evidence over opaque scores
-          </p>
+          <div className="rise flex flex-wrap items-center gap-4">
+            <p className="label-mono text-muted-foreground">
+              Every claim gets a sealed verdict
+            </p>
+            <VerdictStamp verdict="verified" className="ml-1" />
+          </div>
           <h1 className="rise mt-6 text-[2.5rem] leading-[1.05] font-medium tracking-[-0.035em] text-balance sm:text-6xl lg:text-[4.25rem]">
-            Let your{' '}
+            An interview record{' '}
             <span className="relative inline-block">
-              <span className="relative z-10">real work</span>
+              <span className="relative z-10">that holds up</span>
               <span
                 aria-hidden="true"
                 className="absolute inset-x-0 bottom-[0.1em] z-0 h-[0.32em] bg-evidence/70"
               />
             </span>{' '}
-            speak for you.
+            under scrutiny.
           </h1>
           <p className="rise mt-7 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-            Apply, talk through what you&apos;ve actually built, and walk away
-            with a report that quotes your own words back — not a score no one
-            explains.
+            CogniHire turns every claim you make into an audited entry — quoted
+            against your own answers, never compressed into a black-box score.
+            Verified, disputed, unmeasured, or not examined: nothing is
+            fabricated, and nothing is hidden.
           </p>
 
           <div className="rise mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">

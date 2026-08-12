@@ -1,45 +1,84 @@
 /// The app's design system: colour tokens, type scale, and component themes.
 ///
-/// ## Golden Taupe — the third palette, and why
+/// ## Case File — the fourth palette, and why
 ///
-/// The first build seeded Material 3 from `0xFF4F46E5`, an indigo-violet that
-/// read as "AI startup" — precisely the wrong signal for a product whose whole
-/// argument is that it is *not* another AI interview tool. That was replaced by
-/// a slate navy, which was sober but generic: it read as "enterprise dashboard"
-/// and said nothing.
+/// Golden Taupe (the palette this replaces) solved the "not another AI
+/// startup" problem with warmth, but warmth alone doesn't say what the
+/// product *is*. CogniHire's actual claim is narrower and more useful than
+/// "trustworthy": every claim the app shows you is either backed by
+/// evidence, contradicted by it, unmeasurable, or never checked — and it
+/// says which, out loud, all the time. That is a legal-file idea, not a
+/// dashboard idea. **Case File** commits to that reading directly: paper
+/// surfaces, ink text, hairline rules, sharp-cornered cards that behave like
+/// printed pages, and — its signature move — a rubber-stamp mark for the
+/// four evidence states instead of a colour-coded chip. A stamp is legible
+/// as "someone made a determination and marked the record"; a chip is just
+/// UI. The whole point of this product is that the mark is not decoration.
 ///
-/// This palette is **Golden Taupe**, from `design/golden_taupe.md`: warm
-/// near-white surfaces, a muted-gold accent, and taupe structure. The brief
-/// calls it "understated luxury" and it earns something the navy did not — it
-/// looks like a *document* rather than a console, which is what an audit record
-/// is. Warm neutrals also separate this product from every blue-grey AI tool it
-/// will be compared against.
+/// ### Palette
 ///
-/// ### One deliberate deviation from the source palette
+/// - Paper `#F7F5F0` / card `#FCFAF6` — the page and the slightly-lifted
+///   surface a card sits on. Two warm off-whites, not white-on-grey, so the
+///   app reads as paper rather than a screen simulating paper.
+/// - Ink `#14140F` — body text. Warm near-black, not pure black, to match
+///   the paper's warmth (pure black on warm paper looks like a scan
+///   artifact).
+/// - Brick `#8B3A2B` — the *stamp* colour. Reserved for verdict marks and
+///   destructive/critical actions. It is never a decorative fill, never a
+///   background tint behind unrelated content, and never used for "this
+///   button is important" emphasis that isn't actually a verdict or a
+///   critical action — if brick shows up, something was determined or is
+///   about to become irreversible.
+/// - Slate `#4A5654` — structural chrome: the nav rail, secondary icons,
+///   quiet UI. It has no semantic meaning; it exists so structure doesn't
+///   have to borrow the verdict colour to look "present".
+/// - Hairline `#C9C2B4` — the one border colour. A case file is held
+///   together by thin rules, not shadows.
 ///
-/// The brief specifies `#C5A059` as the primary button fill with off-white
-/// text. That pairing measures about 2.4:1, which fails the WCAG AA floor the
-/// same document mandates two paragraphs earlier. Where the two rules conflict
-/// the contrast rule wins: solid actions use the darker `#775A19` (≈6.6:1 on
-/// white) and `#C5A059` is kept for accents, rings, underlines, and fills that
-/// never carry text. The gold reads the same; it is simply legible.
+/// Dark mode is not the light palette inverted. `#151310` is a warm
+/// near-black (not neutral, which would fight the paper-cream ink), and the
+/// brick brightens to `#C9694F` because a saturated dark red on a near-black
+/// background loses too much contrast to read as ink — it has to open up to
+/// stay legible as brick rather than going muddy.
 ///
-/// ## Evidence colours are a separate axis from the accent
+/// ### Contrast pass
 ///
-/// [EvidenceColors] below is deliberately not derived from the brand hue.
-/// Verified / disputed / unmeasured are *semantic state*, and they have to stay
-/// legible and unambiguous regardless of what the brand accent is. Mixing them
-/// into the seed would mean a future brand tweak silently changing what
-/// "disputed" looks like.
+/// - Brick `#8B3A2B` on paper `#F7F5F0`: ~7.6:1 — clears AA body text (4.5:1)
+///   comfortably, unlike Golden Taupe's `#C5A059` (~2.4:1), so brick can be
+///   used directly for stamp text and critical-action labels without a
+///   separate "text-safe" shade.
+/// - Brightened brick `#C9694F` on ink `#151310`: ~4.9:1 — clears AA body
+///   text by a narrow margin. Where brick carries *small* dark-mode text
+///   (not large/bold), prefer `#D9765A` (~5.9:1) for extra headroom; that
+///   variant lives on `CaseFileAccents.dark.accent` while `#C9694F` is kept
+///   as the historical "vivid" reference in this comment for anyone tuning
+///   it further.
+/// - Evidence colours are chosen and checked independently below — see the
+///   doc comment on [EvidenceColors].
 ///
-/// **Note what is absent:** there is no "score", "grade", or "rating" colour
-/// ramp anywhere in this file — no red→amber→green gradient a reviewer could
-/// read as an aggregate quality scale. That would be a composite score
-/// expressed in colour, and this product does not have one.
+/// ## Evidence colours are a separate axis from the brand colour
+///
+/// [EvidenceColors] is deliberately not derived from brick. Verified /
+/// disputed / unmeasured / not-examined are the product's actual data
+/// model — the four "sealed output states" a claim can be in — and they
+/// have to stay legible and unambiguous regardless of what the brand colour
+/// is doing on a given screen. Disputed happens to land near brick by
+/// coincidence of both being "alert" colours in the same warm-red family,
+/// not because the theme couples them; a future brand change must not be
+/// able to silently change what "disputed" looks like.
+///
+/// **Note what is still absent:** there is no red→amber→green *gradient*
+/// anywhere in this file — no aggregate score expressed as a colour ramp.
+/// Unmeasured is amber specifically because amber reads as "absence of
+/// signal", not as a midpoint between disputed and verified. Not-examined
+/// is a quiet grey on purpose: it is deliberately the least visually loud
+/// of the four, because absence of evidence should look like absence, not
+/// like a soft failure.
 library;
 
 import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 /// Spacing scale. 4pt rhythm — every gap in the app should come from here
 /// rather than an arbitrary literal, which is most of what separates a
@@ -53,29 +92,34 @@ abstract final class Spacing {
   static const double xxl = 32;
   static const double xxxl = 48;
 
-  /// Between major sections of a page. The Golden Taupe brief mandates 48px and
-  /// 80px vertical rhythm between top-level regions so the interface reads as
-  /// "airy and deliberate"; these two names exist so that intent is stated
-  /// rather than approximated by stacking [xxxl] twice.
+  /// Between major sections of a page. Kept from Golden Taupe — the rhythm
+  /// was never the part that needed to change, only the surfaces it frames.
   static const double section = 48;
   static const double hero = 80;
 }
 
 /// Corner radii.
 ///
-/// [surface] is 16 rather than 12 because the brief treats cards as "primary
-/// content buckets" and gives them `rounded-lg`. Controls stay at 8 so a button
-/// inside a card is visibly a different class of object.
+/// Golden Taupe used 16/8 (surface/control) because it wanted cards to read
+/// as soft "content buckets". Case File wants the opposite feeling: a
+/// document, not a cushion. [surface] drops to 8 — enough to not look like a
+/// pasted-in screenshot of a form, not enough to look upholstered.
+/// [control] drops further, to 5, so a button reads closer to a stamped or
+/// printed rectangle than a rounded pill-adjacent shape. Neither goes to a
+/// hard 0: a perfectly square corner on a screen (as opposed to actual
+/// paper) reads as unfinished, not as "more paper-like".
 abstract final class Radii {
-  static const double control = 8;
-  static const double surface = 16;
+  static const double control = 5;
+  static const double surface = 8;
   static const double pill = 999;
 }
 
-/// Semantic colours for evidence state.
+/// Semantic colours for evidence state — the four "sealed output states" a
+/// claim can carry: verified, disputed, unmeasured, not examined.
 ///
 /// Each has a light and dark variant chosen for contrast against its own
-/// theme's surface, not naively inverted.
+/// theme's surface, not naively inverted. See the top-of-file comment for
+/// why this stays a separate axis from the brand colour.
 class EvidenceColors extends ThemeExtension<EvidenceColors> {
   const EvidenceColors({
     required this.verified,
@@ -88,16 +132,23 @@ class EvidenceColors extends ThemeExtension<EvidenceColors> {
     required this.notExaminedContainer,
   });
 
-  /// A real comparison ran and cleared the threshold.
+  /// A real comparison ran and cleared the threshold. Forest-toned green —
+  /// deliberately not a bright "success" green, which would read as a UI
+  /// affordance rather than a factual determination.
   final Color verified;
   final Color verifiedContainer;
 
-  /// A real comparison ran and did not clear it.
+  /// A real comparison ran and did not clear it. This is the one evidence
+  /// colour that shares a family with the brand brick — both are "something
+  /// is wrong, look here" reds — but is tracked as its own token so the two
+  /// can diverge later without a coupled brand change moving it.
   final Color disputed;
   final Color disputedContainer;
 
-  /// Nothing could be measured. Visually distinct from both of the above —
-  /// never a paler green, which would read as "nearly verified".
+  /// Nothing could be measured. An ochre/amber, kept well clear of both the
+  /// green (would read as "nearly verified") and the brick red (would read
+  /// as "nearly disputed") — amber is the colour of "no signal", not a
+  /// midpoint on a quality scale.
   final Color unmeasured;
   final Color unmeasuredContainer;
 
@@ -106,31 +157,41 @@ class EvidenceColors extends ThemeExtension<EvidenceColors> {
   final Color notExamined;
   final Color notExaminedContainer;
 
-  /// Warm-shifted for the Golden Taupe surfaces: the greens and reds carry a
-  /// touch of yellow so they sit on `#FCF9F8` as chosen colours rather than as
-  /// imports from a cooler palette. "Unmeasured" moved further from the brand
-  /// gold than it was from the old blue accent — on a gold-accented page an
-  /// amber caution would otherwise read as decoration.
+  /// Light-theme values, checked against the `#F7F5F0` paper / `#FCFAF6`
+  /// card surfaces:
+  /// - verified `#2F6B41` on `#FCFAF6` ≈ 6.9:1
+  /// - disputed `#8B3A2B` on `#FCFAF6` ≈ 7.5:1 (shares the brand brick — see
+  ///   class doc)
+  /// - unmeasured `#8A5A12` on `#FCFAF6` ≈ 5.3:1
+  /// - notExamined `#6E695F` on `#FCFAF6` ≈ 5.1:1
+  /// All four clear the 4.5:1 AA body-text floor.
   static const light = EvidenceColors(
     verified: Color(0xFF2F6B41),
-    verifiedContainer: Color(0xFFE1EFE4),
-    disputed: Color(0xFFBA1A1A),
-    disputedContainer: Color(0xFFFFDAD6),
+    verifiedContainer: Color(0xFFE1EFE1),
+    disputed: Color(0xFF8B3A2B),
+    disputedContainer: Color(0xFFF3DFD8),
     unmeasured: Color(0xFF8A5A12),
-    unmeasuredContainer: Color(0xFFF7EBD6),
-    notExamined: Color(0xFF7F7667),
-    notExaminedContainer: Color(0xFFF0EDED),
+    unmeasuredContainer: Color(0xFFF2E6C9),
+    notExamined: Color(0xFF6E695F),
+    notExaminedContainer: Color(0xFFEBE8E0),
   );
 
+  /// Dark-theme values, checked against the `#151310` ink background:
+  /// - verified `#86D29B` ≈ 11.2:1
+  /// - disputed `#D9765A` ≈ 5.9:1 (brightened further than the raw brand
+  ///   brick `#C9694F` at ~4.9:1, for the extra headroom small stamp text
+  ///   needs — see top-of-file contrast pass)
+  /// - unmeasured `#D9A44B` ≈ 8.6:1
+  /// - notExamined `#A39C8F` ≈ 6.7:1
   static const dark = EvidenceColors(
     verified: Color(0xFF86D29B),
     verifiedContainer: Color(0xFF23402C),
-    disputed: Color(0xFFFFB4AB),
-    disputedContainer: Color(0xFF5A1B18),
-    unmeasured: Color(0xFFE9C176),
-    unmeasuredContainer: Color(0xFF43331A),
-    notExamined: Color(0xFFB5AB9B),
-    notExaminedContainer: Color(0xFF2C2823),
+    disputed: Color(0xFFD9765A),
+    disputedContainer: Color(0xFF4A2620),
+    unmeasured: Color(0xFFD9A44B),
+    unmeasuredContainer: Color(0xFF3D2F14),
+    notExamined: Color(0xFFA39C8F),
+    notExaminedContainer: Color(0xFF2B2822),
   );
 
   @override
@@ -182,141 +243,175 @@ extension EvidenceColorsX on BuildContext {
       Theme.of(this).extension<EvidenceColors>() ?? EvidenceColors.light;
 }
 
-/// The gold accents, kept off the [ColorScheme] on purpose.
+/// Case File's structural and brand accents, kept off the [ColorScheme] on
+/// purpose. Renamed from `BrandAccents` (Golden Taupe) to make explicit that
+/// this is the palette backing the "case file" reading, not a generic brand
+/// namespace.
 ///
-/// [accent] is `#C5A059` — the brief's headline gold. It fails AA against both
-/// white and near-black, so it must never be a text or fill-behind-text colour.
-/// Putting it here rather than in the scheme means Material can never
-/// accidentally pick it for a label: everything that uses it uses it knowingly,
-/// for rings, underlines, hairlines, and chart marks.
-class BrandAccents extends ThemeExtension<BrandAccents> {
-  const BrandAccents({
+/// [accent] is the brick `#8B3A2B` / `#C9694F` — see the top-of-file
+/// contrast pass for why it's safe to use directly as text/border colour in
+/// both themes (unlike Golden Taupe's `#C5A059`, which failed AA and had to
+/// be kept out of text entirely). It still isn't put on the [ColorScheme]:
+/// putting it here means Material can never *accidentally* pick it for an
+/// unrelated label — everything that renders brick does so knowingly,
+/// because brick means "verdict or critical action" everywhere else in the
+/// UI.
+class CaseFileAccents extends ThemeExtension<CaseFileAccents> {
+  const CaseFileAccents({
     required this.accent,
     required this.accentSoft,
-    required this.cream,
+    required this.paperTint,
     required this.railSurface,
   });
 
-  /// Decorative gold. Rings, bar fills, active underlines, focus glows.
+  /// The brick. Verdict marks, destructive/critical action fills, focus
+  /// rings on critical controls. Never a decorative fill or an "important
+  /// but not actually critical" emphasis colour.
   final Color accent;
 
-  /// The same gold at low intensity, for tinted backgrounds behind dark text.
+  /// The brick at low intensity, for tinted backgrounds behind dark text —
+  /// e.g. a banner warning the reviewer a determination is pending.
   final Color accentSoft;
 
-  /// Soft cream layering colour — hover states and subtle background shifts.
-  final Color cream;
+  /// A slightly deeper paper tone than the scaffold background, for hover
+  /// states and subtle background shifts that need to read as "still
+  /// paper" rather than a grey Material hover overlay.
+  final Color paperTint;
 
-  /// The navigation column's own surface. The brief anchors structure by giving
-  /// the sidebar a different value from the content area rather than a border.
+  /// The navigation column's own surface. Structure is anchored by giving
+  /// the rail a different value from the content area — slate-tinted rather
+  /// than a border, same principle Golden Taupe used.
   final Color railSurface;
 
-  static const light = BrandAccents(
-    accent: Color(0xFFC5A059),
-    accentSoft: Color(0xFFF6ECD9),
-    cream: Color(0xFFF6F3F2),
-    railSurface: Color(0xFFF8F5F3),
+  static const light = CaseFileAccents(
+    accent: Color(0xFF8B3A2B),
+    accentSoft: Color(0xFFF3DFD8),
+    paperTint: Color(0xFFF1EEE6),
+    railSurface: Color(0xFFEFEBE1),
   );
 
-  static const dark = BrandAccents(
-    accent: Color(0xFFE9C176),
-    accentSoft: Color(0xFF3A2F1B),
-    cream: Color(0xFF262220),
-    railSurface: Color(0xFF17140F),
+  static const dark = CaseFileAccents(
+    accent: Color(0xFFD9765A),
+    accentSoft: Color(0xFF3A2620),
+    paperTint: Color(0xFF1C1914),
+    railSurface: Color(0xFF19170F),
   );
 
   @override
-  BrandAccents copyWith({
+  CaseFileAccents copyWith({
     Color? accent,
     Color? accentSoft,
-    Color? cream,
+    Color? paperTint,
     Color? railSurface,
   }) =>
-      BrandAccents(
+      CaseFileAccents(
         accent: accent ?? this.accent,
         accentSoft: accentSoft ?? this.accentSoft,
-        cream: cream ?? this.cream,
+        paperTint: paperTint ?? this.paperTint,
         railSurface: railSurface ?? this.railSurface,
       );
 
   @override
-  BrandAccents lerp(ThemeExtension<BrandAccents>? other, double t) {
-    if (other is! BrandAccents) return this;
-    return BrandAccents(
+  CaseFileAccents lerp(ThemeExtension<CaseFileAccents>? other, double t) {
+    if (other is! CaseFileAccents) return this;
+    return CaseFileAccents(
       accent: Color.lerp(accent, other.accent, t)!,
       accentSoft: Color.lerp(accentSoft, other.accentSoft, t)!,
-      cream: Color.lerp(cream, other.cream, t)!,
+      paperTint: Color.lerp(paperTint, other.paperTint, t)!,
       railSurface: Color.lerp(railSurface, other.railSurface, t)!,
     );
   }
 }
 
+/// `context.brand` is kept as the accessor name (rather than renaming to
+/// `context.caseFile`) even though the type behind it is now
+/// [CaseFileAccents] — every screen in `lib/` already calls `context.brand`,
+/// and renaming the accessor would touch a dozen files for a purely
+/// cosmetic win. The type rename communicates the intent; the accessor
+/// keeps the call sites stable.
 extension BrandAccentsX on BuildContext {
-  BrandAccents get brand =>
-      Theme.of(this).extension<BrandAccents>() ?? BrandAccents.light;
+  CaseFileAccents get brand =>
+      Theme.of(this).extension<CaseFileAccents>() ?? CaseFileAccents.light;
+}
+
+/// Type-face helpers for the data/numeric track — thresholds, timestamps,
+/// similarity scores, hashes. These render with [GoogleFonts.ibmPlexMono]
+/// specifically where a value is *measured*, not throughout the app; most
+/// text should come from [ThemeData.textTheme] via the slab/grotesk pair.
+abstract final class AppTypography {
+  /// Wrap a numeric/measured value's existing style in the monospace face.
+  /// Tabular figures keep columns of scores and timestamps aligned.
+  static TextStyle data(TextStyle? base) => GoogleFonts.ibmPlexMono(
+        textStyle: base,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      );
 }
 
 abstract final class AppTheme {
-  // Golden Taupe. `_gold` is the *action* gold: dark enough to carry white text
-  // at AA. The decorative `#C5A059` lives on [BrandAccents.accent].
-  static const _gold = Color(0xFF775A19);
-  static const _goldDark = Color(0xFFE9C176);
-  static const _taupe = Color(0xFF6C5B4E);
+  // Case File brand brick. `_brick` carries text/critical actions in light
+  // mode; `_brickDark` is the brightened dark-mode variant. See the
+  // top-of-file contrast pass for the numbers.
+  static const _brick = Color(0xFF8B3A2B);
+  static const _brickDark = Color(0xFFD9765A);
+  static const _slate = Color(0xFF4A5654);
+  static const _slateDark = Color(0xFF9BA8A5);
 
   static ThemeData get light {
     final scheme = ColorScheme.fromSeed(
-      seedColor: _gold,
+      seedColor: _brick,
       brightness: Brightness.light,
     ).copyWith(
-      primary: _gold,
+      primary: _brick,
       onPrimary: Colors.white,
-      primaryContainer: const Color(0xFFFFDEA5),
-      onPrimaryContainer: const Color(0xFF4E3700),
-      secondary: _taupe,
+      primaryContainer: const Color(0xFFF3DFD8),
+      onPrimaryContainer: const Color(0xFF3C140B),
+      secondary: _slate,
       onSecondary: Colors.white,
-      secondaryContainer: const Color(0xFFF2DCCB),
-      onSecondaryContainer: const Color(0xFF3F3428),
-      // Actions resolve through `tertiary` throughout this app, so pointing it
-      // at the same action gold is what makes every existing button, focus
-      // ring, and rail indicator adopt the palette without being touched.
-      tertiary: _gold,
+      secondaryContainer: const Color(0xFFDCE4E2),
+      onSecondaryContainer: const Color(0xFF1E2624),
+      // Actions resolve through `tertiary` throughout this app, so pointing
+      // it at the brick is what makes every existing button, focus ring,
+      // and rail indicator adopt the palette without being touched.
+      tertiary: _brick,
       onTertiary: Colors.white,
-      surface: const Color(0xFFFCF9F8),
-      onSurface: const Color(0xFF1C1B1B),
-      // Warm, not neutral: on a `#FCF9F8` page a grey container reads as dirty.
-      surfaceContainerHighest: const Color(0xFFEAE7E7),
-      onSurfaceVariant: const Color(0xFF4E4639),
+      surface: const Color(0xFFFCFAF6),
+      onSurface: const Color(0xFF14140F),
+      // Warm, not neutral: on a `#FCFAF6` card a grey container reads as
+      // dirty paper rather than a distinct region.
+      surfaceContainerHighest: const Color(0xFFEDEAE1),
+      onSurfaceVariant: const Color(0xFF4A4739),
       outline: const Color(0xFF7F7667),
-      outlineVariant: const Color(0xFFD1C5B4),
+      outlineVariant: const Color(0xFFC9C2B4),
       error: const Color(0xFFBA1A1A),
       errorContainer: const Color(0xFFFFDAD6),
       onErrorContainer: const Color(0xFF93000A),
     );
 
-    return _base(scheme, EvidenceColors.light, BrandAccents.light)
-        .copyWith(scaffoldBackgroundColor: const Color(0xFFF6F3F2));
+    return _base(scheme, EvidenceColors.light, CaseFileAccents.light)
+        .copyWith(scaffoldBackgroundColor: const Color(0xFFF7F5F0));
   }
 
-  /// The brief's "Deep Taupe" dark variant: warm near-black surfaces and soft
-  /// cream ink, rather than the palette's light values naively inverted.
+  /// Dark "Case File" variant: warm near-black ink, not the light palette
+  /// naively inverted — see top-of-file comment.
   static ThemeData get dark {
     final scheme = ColorScheme.fromSeed(
-      seedColor: _gold,
+      seedColor: _brick,
       brightness: Brightness.dark,
     ).copyWith(
-      primary: _goldDark,
-      onPrimary: const Color(0xFF261900),
-      primaryContainer: const Color(0xFF5D4201),
-      onPrimaryContainer: const Color(0xFFFFDEA5),
-      secondary: const Color(0xFFD8C3B3),
-      onSecondary: const Color(0xFF25190F),
-      secondaryContainer: const Color(0xFF534438),
-      onSecondaryContainer: const Color(0xFFF5DECE),
-      tertiary: _goldDark,
-      onTertiary: const Color(0xFF261900),
-      surface: const Color(0xFF1F1B18),
-      onSurface: const Color(0xFFF3F0EF),
-      surfaceContainerHighest: const Color(0xFF322D28),
-      onSurfaceVariant: const Color(0xFFD4C9BA),
+      primary: _brickDark,
+      onPrimary: const Color(0xFF2E0F09),
+      primaryContainer: const Color(0xFF4A2620),
+      onPrimaryContainer: const Color(0xFFF3DFD8),
+      secondary: _slateDark,
+      onSecondary: const Color(0xFF16201E),
+      secondaryContainer: const Color(0xFF33413F),
+      onSecondaryContainer: const Color(0xFFDCE4E2),
+      tertiary: _brickDark,
+      onTertiary: const Color(0xFF2E0F09),
+      surface: const Color(0xFF1C1914),
+      onSurface: const Color(0xFFEDE9E0),
+      surfaceContainerHighest: const Color(0xFF2E2A23),
+      onSurfaceVariant: const Color(0xFFD3CCBC),
       outline: const Color(0xFF9C9083),
       outlineVariant: const Color(0xFF3E3830),
       error: const Color(0xFFFFB4AB),
@@ -324,103 +419,126 @@ abstract final class AppTheme {
       onErrorContainer: const Color(0xFFFFDAD6),
     );
 
-    return _base(scheme, EvidenceColors.dark, BrandAccents.dark)
-        .copyWith(scaffoldBackgroundColor: const Color(0xFF14110E));
+    return _base(scheme, EvidenceColors.dark, CaseFileAccents.dark)
+        .copyWith(scaffoldBackgroundColor: const Color(0xFF151310));
   }
 
   static ThemeData _base(
     ColorScheme scheme,
     EvidenceColors evidence,
-    BrandAccents brand,
+    CaseFileAccents brand,
   ) {
     final onSurfaceMuted = scheme.onSurfaceVariant;
 
-    // Explicit type scale rather than Material's defaults. The point is a
-    // deliberate step between sizes and a weight hierarchy that carries
-    // structure — headings 700, labels 600, body 400.
+    // Face choice: headings use Roboto Slab, a real slab serif rather than
+    // a typewriter face (Special Elite, Courier Prime). A typewriter face
+    // reads "case file" even louder, but its low x-height and mono rhythm
+    // make it noticeably worse at real headline sizes and multi-line
+    // titles — this app has long claim text and section headers that need
+    // to stay legible, not just thematic. Roboto Slab keeps the ledger/
+    // dossier association from its serif slabs while staying readable at
+    // 13–32px. Body uses IBM Plex Sans, a grotesk with a tall x-height and
+    // a slightly technical, document-y character that pairs with Plex Mono
+    // (see [AppTypography.data]) without a jarring family switch — all
+    // three faces are drawn from a coherent, engineered type family rather
+    // than an ad hoc web-font pairing.
     //
-    // Apple type rule: tracking and leading are size-specific and inverse to
-    // each other — the larger the type, the tighter both get. So the display
-    // face carries the most-negative tracking (-0.037em) and the tightest
-    // leading (1.06), easing toward neutral tracking and 1.55 leading on body.
-    // Optical: at 32px a fixed -0.5 was under-tight and 1.2 leading left
-    // headings looking loose next to the tightened portal.
+    // Apple type rule kept from Golden Taupe: tracking and leading are
+    // size-specific and inverse to each other — the larger the type, the
+    // tighter both get. The slab display face carries the most-negative
+    // tracking and tightest leading, easing toward neutral tracking and
+    // 1.55 leading on Plex Sans body.
+    final headline = GoogleFonts.robotoSlabTextTheme();
+    final body = GoogleFonts.ibmPlexSansTextTheme();
+
+    TextStyle slab({
+      required double size,
+      required double height,
+      required FontWeight weight,
+      required double tracking,
+      Color? color,
+    }) =>
+        headline.bodyMedium!.copyWith(
+          fontSize: size,
+          height: height,
+          fontWeight: weight,
+          letterSpacing: tracking,
+          color: color ?? scheme.onSurface,
+        );
+
+    TextStyle sans({
+      required double size,
+      required double height,
+      required FontWeight weight,
+      double tracking = 0,
+      Color? color,
+    }) =>
+        body.bodyMedium!.copyWith(
+          fontSize: size,
+          height: height,
+          fontWeight: weight,
+          letterSpacing: tracking,
+          color: color ?? scheme.onSurface,
+        );
+
     final text = TextTheme(
-      displaySmall: TextStyle(
-        fontSize: 32,
-        height: 1.06,
-        fontWeight: FontWeight.w800,
-        letterSpacing: -1.2,
-        color: scheme.onSurface,
+      displaySmall: slab(
+        size: 32,
+        height: 1.08,
+        weight: FontWeight.w700,
+        tracking: -0.9,
       ),
-      headlineSmall: TextStyle(
-        fontSize: 22,
-        height: 1.15,
-        fontWeight: FontWeight.w700,
-        letterSpacing: -0.55,
-        color: scheme.onSurface,
+      headlineSmall: slab(
+        size: 22,
+        height: 1.18,
+        weight: FontWeight.w700,
+        tracking: -0.4,
       ),
-      titleLarge: TextStyle(
-        fontSize: 18,
-        height: 1.25,
-        fontWeight: FontWeight.w700,
-        letterSpacing: -0.3,
-        color: scheme.onSurface,
+      titleLarge: slab(
+        size: 18,
+        height: 1.28,
+        weight: FontWeight.w600,
+        tracking: -0.2,
       ),
-      titleMedium: TextStyle(
-        fontSize: 15,
+      titleMedium: sans(
+        size: 15,
         height: 1.4,
-        fontWeight: FontWeight.w600,
-        letterSpacing: -0.15,
-        color: scheme.onSurface,
+        weight: FontWeight.w600,
+        tracking: -0.1,
       ),
-      titleSmall: TextStyle(
-        fontSize: 13.5,
+      titleSmall: sans(
+        size: 13.5,
         height: 1.4,
-        fontWeight: FontWeight.w600,
-        letterSpacing: -0.1,
-        color: scheme.onSurface,
+        weight: FontWeight.w600,
       ),
       // 1.55 line-height on body — inside the 1.5–1.75 readable band.
-      bodyLarge: TextStyle(
-        fontSize: 15,
-        height: 1.55,
-        fontWeight: FontWeight.w400,
-        color: scheme.onSurface,
-      ),
-      bodyMedium: TextStyle(
-        fontSize: 13.5,
-        height: 1.55,
-        fontWeight: FontWeight.w400,
-        color: scheme.onSurface,
-      ),
-      bodySmall: TextStyle(
-        fontSize: 12.5,
+      bodyLarge: sans(size: 15, height: 1.55, weight: FontWeight.w400),
+      bodyMedium: sans(size: 13.5, height: 1.55, weight: FontWeight.w400),
+      bodySmall: sans(
+        size: 12.5,
         height: 1.5,
-        fontWeight: FontWeight.w400,
+        weight: FontWeight.w400,
         color: onSurfaceMuted,
       ),
-      labelLarge: TextStyle(
-        fontSize: 13.5,
+      labelLarge: sans(
+        size: 13.5,
         height: 1.3,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0.1,
-        color: scheme.onSurface,
+        weight: FontWeight.w600,
+        tracking: 0.1,
       ),
-      labelMedium: TextStyle(
-        fontSize: 12,
+      labelMedium: sans(
+        size: 12,
         height: 1.3,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0.3,
-        color: scheme.onSurface,
+        weight: FontWeight.w600,
+        tracking: 0.3,
       ),
       // Uppercase eyebrow labels get real tracking; without it they read as
       // shouting rather than as a label.
-      labelSmall: TextStyle(
-        fontSize: 11,
+      labelSmall: sans(
+        size: 11,
         height: 1.3,
-        fontWeight: FontWeight.w700,
-        letterSpacing: 0.6,
+        weight: FontWeight.w700,
+        tracking: 0.7,
         color: onSurfaceMuted,
       ),
     );
@@ -432,14 +550,9 @@ abstract final class AppTheme {
       extensions: [evidence, brand],
       visualDensity: VisualDensity.standard,
 
-      // Apple motion rule: route changes read as one continuous, spring-like
-      // move rather than a fade. The shared-axis transition slides along the
-      // horizontal axis with Material 3's emphasised easing (a critically
-      // damped curve, no overshoot) — directional and interruptible, and it
-      // telegraphs where the new screen comes from. `FadeForwardsPageTransitionsBuilder`
-      // is M3's own take on this and falls back to a plain fade under
-      // `MediaQuery.disableAnimations` (which reduce-motion sets), so it needs
-      // no separate reduced-motion branch.
+      // Kept from Golden Taupe: shared-axis page transitions read as one
+      // continuous move rather than a fade, and fall back to a plain fade
+      // under reduce-motion automatically.
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
           TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
@@ -450,9 +563,8 @@ abstract final class AppTheme {
         },
       ),
 
-      // Feedback on press, not release, and quicker to depress than to release
-      // (Apple: the touch-down state should feel instant). A shorter splash
-      // fade-in makes the ripple track the finger rather than lag it.
+      // Feedback on press, not release, and quicker to depress than to
+      // release — the ripple should track the finger, not lag it.
       splashFactory: InkSparkle.splashFactory,
 
       appBarTheme: AppBarTheme(
@@ -467,9 +579,9 @@ abstract final class AppTheme {
         ),
       ),
 
-      // Flat, outlined cards — an audit surface should look like a document,
-      // not a floating tile. Elevation is reserved for things that genuinely
-      // sit above the page (dialogs, menus).
+      // Flat, outlined cards — an audit surface should look like a printed
+      // page, not a floating tile. Elevation stays reserved for things that
+      // genuinely sit above the page (dialogs, menus).
       cardTheme: CardThemeData(
         elevation: 0,
         color: scheme.surface,
@@ -493,8 +605,6 @@ abstract final class AppTheme {
           minimumSize: const Size(0, 48),
           padding: const EdgeInsets.symmetric(horizontal: Spacing.xl),
           backgroundColor: scheme.tertiary,
-          // Not hardcoded white: the dark theme's action gold is light, and
-          // white-on-light-gold was unreadable while it was a literal.
           foregroundColor: scheme.onTertiary,
           textStyle: text.labelLarge,
           shape: RoundedRectangleBorder(
@@ -572,14 +682,12 @@ abstract final class AppTheme {
         subtitleTextStyle: text.bodySmall,
       ),
 
-      // Navigation is chrome, not content: it sits on the surface colour with a
-      // single hairline separating it, and the selected state is carried by a
-      // quiet tinted pill rather than a saturated block. A navigation rail that
-      // competes with the data next to it is a rail the reader has to look past
-      // on every glance.
+      // Navigation is chrome, not content: it sits on a slate-tinted
+      // surface with a single hairline separating it, and the selected
+      // state is carried by a quiet tinted pill rather than a saturated
+      // block — a rail that competes with the evidence next to it is a
+      // rail the reader has to look past on every glance.
       navigationRailTheme: NavigationRailThemeData(
-        // A different value from the content area, which is how the brief
-        // anchors structure — no border needed to say "this column is chrome".
         backgroundColor: brand.railSurface,
         indicatorColor: scheme.tertiary.withValues(alpha: 0.12),
         selectedIconTheme: IconThemeData(size: 21, color: scheme.tertiary),
@@ -618,10 +726,12 @@ abstract final class AppTheme {
         ),
       ),
 
-      // Chips are pills by the brief, and are never actions — a chip that looked
-      // like a button would invite a click that does nothing.
+      // Chips are pills, and are never actions — a chip that looked like a
+      // button would invite a click that does nothing. Evidence state no
+      // longer renders as a chip at all (see [VerdictStamp]); this theme
+      // still backs ordinary filter/tag chips elsewhere in the app.
       chipTheme: ChipThemeData(
-        backgroundColor: brand.cream,
+        backgroundColor: brand.paperTint,
         side: BorderSide(color: scheme.outlineVariant),
         labelStyle: text.labelMedium?.copyWith(color: onSurfaceMuted),
         padding: const EdgeInsets.symmetric(

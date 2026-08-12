@@ -1,16 +1,20 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
-import { Fraunces, IBM_Plex_Mono, Inter_Tight } from 'next/font/google'
+import { IBM_Plex_Mono, Inter_Tight, Roboto_Slab } from 'next/font/google'
 import './globals.css'
 
-// Fraunces for headings, matching the Flutter app + portal brand (see
-// app/globals.css header comment). Body/UI text stays Inter Tight — v0's
-// layout and spacing were tuned around it.
-const fraunces = Fraunces({
+// Roboto Slab for headings — a document/typewriter-adjacent slab that reads
+// as a printed ledger rather than a soft app, matching the "Case File"
+// design system (see app/globals.css header comment). Body/UI text stays
+// Inter Tight — v0's layout and spacing were tuned around it, and its
+// grotesk character pairs cleanly with a slab display face without
+// competing for attention. IBM Plex Mono (below) stays as the fixed-width
+// face for evidence/thresholds/timestamps.
+const robotoSlab = Roboto_Slab({
   subsets: ['latin'],
-  variable: '--font-fraunces',
+  variable: '--font-roboto-slab',
   display: 'swap',
-  axes: ['SOFT', 'WONK'],
+  weight: ['500', '600', '700'],
 })
 
 const interTight = Inter_Tight({
@@ -69,7 +73,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`light bg-background ${fraunces.variable} ${interTight.variable} ${plexMono.variable}`}
+      className={`light bg-background ${robotoSlab.variable} ${interTight.variable} ${plexMono.variable}`}
     >
       <body className="font-sans antialiased">
         {children}

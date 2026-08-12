@@ -12,7 +12,7 @@ export default function AboutPage() {
     <PageShell
       eyebrow="About"
       title="Evidence over opaque scores."
-      intro="CogniHire helps hiring teams understand what candidates actually demonstrated — from resume claims to interview evidence — while keeping final decisions with humans."
+      intro="CogniHire produces an audited record of what candidates actually demonstrated — every claim sealed as verified, disputed, unmeasured, or not examined — while keeping final decisions with humans."
     >
       <Prose>
         <h2>Why we build this way</h2>
