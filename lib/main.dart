@@ -174,6 +174,28 @@ class _CogniHireAppState extends State<CogniHireApp> {
   /// having to find it again in a dropdown.
   Invitation? _redeemedInvitation;
 
+  /// True until [AuthStore.restore] has answered once. `SupabaseAuthStore`
+  /// already persists a session to disk and restores it during
+  /// `Supabase.initialize()` in `main()` — [AuthStore.restore]'s own doc
+  /// comment says as much — but nothing was ever calling it, so a returning
+  /// user always landed back on the sign-in chooser regardless. Held as
+  /// separate state rather than folded into `_principal == null` so the
+  /// chooser never flashes on screen for the half-second before restore
+  /// answers.
+  bool _restoring = true;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.authStore.restore().then((principal) {
+      if (!mounted) return;
+      setState(() {
+        _principal = principal;
+        _restoring = false;
+      });
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -182,7 +204,9 @@ class _CogniHireAppState extends State<CogniHireApp> {
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: _themeMode,
-      home: _principal == null
+      home: _restoring
+          ? const _RestoringSplash()
+          : _principal == null
           ? SignInScreen(
               invitationStore: widget.invitationStore,
               authStore: widget.authStore,
@@ -213,6 +237,29 @@ class _CogniHireAppState extends State<CogniHireApp> {
                 _redeemedInvitation = null;
               }),
             ),
+    );
+  }
+}
+
+/// Shown for the single frame or two [AuthStore.restore] takes to answer.
+/// Deliberately not a bare spinner on a blank white page — that reads as a
+/// crash for the instant before it resolves, on a screen the returning user
+/// (the common case now that restore actually runs) sees every launch.
+class _RestoringSplash extends StatelessWidget {
+  const _RestoringSplash();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
+      body: const Center(
+        child: SizedBox(
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      ),
     );
   }
 }
@@ -652,6 +699,11 @@ class _HomeScreenState extends State<HomeScreen> {
             themeMode: widget.themeMode,
             onThemeModeChanged: widget.onThemeModeChanged ?? (_) {},
             onDataChanged: _refreshWorkspaceViews,
+            principal: widget.principal,
+            // Raw sign-out, not `_confirmSignOut` — Settings' own Account
+            // section already confirms before calling this, so chaining the
+            // rail-footer's confirming wrapper here would ask twice.
+            onSignOut: widget.onSignOut,
           ),
         ),
       ],

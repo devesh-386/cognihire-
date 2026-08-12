@@ -9,6 +9,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../../core/auth/principal.dart';
 import '../../core/claims/claim_extractor.dart';
 import '../../core/claims/claim_extractor_factory.dart';
 import '../../core/design/app_theme.dart';
@@ -29,6 +30,8 @@ class SettingsScreen extends StatefulWidget {
     required this.onThemeModeChanged,
     this.onDataChanged,
     this.extractor,
+    this.principal,
+    this.onSignOut,
   });
 
   final AuditStore store;
@@ -42,6 +45,16 @@ class SettingsScreen extends StatefulWidget {
   final VoidCallback? onDataChanged;
 
   final ClaimExtractor? extractor;
+
+  /// The signed-in person, when the app was entered through the sign-in
+  /// gate. Null for the direct-mount call sites (tests, previews) that
+  /// predate auth — the Account section is simply absent then, same pattern
+  /// as every other optional dependency on this screen.
+  final Principal? principal;
+
+  /// Signs out and returns to the sign-in chooser. Null wherever [principal]
+  /// is null, for the same reason.
+  final VoidCallback? onSignOut;
 
   @override
   State<SettingsScreen> createState() => SettingsScreenState();
@@ -175,6 +188,19 @@ class SettingsScreenState extends State<SettingsScreen> {
     ));
   }
 
+  /// Confirmed for the same reason `HomeScreen`'s rail-footer sign-out is: a
+  /// stray tap on a persistent control mid-session should not end it
+  /// unprompted.
+  Future<void> _confirmSignOut(BuildContext context) async {
+    final confirmed = await _confirm(
+      title: 'Sign out?',
+      body: 'You will return to the sign-in screen and need your password '
+          'to come back.',
+      action: 'Sign out',
+    );
+    if (confirmed) widget.onSignOut?.call();
+  }
+
   Future<bool> _confirm({
     required String title,
     required String body,
@@ -222,6 +248,41 @@ class SettingsScreenState extends State<SettingsScreen> {
         ),
       ],
       children: [
+        if (widget.principal != null && widget.onSignOut != null) ...[
+          SectionCard(
+            title: 'Account',
+            icon: Icons.account_circle_outlined,
+            description: 'Signing out ends this session on this device. '
+                'You stay signed in across app restarts until you do.',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                KeyValueRow(
+                  label: 'Signed in as',
+                  value: widget.principal!.displayName ??
+                      widget.principal!.email,
+                  monospaceValue: false,
+                ),
+                KeyValueRow(
+                  label: 'Role',
+                  value: widget.principal!.role.label,
+                  monospaceValue: false,
+                ),
+                const SizedBox(height: Spacing.md),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _confirmSignOut(context),
+                    icon: const Icon(Icons.logout, size: 18),
+                    label: const Text('Sign out'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: Spacing.xl),
+        ],
+
         SectionCard(
           title: 'Appearance',
           icon: Icons.palette_outlined,
