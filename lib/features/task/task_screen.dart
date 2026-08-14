@@ -4,6 +4,7 @@ import '../../core/interview/followup.dart';
 import '../../core/telemetry/keystroke_capture.dart';
 import '../../core/telemetry/keystroke_event.dart';
 import '../../core/telemetry/process_telemetry.dart';
+import '../../ui/patterns.dart';
 
 /// The coding/answer task, with live process telemetry driving follow-ups.
 ///
@@ -74,7 +75,10 @@ class _TaskScreenState extends State<TaskScreen> {
         _followUps.where((f) => !_answered.contains(f.observation)).toList();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Task')),
+      appBar: AppBar(
+        title: const Text('Task'),
+        actions: const [HomeAppBarAction()],
+      ),
       body: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

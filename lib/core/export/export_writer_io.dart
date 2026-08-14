@@ -32,3 +32,28 @@ Future<String> writeAuditExport(
   await file.writeAsString(contents, flush: true);
   return file.path;
 }
+
+/// [writeAuditExport]'s counterpart for binary files (a downloaded résumé,
+/// not a rendered audit) — same destination-picking logic, since a reviewer
+/// looking for one export should find the other next to it.
+Future<String> writeBinaryExport(
+  List<int> bytes, {
+  required String filename,
+}) async {
+  Directory? target;
+  try {
+    target = await getDownloadsDirectory();
+  } catch (_) {
+    target = null;
+  }
+
+  target ??= await getApplicationDocumentsDirectory();
+
+  if (!await target.exists()) {
+    await target.create(recursive: true);
+  }
+
+  final file = File('${target.path}${Platform.pathSeparator}$filename');
+  await file.writeAsBytes(bytes, flush: true);
+  return file.path;
+}

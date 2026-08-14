@@ -1,6 +1,7 @@
 import { Camera, Globe, Mic } from 'lucide-react'
+import Link from 'next/link'
 import { InterviewCodeForm } from '@/components/candidate/interview-code-form'
-import { GoogleFormGate } from '@/components/candidate/google-form-gate'
+import { buttonVariants } from '@/components/ui/button'
 
 const checks = [
   { icon: Globe, label: 'Browser only' },
@@ -17,14 +18,19 @@ export function ForCandidates() {
             <p className="label-mono text-muted-foreground">For candidates</p>
 
             <h2 className="mt-5 text-3xl leading-[1.1] font-medium tracking-[-0.03em] text-balance sm:text-4xl">
-              New here? Start with your email.
+              New here? Browse open roles.
             </h2>
             <p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">
-              Enter your email and we&apos;ll take you to the application form —
-              pick a role, upload your résumé, and choose your interview time
-              there. Your interview code arrives by email, never shown here.
+              Pick a role and apply directly — upload your résumé and we&apos;ll
+              take it from there. Your interview code arrives by email, never
+              shown here.
             </p>
-            <GoogleFormGate className="mt-6 max-w-lg" />
+            <Link
+              href="/apply"
+              className={buttonVariants({ className: 'mt-6 gap-2 rounded-full px-5 text-sm' })}
+            >
+              View open roles
+            </Link>
 
             <h2 className="mt-10 text-3xl leading-[1.1] font-medium tracking-[-0.03em] text-balance sm:text-4xl">
               Have an interview code?

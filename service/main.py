@@ -848,6 +848,46 @@ async def list_candidates(authorization: str | None = Header(default=None)) -> d
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+@app.get("/candidates/{candidate_id}/resume")
+async def get_candidate_resume(
+    candidate_id: str, authorization: str | None = Header(default=None),
+) -> Response:
+    """Streams a candidate's uploaded résumé through the backend, which holds
+    the only credential (the service-role key) that can read the private
+    `resumes` bucket — there is no client-side storage policy for it, by the
+    same "nothing shipped in a Flutter web bundle can hold a secret" reasoning
+    Ticket 11's doc gives for keeping every AI-gateway credential server-side.
+
+    404 (not 403) on an org mismatch or a missing résumé, same reasoning as
+    `/interview/report/{session_id}` above: a guessed candidate_id should not
+    reveal whether it belongs to a real candidate in another org, and "never
+    uploaded one" is not a fault worth a different status code from "not
+    found"."""
+    organization_id = await _require_org(authorization)
+    try:
+        candidate = await supabase_store.fetch_candidate(candidate_id)
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if candidate is None or candidate.get("organization_id") != organization_id:
+        raise HTTPException(status_code=404, detail=f"no candidate {candidate_id}")
+
+    resume_path = candidate.get("resume_path")
+    if not resume_path:
+        raise HTTPException(status_code=404, detail="no résumé on file for this candidate")
+
+    try:
+        content = await supabase_store.download_resume(resume_path)
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    filename = resume_path.rsplit("/", 1)[-1]
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
 class CreateIntakeRequest(BaseModel):
     role_id: str
     name: str

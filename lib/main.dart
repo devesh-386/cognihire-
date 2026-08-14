@@ -39,6 +39,7 @@ import 'features/sessions/session_history_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/task/task_screen.dart';
 import 'ui/app_shell.dart';
+import 'ui/patterns.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -597,6 +598,34 @@ class _HomeScreenState extends State<HomeScreen> {
             storageIsDurable: widget.storageIsDurable,
             onStartSession: _goToInvitations,
             clock: widget.clock,
+            onOpenRoles: () => AppShellController.of(context)?.goTo('Roles'),
+            onOpenInvitations: _goToInvitations,
+            onOpenSessions: () =>
+                AppShellController.of(context)?.goTo('Sessions'),
+            onOpenReports: () =>
+                AppShellController.of(context)?.goTo('Reports'),
+            onOpenInterviews: () =>
+                AppShellController.of(context)?.goTo('AI Interviews'),
+            onOpenSettings: () =>
+                AppShellController.of(context)?.goTo('Settings'),
+            // Demo and Telemetry lost their permanent rail slots (CH — "the
+            // dashboard is dead" feedback) but not the capability — Demo is
+            // the one-click seed that actually populates this dashboard with
+            // real data, and Telemetry is the shipped differentiator, not a
+            // dev tool. Both are still one push away, just from here instead
+            // of the rail.
+            onOpenDemo: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => Scaffold(
+                appBar: AppBar(
+                  title: const Text('Demo'),
+                  actions: const [HomeAppBarAction()],
+                ),
+                body: DemoScreen(onCompleted: _refreshWorkspaceViews),
+              ),
+            )),
+            onOpenTelemetry: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const TaskScreen()),
+            ),
           ),
         ),
         if (_showFor(_hr))
@@ -671,20 +700,6 @@ class _HomeScreenState extends State<HomeScreen> {
           builder: (_) => InterviewSessionsScreen(
             client: supabase.Supabase.instance.client,
           ),
-        ),
-        if (_showFor(_hr))
-          ShellDestination(
-          icon: Icons.auto_fix_high_outlined,
-          selectedIcon: Icons.auto_fix_high,
-          label: 'Demo',
-          builder: (_) => DemoScreen(onCompleted: _refreshWorkspaceViews),
-        ),
-        if (_showFor(_hr))
-          ShellDestination(
-          icon: Icons.monitor_heart_outlined,
-          selectedIcon: Icons.monitor_heart,
-          label: 'Telemetry',
-          builder: (_) => const TaskScreen(),
         ),
         if (_showFor(_both))
           ShellDestination(

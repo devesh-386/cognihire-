@@ -21,7 +21,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
+import '../../core/candidates/candidate_resume_client.dart';
 import '../../core/design/app_theme.dart';
+import '../../core/export/export_writer.dart';
 import '../../core/interview_sessions/email_status_client.dart';
 import '../../core/interview_sessions/interview_code_client.dart';
 import '../../core/interview_sessions/interview_report_client.dart';
@@ -351,6 +353,15 @@ class _InterviewSessionDetailScreenState
           ),
           const SizedBox(height: Spacing.section),
           SectionCard(
+            title: 'Résumé',
+            icon: Icons.description_outlined,
+            description: 'The file this candidate actually uploaded when '
+                'they applied — the same document the claims below were '
+                'read from.',
+            child: _ResumeSection(candidateId: session.candidateId),
+          ),
+          const SizedBox(height: Spacing.section),
+          SectionCard(
             title: 'Report',
             icon: Icons.fact_check_outlined,
             description: 'One row per planned topic: the claim it probed, '
@@ -552,6 +563,133 @@ class _InterviewSessionDetailScreenState
 // ---------------------------------------------------------------------------
 // Email status (Ticket 21)
 // ---------------------------------------------------------------------------
+
+/// The candidate's uploaded résumé, fetched through the gateway ([
+/// CandidateResumeClient]) since the storage bucket that holds it has no
+/// client-side read policy. Three states: loading, none on file (not an
+/// error — most candidates haven't uploaded one at every pipeline stage),
+/// and present with a Download action.
+class _ResumeSection extends StatefulWidget {
+  const _ResumeSection({required this.candidateId});
+
+  final String candidateId;
+
+  @override
+  State<_ResumeSection> createState() => _ResumeSectionState();
+}
+
+class _ResumeSectionState extends State<_ResumeSection> {
+  final _client = CandidateResumeClient();
+  CandidateResume? _resume;
+  String? _error;
+  bool _loading = true;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final resume = await _client.fetch(widget.candidateId);
+      if (!mounted) return;
+      setState(() {
+        _resume = resume;
+        _error = null;
+        _loading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = '$error';
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _download() async {
+    final resume = _resume;
+    if (resume == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _saving = true);
+    try {
+      final path =
+          await writeBinaryExport(resume.bytes, filename: resume.filename);
+      messenger.showSnackBar(SnackBar(
+        duration: const Duration(seconds: 10),
+        content: Text('Résumé saved to $path'),
+        action: SnackBarAction(
+          label: 'Copy path',
+          onPressed: () => Clipboard.setData(ClipboardData(text: path)),
+        ),
+      ));
+    } catch (error) {
+      messenger.showSnackBar(SnackBar(
+        backgroundColor: Colors.red.shade800,
+        duration: const Duration(seconds: 8),
+        content: Text('Could not save the résumé: $error'),
+      ));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    if (_loading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: Spacing.sm),
+        child: SizedBox(
+          height: 16,
+          width: 16,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+
+    if (_error != null) {
+      return InlineNotice(
+        tone: NoticeTone.caution,
+        message: 'Résumé unavailable: $_error',
+      );
+    }
+
+    final resume = _resume;
+    if (resume == null) {
+      return Text(
+        'No résumé on file for this candidate.',
+        style: theme.textTheme.bodySmall,
+      );
+    }
+
+    return Row(
+      children: [
+        Icon(Icons.picture_as_pdf_outlined,
+            size: 18, color: theme.colorScheme.onSurfaceVariant),
+        const SizedBox(width: Spacing.sm),
+        Expanded(
+          child: Text(resume.filename, style: theme.textTheme.bodyMedium),
+        ),
+        if (exportSupported)
+          OutlinedButton.icon(
+            onPressed: _saving ? null : _download,
+            icon: _saving
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.download_outlined, size: 16),
+            label: const Text('Download'),
+          ),
+      ],
+    );
+  }
+}
 
 /// Invitation + reminder delivery status for one interview code, with a
 /// Resend button. Used both right after a code is generated

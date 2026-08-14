@@ -51,6 +51,14 @@ class DashboardScreen extends StatefulWidget {
     required this.storageIsDurable,
     this.onStartSession,
     this.clock,
+    this.onOpenRoles,
+    this.onOpenInvitations,
+    this.onOpenSessions,
+    this.onOpenReports,
+    this.onOpenInterviews,
+    this.onOpenSettings,
+    this.onOpenDemo,
+    this.onOpenTelemetry,
   });
 
   final AuditStore store;
@@ -67,6 +75,21 @@ class DashboardScreen extends StatefulWidget {
   /// or fail depending on what time of day they were recorded. Defaults to
   /// the real clock; only tests pass anything else.
   final DateTime Function()? clock;
+
+  // The Quick access row below. Each callback is a real navigation action
+  // this app already has a screen for — nothing here is a placeholder.
+  // Provided rather than looked up via `AppShellController` directly so this
+  // screen does not have to know which of these are shell destinations
+  // (goTo) versus pushed routes (Demo, Telemetry — see main.dart for why
+  // those two are pushed rather than in the rail).
+  final VoidCallback? onOpenRoles;
+  final VoidCallback? onOpenInvitations;
+  final VoidCallback? onOpenSessions;
+  final VoidCallback? onOpenReports;
+  final VoidCallback? onOpenInterviews;
+  final VoidCallback? onOpenSettings;
+  final VoidCallback? onOpenDemo;
+  final VoidCallback? onOpenTelemetry;
 
   @override
   State<DashboardScreen> createState() => DashboardScreenState();
@@ -128,6 +151,8 @@ class DashboardScreenState extends State<DashboardScreen> {
         ),
       ],
       children: [
+        _quickAccess(context),
+        const SizedBox(height: Spacing.section),
         if (_loading && snapshot == null)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: Spacing.hero),
@@ -173,6 +198,82 @@ class DashboardScreenState extends State<DashboardScreen> {
             ..._populated(context, snapshot),
         ],
       ],
+    );
+  }
+
+  /// Every real action a recruiter can take from here, one tap away —
+  /// present whether or not any session has been recorded yet, unlike the
+  /// metrics below which have nothing to show until one has. Tiles whose
+  /// callback is null (untouched test/preview call sites) simply do not
+  /// render, rather than rendering disabled.
+  Widget _quickAccess(BuildContext context) {
+    final tiles = [
+      _QuickAction(
+        icon: Icons.person_add_alt_1_outlined,
+        label: 'Invite a candidate',
+        detail: 'Send an interview invitation for an open role',
+        onTap: widget.onStartSession,
+      ),
+      _QuickAction(
+        icon: Icons.work_outline,
+        label: 'Manage roles',
+        detail: 'Open roles and their intake questions',
+        onTap: widget.onOpenRoles,
+      ),
+      _QuickAction(
+        icon: Icons.person_add_alt_1,
+        label: 'Invitations',
+        detail: 'Codes sent, redeemed, and outstanding',
+        onTap: widget.onOpenInvitations,
+      ),
+      _QuickAction(
+        icon: Icons.forum_outlined,
+        label: 'AI interviews',
+        detail: 'Live and completed adaptive interview sessions',
+        onTap: widget.onOpenInterviews,
+      ),
+      _QuickAction(
+        icon: Icons.history_outlined,
+        label: 'Past sessions',
+        detail: 'Every recorded session, searchable',
+        onTap: widget.onOpenSessions,
+      ),
+      _QuickAction(
+        icon: Icons.summarize_outlined,
+        label: 'Reports',
+        detail: 'A self-contained HTML record for every session',
+        onTap: widget.onOpenReports,
+      ),
+      _QuickAction(
+        icon: Icons.auto_fix_high_outlined,
+        label: 'Seed demo data',
+        detail: 'One org, three roles, five candidates — real pipeline',
+        onTap: widget.onOpenDemo,
+      ),
+      _QuickAction(
+        icon: Icons.monitor_heart_outlined,
+        label: 'Live telemetry',
+        detail: 'See the process-signal follow-up engine run',
+        onTap: widget.onOpenTelemetry,
+      ),
+      _QuickAction(
+        icon: Icons.settings_outlined,
+        label: 'Settings',
+        detail: 'Storage, enrolment, and the local claim reader',
+        onTap: widget.onOpenSettings,
+      ),
+    ].where((tile) => tile.onTap != null).toList();
+
+    if (tiles.isEmpty) return const SizedBox.shrink();
+
+    return SectionCard(
+      title: 'Quick access',
+      icon: Icons.bolt_outlined,
+      child: Wrap(
+        spacing: Spacing.md,
+        runSpacing: Spacing.md,
+        children: tiles,
+      ),
     );
   }
 
@@ -530,5 +631,67 @@ class DashboardScreenState extends State<DashboardScreen> {
     String two(int n) => n.toString().padLeft(2, '0');
     return '${local.year}-${two(local.month)}-${two(local.day)} '
         '${two(local.hour)}:${two(local.minute)}';
+  }
+}
+
+/// One tile in the dashboard's Quick access row.
+class _QuickAction extends StatelessWidget {
+  const _QuickAction({
+    required this.icon,
+    required this.label,
+    required this.detail,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final String detail;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return SizedBox(
+      width: 240,
+      child: Material(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(Radii.control),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(Radii.control),
+          child: Container(
+            padding: const EdgeInsets.all(Spacing.md),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(Radii.control),
+              border: Border.all(color: scheme.outlineVariant),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(icon, size: 20, color: scheme.tertiary),
+                const SizedBox(width: Spacing.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(label, style: theme.textTheme.titleSmall),
+                      const SizedBox(height: 2),
+                      Text(
+                        detail,
+                        style: theme.textTheme.bodySmall,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
