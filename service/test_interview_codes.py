@@ -84,9 +84,6 @@ class _FakeSessionStore:
     async def append_event(self, event):
         pass
 
-    async def next_sequence(self, session_id):
-        return 0
-
 
 @pytest.fixture
 def fake_codes(monkeypatch):
@@ -106,7 +103,6 @@ def fake_sessions(monkeypatch):
     monkeypatch.setattr(session_store, "fetch_session", store.fetch_session)
     monkeypatch.setattr(session_store, "update_session", store.update_session)
     monkeypatch.setattr(session_store, "append_event", store.append_event)
-    monkeypatch.setattr(session_store, "next_sequence", store.next_sequence)
     return store
 
 

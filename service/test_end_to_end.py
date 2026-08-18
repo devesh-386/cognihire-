@@ -116,9 +116,9 @@ class _FakeSupabase:
                 matched = matched[: int(limit)]
             # PostgREST answers 206 Partial Content, not 200, whenever
             # `limit` returns fewer rows than actually matched — this is
-            # what caught session_store.next_sequence's real bug (it only
-            # accepted 200) against live Supabase; this fake used to always
-            # return 200 regardless of `limit` and never would have caught it.
+            # what caught a real live bug in the old event-count read (it
+            # only accepted 200); this fake used to always return 200
+            # regardless of `limit` and never would have caught it.
             status = 206 if limit is not None and len(matched) < total else 200
             return _FakeResponse(status, payload=matched,
                                   headers={"content-range": f"*/{total}"})
@@ -141,6 +141,16 @@ class _FakeSupabase:
                     if "id" not in row and table in self._next_id:
                         row["id"] = f"{table}-{self._next_id[table]}"
                         self._next_id[table] += 1
+                    # Models migration 0011's BEFORE INSERT trigger: the
+                    # service omits `sequence` and the database allocates it
+                    # per session. Without this the fake would store events
+                    # with no sequence at all and `order=sequence.asc` reads
+                    # would silently stop reflecting real ordering.
+                    if table == "interview_events" and row.get("sequence") is None:
+                        row["sequence"] = 1 + max(
+                            [r.get("sequence", 0) for r in self.tables[table]
+                             if r.get("session_id") == row.get("session_id")] or [0]
+                        )
                     row.setdefault("session_id", None)
                     row.setdefault("attempts_used", 0)
                     row.setdefault("status", row.get("status", "active"))

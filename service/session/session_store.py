@@ -106,24 +106,3 @@ async def list_sessions_for_org(organization_id: str, *, status: str | None = No
     if response.status_code != 200:
         raise SupabaseError(f"session list failed: HTTP {response.status_code}")
     return response.json()
-
-
-async def next_sequence(session_id: str) -> int:
-    """The next event sequence number for a session — count of events so far."""
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        response = await client.get(
-            f"{SUPABASE_URL}/rest/v1/interview_events",
-            headers={**_headers(), "Prefer": "count=exact"},
-            params={"session_id": f"eq.{session_id}", "select": "sequence", "limit": 1},
-        )
-    # PostgREST answers 206 Partial Content (not 200) whenever `limit` caps
-    # the result below what actually matched — which `limit=1` here always
-    # does once a session has more than one event. Never caught by the test
-    # suite's fake, which only ever returned 200; found live against real
-    # Supabase (Ticket 21 rollout) where every second answer in an interview
-    # failed with "event count failed: HTTP 206".
-    if response.status_code not in (200, 206):
-        raise SupabaseError(f"event count failed: HTTP {response.status_code}")
-    content_range = response.headers.get("content-range", "*/0")
-    total = content_range.split("/")[-1]
-    return int(total) if total.isdigit() else 0
