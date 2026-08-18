@@ -29,26 +29,11 @@ export function liveVoiceSupported() {
   );
 }
 
-// Runs on the audio thread: takes float samples from the mic and posts
-// them back as Int16 PCM, the format the Realtime API expects. Inlined as
-// a blob rather than a separate /public file so this module stays
-// self-contained and there's no second artifact to keep in sync.
-const WORKLET_SOURCE = `
-class MicCaptureProcessor extends AudioWorkletProcessor {
-  process(inputs) {
-    const channel = inputs[0]?.[0];
-    if (!channel) return true;
-    const pcm = new Int16Array(channel.length);
-    for (let i = 0; i < channel.length; i++) {
-      const clamped = Math.max(-1, Math.min(1, channel[i]));
-      pcm[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
-    }
-    this.port.postMessage(pcm.buffer, [pcm.buffer]);
-    return true;
-  }
-}
-registerProcessor('mic-capture', MicCaptureProcessor);
-`;
+// The mic-capture AudioWorkletProcessor lives at /public/mic-capture-worklet.js
+// (loaded via addModule below) — not inlined as a blob: URL, because
+// audioWorklet.addModule's internal fetch() of a blob: URL is blocked in some
+// browsers/extensions, which surfaces as "Failed to fetch" with the
+// WebSocket never even attempted.
 
 /**
  * Opens the live voice channel for one interview session.
@@ -68,11 +53,7 @@ export async function startLiveVoice({ sessionId, code, stream, onTurn, onComple
     GATEWAY_URL.replace(/^http/, "ws") + `/interview/live/${encodeURIComponent(sessionId)}`;
 
   const audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
-  const workletUrl = URL.createObjectURL(
-    new Blob([WORKLET_SOURCE], { type: "application/javascript" }),
-  );
-  await audioContext.audioWorklet.addModule(workletUrl);
-  URL.revokeObjectURL(workletUrl);
+  await audioContext.audioWorklet.addModule("/mic-capture-worklet.js");
 
   const ws = new WebSocket(wsUrl);
   ws.binaryType = "arraybuffer";
