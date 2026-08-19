@@ -227,9 +227,21 @@ export function InterviewFlow({ code }: { code?: string }) {
   // AudioWorklet, WS blocked, connection dropped) falls back to that path,
   // which itself falls back to typing. The interview is never blocked by
   // this not working.
+  //
+  // `liveVoice` is deliberately NOT a dependency, and there is no
+  // `liveVoice !== 'off'` guard. Both used to be here and together they
+  // deadlocked the channel: the effect's own `setLiveVoice('connecting')`
+  // changed a value it depended on, so React tore this effect down and
+  // re-ran it mid-connect. The re-run hit the guard and returned, and the
+  // in-flight `startLiveVoice` promise then resolved into `cancelled`,
+  // stopping the socket it had just opened. State never left 'connecting'.
+  // What the candidate saw: a question on screen, "Connecting the live
+  // conversation…" spinning forever, and silence — the fallback TTS below
+  // is suppressed while 'connecting', so the stuck state also swallowed the
+  // path this layer is supposed to degrade to. Re-entry is prevented by the
+  // dependency list itself now: nothing this effect sets appears in it.
   useEffect(() => {
     if (!sessionId || sessionStatus !== 'asking') return
-    if (liveVoice !== 'off') return
     if (!liveVoiceSupported() || !streamRef.current) {
       setLiveVoice('unavailable')
       return
@@ -270,7 +282,7 @@ export function InterviewFlow({ code }: { code?: string }) {
       liveVoiceRef.current?.stop()
       liveVoiceRef.current = null
     }
-  }, [sessionId, sessionStatus, liveVoice, code, router])
+  }, [sessionId, sessionStatus, code, router])
 
   // Speaks each new question/follow-up exactly once — guarded by the
   // question text itself so React StrictMode's double-invoke and answer
