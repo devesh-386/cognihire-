@@ -156,7 +156,11 @@ def client(fake_supabase, monkeypatch):
     async def fake_resolve(token):
         if token == "bad-token":
             raise supabase_store.SupabaseError("invalid or expired session")
-        return {"user_metadata": {"organization_id": token.removeprefix("test-token-")}}
+        # app_metadata, mirroring what GoTrue returns for a real user since
+        # migration 0012 — the org id lives where the account holder cannot
+        # write it. A fake that kept answering `user_metadata` would let the
+        # bypass back in without a single test going red.
+        return {"app_metadata": {"organization_id": token.removeprefix("test-token-")}}
 
     monkeypatch.setattr(demo_store, "resolve_user_from_token", fake_resolve)
     return TestClient(main.app)
@@ -164,6 +168,55 @@ def client(fake_supabase, monkeypatch):
 
 def _auth(org: str) -> dict:
     return {"Authorization": f"Bearer test-token-{org}"}
+
+
+# --- where the caller's organization comes from ------------------------------
+#
+# The whole tenant boundary rests on one question: which JWT claim decides
+# which company you are in. It used to be `user_metadata`, which GoTrue lets
+# the account holder rewrite with its own token — so a recruiter could point
+# themselves at another company and BOTH enforcement layers (these routes and
+# the database's RLS policies, which read the same claim) would have agreed.
+# These two tests pin the answer on the backend side.
+
+
+def test_org_is_not_taken_from_user_writable_metadata(client, monkeypatch, fake_supabase):
+    """A token carrying an organization ONLY in user_metadata grants nothing.
+
+    This is the exact shape an attacker produces with
+    `supabase.auth.updateUser({data: {organization_id: '<victim>'}})`.
+    """
+    async def user_metadata_only(token):
+        return {"user_metadata": {"organization_id": "org-victim"}, "app_metadata": {}}
+
+    monkeypatch.setattr(demo_store, "resolve_user_from_token", user_metadata_only)
+    fake_supabase.seed_candidate("cand-victim", "org-victim")
+
+    resp = client.get("/candidates", headers={"Authorization": "Bearer anything"})
+    assert resp.status_code == 403, resp.text
+
+
+def test_user_metadata_cannot_override_the_real_org(client, monkeypatch, fake_supabase):
+    """When both claims are present, the service-role-only one wins.
+
+    A user who rewrites their own metadata keeps exactly the access their
+    real organization already gave them.
+    """
+    async def both_claims(token):
+        return {
+            "app_metadata": {"organization_id": "org-1"},      # what the admin API set
+            "user_metadata": {"organization_id": "org-2"},     # what the user forged
+        }
+
+    monkeypatch.setattr(demo_store, "resolve_user_from_token", both_claims)
+    fake_supabase.seed_candidate("cand-victim", "org-2")
+
+    resp = client.post(
+        "/interview-codes/generate",
+        json={"candidate_id": "cand-victim", "organization_id": "org-2", "role_title": "x"},
+        headers={"Authorization": "Bearer forged"},
+    )
+    assert resp.status_code == 404, resp.text
 
 
 # --- /interview-codes/generate ----------------------------------------------

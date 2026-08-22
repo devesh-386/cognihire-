@@ -780,7 +780,13 @@ async def _require_org(authorization: str | None) -> str:
         user = await demo_store.resolve_user_from_token(token)
     except supabase_store.SupabaseError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
-    organization_id = (user.get("user_metadata") or {}).get("organization_id")
+    # app_metadata, never user_metadata: the latter is writable by the account
+    # it describes (PUT /auth/v1/user), so reading the caller's organization
+    # from it let any recruiter re-point themselves at another company — and
+    # the database's RLS policies, which read the same claim, would have
+    # agreed. There is deliberately no fallback to user_metadata here; a
+    # fallback is the bypass. See migration 0012.
+    organization_id = (user.get("app_metadata") or {}).get("organization_id")
     if not organization_id:
         raise HTTPException(status_code=403, detail="account has no organization")
     return organization_id
@@ -819,7 +825,8 @@ async def auth_login(req: LoginRequest) -> dict:
     except supabase_store.SupabaseError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
-    organization_id = (token.get("user", {}).get("user_metadata") or {}).get("organization_id")
+    # Same claim, same reasoning as `_require_org` above.
+    organization_id = (token.get("user", {}).get("app_metadata") or {}).get("organization_id")
     if not organization_id:
         raise HTTPException(status_code=403, detail="account has no organization")
 

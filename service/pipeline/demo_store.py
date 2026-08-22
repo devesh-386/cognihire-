@@ -145,14 +145,27 @@ async def find_auth_user_by_email(email: str) -> dict | None:
 async def create_hr_user(
     email: str, password: str, organization_id: str, *, name: str | None = None,
 ) -> dict:
+    # `organization_id` and `role` go in app_metadata, NOT user_metadata.
+    #
+    # user_metadata is the user's own: GoTrue lets any signed-in account
+    # rewrite it with its own token (PUT /auth/v1/user). Both this system's
+    # authorization layers read the organization from the JWT — the database's
+    # `auth_organization_id()` for every RLS policy, and `_require_org` in
+    # main.py for every backend route — so with the org id in user_metadata,
+    # a recruiter could re-point themselves at another company and both
+    # layers would agree. app_metadata is service-role-only, carried in the
+    # JWT identically, and cannot be written by the account it describes.
+    # See infra/migrations/0012_auth_org_from_app_metadata.sql.
+    #
     # Every account this function creates is HR/recruiter — there is no
     # candidate equivalent (candidates never get a Supabase Auth user, only
     # an interview code) — so "role": "recruiter" is a fact, not a guess.
     # Flutter's principalFromUser() (supabase_auth_store.dart) refuses to
     # sign in any account missing this key rather than default it.
-    user_metadata = {"organization_id": organization_id, "role": "recruiter"}
-    if name:
-        user_metadata["name"] = name
+    app_metadata = {"organization_id": organization_id, "role": "recruiter"}
+    # Display name is genuinely the user's own and grants nothing, so it
+    # stays where a user is allowed to edit it.
+    user_metadata = {"name": name} if name else {}
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         response = await client.post(
             f"{SUPABASE_URL}/auth/v1/admin/users",
@@ -161,6 +174,7 @@ async def create_hr_user(
                 "email": email,
                 "password": password,
                 "email_confirm": True,
+                "app_metadata": app_metadata,
                 "user_metadata": user_metadata,
             },
         )

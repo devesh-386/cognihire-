@@ -218,7 +218,15 @@ Principal? principalFromUser(supabase.User? user) {
   final email = user.email;
   if (email == null || email.isEmpty) return null;
 
-  final role = UserRole.fromWire(user.userMetadata?['role'] as String?);
+  // Role and organisation come from appMetadata, not userMetadata.
+  //
+  // userMetadata is writable by the signed-in account itself, and this app
+  // reads Supabase directly under RLS — so an organisation id taken from
+  // there would be an authorisation decision made from a value the user
+  // controls. The database agrees: `auth_organization_id()` reads the
+  // app_metadata claim (migration 0012), and so does the backend's
+  // `_require_org`. All three read the same place on purpose.
+  final role = UserRole.fromWire(user.appMetadata['role'] as String?);
   if (role == null) return null;
 
   return Principal(
@@ -231,6 +239,6 @@ Principal? principalFromUser(supabase.User? user) {
     // `_require_org` and every backend route already read back. This field
     // stays `organisationId` on the Dart side; only the lookup key had to
     // match the real contract.
-    organisationId: user.userMetadata?['organization_id'] as String?,
+    organisationId: user.appMetadata['organization_id'] as String?,
   );
 }

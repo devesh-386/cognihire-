@@ -111,7 +111,11 @@ def client(fake_backend, monkeypatch):
     import main
 
     async def fake_resolve(token):
-        return {"user_metadata": {"organization_id": token.removeprefix("test-token-")}}
+        # app_metadata, mirroring what GoTrue returns for a real user since
+        # migration 0012 — the org id lives where the account holder cannot
+        # write it. A fake that kept answering `user_metadata` would let the
+        # bypass back in without a single test going red.
+        return {"app_metadata": {"organization_id": token.removeprefix("test-token-")}}
 
     monkeypatch.setattr(demo_store, "resolve_user_from_token", fake_resolve)
     monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "fake-client-id")
