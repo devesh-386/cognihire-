@@ -83,6 +83,40 @@ async def create_organization(name: str) -> dict:
     return await _insert_one("organizations", {"name": name})
 
 
+async def create_invite(fields: dict) -> dict:
+    """One pending invitation into an existing organization. `fields` carries
+    `token_hash`, never the raw token — see migration 0013 for why the raw
+    value is returned to the caller once and never stored."""
+    return await _insert_one("organization_invites", fields)
+
+
+async def fetch_live_invite(token_hash: str) -> dict | None:
+    """A pending, unaccepted invitation for this token, or None. Expiry and
+    the email match are checked by the caller, which owns the error copy."""
+    return await _get_one("organization_invites", {
+        "token_hash": f"eq.{token_hash}", "accepted_at": "is.null", "select": "*",
+    })
+
+
+async def mark_invite_accepted(invite_id: str, accepted_at: str) -> bool:
+    """Compare-and-swap: spends the invitation only if it is still unspent,
+    so two simultaneous redemptions of one invite cannot both create an
+    account. Same single-PATCH-is-one-atomic-UPDATE reasoning as
+    `session/codes_store.py`'s `claim_code`. True if this caller won."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        response = await client.patch(
+            f"{SUPABASE_URL}/rest/v1/organization_invites",
+            headers={**_headers(), "Prefer": "return=representation"},
+            params={"id": f"eq.{invite_id}", "accepted_at": "is.null"},
+            json={"accepted_at": accepted_at},
+        )
+    if response.status_code not in (200, 204):
+        raise SupabaseError(
+            f"invite claim failed: HTTP {response.status_code} {response.text[:200]}"
+        )
+    return bool(response.json()) if response.status_code == 200 else True
+
+
 async def find_role(organization_id: str, title: str) -> dict | None:
     return await _get_one("roles", {
         "organization_id": f"eq.{organization_id}", "title": f"eq.{title}", "select": "*",

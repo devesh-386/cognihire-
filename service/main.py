@@ -761,10 +761,32 @@ async def candidate_apply(req: SelfRegisterRequest) -> dict:
 
 
 class SignupRequest(BaseModel):
-    organization_name: str
+    # Required when creating a new organization, ignored when redeeming an
+    # invite (the invitation already names the organization, and letting the
+    # request name it too would just be a second, spoofable source).
+    organization_name: str | None = None
+    # The ONLY way into an existing organization. See `_INVITE_TTL_HOURS`.
+    invite_token: str | None = None
     name: str | None = None
     email: str
     password: str
+
+
+class CreateInviteRequest(BaseModel):
+    email: str
+
+
+# Long enough to survive a weekend, short enough that a forgotten invitation
+# in someone's inbox is not a standing key to the company's hiring pipeline.
+_INVITE_TTL_HOURS = 72
+
+
+def _hash_invite_token(token: str) -> str:
+    """Invitations are stored hashed, so a database dump is not a pile of
+    usable ones (migration 0013). SHA-256 without a salt is correct here and
+    not a password shortcut: the token is 32 bytes of `secrets` output, so
+    there is no dictionary to attack."""
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 class LoginRequest(BaseModel):
@@ -792,19 +814,131 @@ async def _require_org(authorization: str | None) -> str:
     return organization_id
 
 
+@app.post("/organizations/invites")
+async def create_organization_invite(
+    req: CreateInviteRequest, authorization: str | None = Header(default=None),
+) -> dict:
+    """Invite one person into the caller's own organization.
+
+    The raw token is returned exactly once, here. It is stored hashed, so
+    there is no route that can show it again — a lost invitation is reissued,
+    never recovered. The org is resolved from the caller's token, never taken
+    from the request, so this cannot mint an invitation into someone else's
+    company.
+
+    Nothing emails it yet: the caller passes it to the invitee out-of-band.
+    Wiring this into `notifications/` is a follow-up, and does not change who
+    is allowed to create one."""
+    organization_id = await _require_org(authorization)
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=_INVITE_TTL_HOURS)
+    try:
+        invite = await demo_store.create_invite({
+            "organization_id": organization_id,
+            "email": req.email.strip().lower(),
+            "token_hash": _hash_invite_token(token),
+            "expires_at": expires_at.isoformat(),
+        })
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {
+        "invite_id": invite["id"],
+        "email": invite["email"],
+        "expires_at": invite["expires_at"],
+        "invite_token": token,
+    }
+
+
+async def _organization_for_signup(req: SignupRequest) -> dict:
+    """Which organization this signup lands in, and the only place that
+    decides it.
+
+    Signup used to look the organization up by NAME and join it if it
+    existed. Names are published by the unauthenticated `/roles/open`, so
+    that made "become a recruiter at any company you can name" a two-request
+    operation. Now: a new organization, or an invitation. Nothing else."""
+    if req.invite_token:
+        invite = await demo_store.fetch_live_invite(_hash_invite_token(req.invite_token))
+        # One message for every way an invite can be unusable — wrong token,
+        # already spent, expired, or issued to a different address. Telling
+        # them apart would turn this into an oracle for which invitations
+        # exist.
+        invalid = HTTPException(
+            status_code=403,
+            detail={"reason": "invalid_invite", "message": "That invitation is not valid."},
+        )
+        if invite is None:
+            raise invalid
+        if datetime.fromisoformat(invite["expires_at"]) < datetime.now(timezone.utc):
+            raise invalid
+        if invite["email"].strip().lower() != req.email.strip().lower():
+            raise invalid
+
+        claimed = await demo_store.mark_invite_accepted(
+            invite["id"], datetime.now(timezone.utc).isoformat(),
+        )
+        if not claimed:
+            # Lost the race with a simultaneous redemption of the same
+            # invitation. It is spent either way; do not create a second
+            # account from it.
+            raise invalid
+
+        org = await demo_store.fetch_organization(invite["organization_id"])
+        if org is None:
+            raise invalid
+        return org
+
+    if not req.organization_name or not req.organization_name.strip():
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "reason": "organization_name_required",
+                "message": "Enter a company name, or use an invitation link.",
+            },
+        )
+    existing = await demo_store.find_organization_by_name(req.organization_name)
+    if existing is not None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": "organization_exists",
+                "message": (
+                    "An organization with that name already exists. Ask someone "
+                    "there to invite you."
+                ),
+            },
+        )
+    return await demo_store.create_organization(req.organization_name)
+
+
 @app.post("/auth/signup")
 async def auth_signup(req: SignupRequest) -> dict:
-    """Creates the organization (first signup for that name) or joins an
-    existing one, then creates the HR user and signs them in immediately —
-    the portal never issues a "check your email" step because GoTrue's own
-    email flows aren't wired here yet."""
+    """Create an HR account and sign it in immediately — the portal has no
+    "check your email" step because GoTrue's own email flows aren't wired
+    here yet.
+
+    Which organization it lands in is decided entirely by
+    `_organization_for_signup`."""
     try:
-        org = await demo_store.find_organization_by_name(req.organization_name)
-        if org is None:
-            org = await demo_store.create_organization(req.organization_name)
-        await demo_store.find_or_create_hr_user(
-            req.email, req.password, org["id"], name=req.name,
-        )
+        org = await _organization_for_signup(req)
+
+        # An address that already has an account is refused outright rather
+        # than silently handed the existing user (which is what happened
+        # before: `find_or_create_hr_user` returned it without checking the
+        # password, then sign-in failed and the caller saw a 503, as though
+        # the service were broken). This does let someone learn an address is
+        # registered — the standard, accepted trade for a signup form that
+        # can tell you why it refused you.
+        if await demo_store.find_auth_user_by_email(req.email) is not None:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "reason": "email_registered",
+                    "message": "An account with that email already exists. Sign in instead.",
+                },
+            )
+
+        await demo_store.create_hr_user(req.email, req.password, org["id"], name=req.name)
         token = await demo_store.sign_in(req.email, req.password)
     except supabase_store.SupabaseError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
