@@ -80,13 +80,6 @@ def _outcomes_to_dict(outcomes: dict[str, TopicOutcome]) -> dict:
     return {topic: outcome.__dict__ for topic, outcome in outcomes.items()}
 
 
-async def _next_event_sequence(session_id: str, cache: list[int]) -> int:
-    """`cache` is a one-item mutable box so a single call sequence doesn't
-    need a round-trip per event within the same request."""
-    cache[0] += 1
-    return cache[0]
-
-
 async def start(
     candidate_id: str,
     organization_id: str,
@@ -142,14 +135,12 @@ async def start(
     })
     session_id = row["id"]
 
-    seq = [0]
     await session_store.append_event(
-        SessionEvent(session_id, await _next_event_sequence(session_id, seq),
-                     EventType.SESSION_STARTED, {"role_title": role_title}).to_dict()
+        SessionEvent(session_id, EventType.SESSION_STARTED,
+                     {"role_title": role_title}).to_dict()
     )
     await session_store.append_event(
-        SessionEvent(session_id, await _next_event_sequence(session_id, seq),
-                     EventType(turn.kind.value), turn.to_dict()).to_dict()
+        SessionEvent(session_id, EventType(turn.kind.value), turn.to_dict()).to_dict()
     )
 
     return {"session_id": session_id, "turn": turn.to_dict(), "coverage": coverage.to_dict()}
@@ -213,15 +204,15 @@ async def answer(
     # believed nothing had happened; a naive retry of the same answer then
     # landed on a DIFFERENT topic than the one it was meant for — silently,
     # with no indication anything had gone wrong. Found live: a transient
-    # `next_sequence` failure (a separate bug, since fixed) left exactly one
-    # real session in that corrupted state.
+    # failure in the old client-side sequence allocation (since replaced by
+    # the migration-0011 trigger) left exactly one real session in that
+    # corrupted state.
     #
     # Event appends first means a failure here still leaves the session row
     # untouched — `current_topic`/`last_question` still point at the
     # question the candidate was actually just asked — so a retry with the
     # same answer re-analyzes against the SAME topic. Not free (the model
     # gets called again), but never silently wrong.
-    seq = [await session_store.next_sequence(session_id)]
     for event_type, payload in (
         (EventType.ANSWER, {"topic": current_topic_name, "answer_text": answer_text}),
         (EventType.ANALYSIS, analysis.to_dict()),
@@ -229,8 +220,7 @@ async def answer(
         (EventType(turn.kind.value) if not is_complete else EventType.SESSION_COMPLETE, turn.to_dict()),
     ):
         await session_store.append_event(
-            SessionEvent(session_id, await _next_event_sequence(session_id, seq),
-                         event_type, payload).to_dict()
+            SessionEvent(session_id, event_type, payload).to_dict()
         )
 
     await session_store.update_session(session_id, {
@@ -300,9 +290,8 @@ async def record_event(session_id: str, event_type: EventType, payload: dict) ->
     row = await session_store.fetch_session(session_id)
     if row is None:
         raise SessionError(f"no session {session_id}")
-    sequence = await session_store.next_sequence(session_id)
     await session_store.append_event(
-        SessionEvent(session_id, sequence, event_type, payload).to_dict()
+        SessionEvent(session_id, event_type, payload).to_dict()
     )
 
 
@@ -313,8 +302,7 @@ async def abandon(session_id: str, reason: str) -> None:
     state_machine.require_transition(row["status"], state_machine.ABANDONED)
 
     await session_store.update_session(session_id, {"status": state_machine.ABANDONED})
-    seq = [await session_store.next_sequence(session_id)]
     await session_store.append_event(
-        SessionEvent(session_id, await _next_event_sequence(session_id, seq),
-                     EventType.SESSION_ABANDONED, {"reason": reason}).to_dict()
+        SessionEvent(session_id, EventType.SESSION_ABANDONED,
+                     {"reason": reason}).to_dict()
     )

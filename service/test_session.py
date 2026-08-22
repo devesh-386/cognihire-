@@ -79,10 +79,14 @@ class _FakeStore:
         self.sessions[session_id].update(fields)
 
     async def append_event(self, event):
+        # `sequence` is assigned by the database now (migration 0011), so the
+        # service omits it and this fake plays the trigger's part.
+        event = dict(event)
+        event.setdefault("sequence", 1 + max(
+            [e["sequence"] for e in self.events
+             if e["session_id"] == event["session_id"]] or [0]
+        ))
         self.events.append(event)
-
-    async def next_sequence(self, session_id):
-        return sum(1 for e in self.events if e["session_id"] == session_id)
 
 
 PROFILE_ROW = {
@@ -118,7 +122,6 @@ def fake_store(monkeypatch):
     monkeypatch.setattr(session_store, "fetch_session", store.fetch_session)
     monkeypatch.setattr(session_store, "update_session", store.update_session)
     monkeypatch.setattr(session_store, "append_event", store.append_event)
-    monkeypatch.setattr(session_store, "next_sequence", store.next_sequence)
     # No interview code is linked to sessions created in these tests — the
     # real lookup would hit the network, so stub it to "not linked" rather
     # than pulling the whole codes system into every session test.

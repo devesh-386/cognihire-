@@ -101,8 +101,8 @@ class _FakeBackend:
             if limit is not None:
                 matched = matched[: int(limit)]
             # PostgREST answers 206, not 200, when `limit` truncates the
-            # result below what matched — see session_store.next_sequence's
-            # real 206 bug this fake now models.
+            # result below what matched. Modeled here because a count read
+            # that only accepted 200 was a real live bug (since removed).
             status = 206 if limit is not None and len(matched) < total else 200
             return _FakeResponse(status, payload=matched, headers={"content-range": f"*/{total}"})
 
@@ -122,6 +122,16 @@ class _FakeBackend:
                     if "id" not in row:
                         row["id"] = f"{table}-{self._next_id[table]}"
                         self._next_id[table] += 1
+                    # Models migration 0011's BEFORE INSERT trigger: the
+                    # service omits `sequence` and the database allocates it
+                    # per session. Without this the fake would store events
+                    # with no sequence at all and `order=sequence.asc` reads
+                    # would silently stop reflecting real ordering.
+                    if table == "interview_events" and row.get("sequence") is None:
+                        row["sequence"] = 1 + max(
+                            [r.get("sequence", 0) for r in self.tables[table]
+                             if r.get("session_id") == row.get("session_id")] or [0]
+                        )
                     row.setdefault("session_id", None)
                     row.setdefault("attempts_used", 0)
                     row.setdefault("status", row.get("status", "active"))
