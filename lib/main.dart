@@ -92,13 +92,21 @@ Future<void> main() async {
 }
 
 /// Calls the `provision_organization` RPC (Ticket 8's
-/// `role_delete_policy_and_org_provisioning` migration) for a freshly
-/// registered recruiter, then refreshes the session so the client's JWT
-/// picks up the `organization_id` the RPC just stamped into
-/// `auth.users.raw_user_meta_data` — see `SupabaseAuthStore`'s doc comment
-/// on why role/org live in `user_metadata` rather than a separate profile
-/// table. Returns null on any failure rather than throwing, matching every
-/// other [AuthStore] failure path's "never crash the sign-in screen" rule.
+/// `role_delete_policy_and_org_provisioning` migration, corrected by
+/// `0014_provision_organization_app_metadata.sql`) for a freshly registered
+/// recruiter, then refreshes the session so the client's JWT picks up the
+/// `organization_id` the RPC just stamped into `auth.users.raw_app_meta_data`
+/// — see `SupabaseAuthStore`'s doc comment on why role/org live in
+/// `app_metadata`, not `user_metadata`. Returns null on any failure rather
+/// than throwing, matching every other [AuthStore] failure path's "never
+/// crash the sign-in screen" rule.
+///
+/// Currently unreachable from the UI — see `sign_in_screen.dart`'s
+/// `_openBrowserRegistration`, which sends recruiter registration to the web
+/// portal instead. Kept working (not deleted) because it's still a real,
+/// directly callable Supabase RPC reachable by anyone holding the shipped
+/// anon key and any signed-in session, whether or not this app's UI ever
+/// invokes it.
 Future<Principal?> _provisionOrganization(
   supabase.SupabaseClient client,
   SupabaseAuthStore authStore,
