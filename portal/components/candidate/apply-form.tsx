@@ -63,16 +63,20 @@ export function ApplyForm({ roleId }: { roleId: string }) {
     setMessage(null)
     try {
       const resumeBase64 = await fileToBase64(resumeFile)
-      const result: any = await applyToRole({
+      // The backend no longer returns the interview code in this response —
+      // it goes to the submitted email address only. That is deliberate:
+      // this form has no login and no invitation token, so "whoever
+      // submitted the request" and "the owner of that email address" are
+      // not provably the same person. A code shown here would be usable by
+      // whichever of them is looking at this screen.
+      await applyToRole({
         roleId,
         name: name.trim(),
         email: email.trim(),
         resumeBase64,
       })
       setSubmitStatus('done')
-      setMessage(
-        `You're in — your interview code is ${result.code}. We've also emailed it to ${email.trim()}.`,
-      )
+      setMessage(`You're in — we've emailed your interview code to ${email.trim()}.`)
     } catch (error: any) {
       setSubmitStatus('error')
       setMessage(error?.message || "We couldn't submit your application just now. Please try again.")
