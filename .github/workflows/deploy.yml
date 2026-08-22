@@ -5,19 +5,32 @@ name: Deploy backend to Azure VM
 # of someone SSHing in and running `git pull && docker compose up -d` by
 # hand. Manual dispatch is kept too, for redeploying without a new commit
 # (e.g. after rotating a secret in the VM's own .env).
+#
+# Gated on the Tests workflow (.github/workflows/test.yml) actually
+# succeeding on this branch — before this, nothing ran the 268 backend
+# tests, the Flutter suite, or the portal suite at all, so a broken commit
+# deployed exactly as readily as a working one. `needs:` only applies within
+# one workflow file; `workflow_run` is the cross-workflow equivalent, and
+# it's why this can no longer trigger on a plain `push` — it has to wait for
+# Tests to report a conclusion first. The `paths` filter that used to scope
+# this to service/infra changes is gone with it: `workflow_run` doesn't
+# support path filtering, and Tests already fires on every push, so gating
+# on Tests implicitly still means "something changed", just not scoped to
+# which files.
 on:
-  push:
+  workflow_run:
+    workflows: ["Tests"]
     branches: [infra/foundations-epic0]
-    paths:
-      - "service/**"
-      - "docker-compose.api.yml"
-      - "infra/migrations/**"
-      - ".github/workflows/deploy.yml"
+    types: [completed]
   workflow_dispatch: {}
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # workflow_dispatch has no `workflow_run` payload to check — always
+    # deploy on a manual run. A workflow_run trigger deploys only if Tests
+    # actually passed; a failed or cancelled Tests run must not ship.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     steps:
       - name: SSH in and redeploy
         uses: appleboy/ssh-action@v1.0.3

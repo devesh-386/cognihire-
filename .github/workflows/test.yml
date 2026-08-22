@@ -1,0 +1,73 @@
+# Runs the test suites that already exist and, until now, nothing ever ran.
+#
+# `guardrails.yml` is release-blocking and runs on every push/PR, but it only
+# lints identifier spelling in lib/ and the schema of a database plane the
+# app doesn't use. 268 backend tests and a Flutter suite sat in the repo,
+# unexecuted by any CI job — which is how the /interview/event 503 race and
+# the live-voice connect deadlock both reached production this week: both
+# are exactly the class a test that runs would catch. This is that job.
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  service:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # opencv/insightface's system deps — mirrors service/Dockerfile so
+      # `import cv2` doesn't fail here the way it does without them.
+      - name: System libraries for opencv/insightface
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 libxcb1
+
+      - name: Install dependencies
+        working-directory: service
+        run: pip install -r requirements.txt
+
+      - name: pytest
+        working-directory: service
+        run: pytest -q
+
+  flutter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: flutter test
+        run: flutter test
+
+  portal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: portal/package-lock.json
+
+      - name: npm ci
+        working-directory: portal
+        run: npm ci
+
+      - name: npm test
+        working-directory: portal
+        run: npm test
