@@ -45,7 +45,7 @@ from google_integration import oauth as google_oauth
 from notifications import store as email_store
 from notifications import workflow as email_workflow
 from pipeline import demo_store, google_oauth_store, profile_builder, supabase_store
-from security import rate_limit
+from security import access_control, rate_limit
 from session import codes_store, interview_codes, interview_session, live_interview, session_store
 from session.events import EventType
 
@@ -75,6 +75,12 @@ app.add_middleware(
     allow_methods=["POST", "GET"],
     allow_headers=["*"],
 )
+
+# Default-deny: every route not explicitly listed in
+# security/access_control.py's PUBLIC_ROUTES requires a bearer token to be
+# present before it reaches a handler. See that module's docstring — this
+# replaces six routes that simply forgot to call `_require_org`.
+access_control.install(app)
 
 # ---------------------------------------------------------------------------
 # Engine loading
@@ -495,22 +501,41 @@ class ResendInvitationRequest(BaseModel):
 
 
 @app.get("/interview-codes/{code_id}/emails")
-async def list_code_emails(code_id: str) -> dict:
+async def list_code_emails(
+    code_id: str, authorization: str | None = Header(default=None),
+) -> dict:
     """The HR desktop's Email Status section: one row per email type
     (invitation, reminder_1h, reminder_30m) that has been attempted for this
-    code, each with its status, attempt count, and last error."""
+    code, each with its status, attempt count, and last error.
+
+    Was unauthenticated — any candidate email address plus every send
+    attempt's error text, readable by anyone who could enumerate code ids.
+    Same org-ownership shape as `/interview/report/{session_id}`: 404, not
+    403, on a code that belongs to someone else's org, so a guessed id
+    doesn't confirm whether it's real."""
+    organization_id = await _require_org(authorization)
     try:
+        code_row = await codes_store.fetch_by_id(code_id)
+        if code_row is None or code_row.get("organization_id") != organization_id:
+            raise HTTPException(status_code=404, detail="no such interview code")
         return {"emails": await email_store.list_for_code(code_id)}
     except supabase_store.SupabaseError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.post("/interview-codes/resend-invitation")
-async def resend_invitation(req: ResendInvitationRequest) -> dict:
-    """The HR desktop's "Resend invitation" button."""
+async def resend_invitation(
+    req: ResendInvitationRequest, authorization: str | None = Header(default=None),
+) -> dict:
+    """The HR desktop's "Resend invitation" button.
+
+    Was unauthenticated — anyone who could name a code_id could make this
+    service send a real email, on demand, to whatever candidate address was
+    on file, with no rate limit anywhere in the call chain."""
+    organization_id = await _require_org(authorization)
     try:
         code_row = await codes_store.fetch_by_id(req.code_id)
-        if code_row is None:
+        if code_row is None or code_row.get("organization_id") != organization_id:
             raise HTTPException(status_code=404, detail="no such interview code")
         candidate = await supabase_store.fetch_candidate(code_row["candidate_id"])
         if candidate is None or not candidate.get("email"):
@@ -521,11 +546,22 @@ async def resend_invitation(req: ResendInvitationRequest) -> dict:
 
 
 @app.post("/email/send-due-reminders")
-async def send_due_reminders() -> dict:
+async def send_due_reminders(x_internal_secret: str | None = Header(default=None)) -> dict:
     """The scheduler's entrypoint (Ticket 21's parallel of Ticket 12's
     `reminder-scheduler`) — call on a timer (cron, an external scheduler, or
     a manual poke) to send whatever 1-hour/30-minute reminder is currently
-    due across every active interview code."""
+    due across every active interview code.
+
+    The caller is a scheduler, not a logged-in HR user, so this is gated the
+    same way `/internal/candidates/{id}/auto-invite` already is: a shared
+    secret, not a bearer token. Was unauthenticated — anyone could trigger a
+    reminder sweep across every organization's candidates, on demand,
+    repeatedly."""
+    expected_secret = os.environ.get("INTERNAL_AUTOINVITE_SECRET", "")
+    if not expected_secret or not x_internal_secret or not secrets.compare_digest(
+        x_internal_secret, expected_secret
+    ):
+        raise HTTPException(status_code=401, detail="invalid or missing internal secret")
     try:
         return await email_workflow.send_due_reminders(supabase_store.fetch_candidate)
     except supabase_store.SupabaseError as exc:
@@ -1459,9 +1495,22 @@ async def seed_tester_account() -> dict:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@app.post("/face/analyze", response_model=FrameAnalysis)
+# One JPEG video frame at webcam resolution is a few hundred KB; 8MB is
+# generous headroom without leaving the door open to an attacker streaming
+# an unbounded body at an endpoint that (until Phase 1's default-deny) had
+# no auth and no other size control at all.
+_MAX_FRAME_BYTES = 8 * 1024 * 1024
+
+
+@app.post(
+    "/face/analyze",
+    response_model=FrameAnalysis,
+    dependencies=[Depends(rate_limit.limit("face-analyze", 20))],
+)
 async def analyze_frame(file: UploadFile = File(...)) -> FrameAnalysis:
-    raw = await file.read()
+    raw = await file.read(_MAX_FRAME_BYTES + 1)
+    if len(raw) > _MAX_FRAME_BYTES:
+        raise HTTPException(status_code=413, detail="frame is larger than 8MB")
 
     img = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
     if img is None:

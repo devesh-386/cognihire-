@@ -182,7 +182,10 @@ def test_generating_a_code_fires_an_invitation_email(fake_supabase, client):
     assert resp.status_code == 200, resp.text
     code_id = resp.json()["id"]
 
-    emails = client.get(f"/interview-codes/{code_id}/emails").json()["emails"]
+    # /interview-codes/{id}/emails now requires auth (Phase 1.3) — it used
+    # to leak candidate email addresses and send-attempt error text to any
+    # caller who could name a code_id.
+    emails = client.get(f"/interview-codes/{code_id}/emails", headers=_AUTH_ORG_1).json()["emails"]
     assert len(emails) == 1
     assert emails[0]["email_type"] == "invitation"
     # No EMAIL_PROVIDER configured in this sandbox — the honest degraded
@@ -204,7 +207,7 @@ def test_generating_a_code_for_a_candidate_with_no_email_skips_silently(fake_sup
     assert resp.status_code == 200, resp.text
     code_id = resp.json()["id"]
 
-    emails = client.get(f"/interview-codes/{code_id}/emails").json()["emails"]
+    emails = client.get(f"/interview-codes/{code_id}/emails", headers=_AUTH_ORG_1).json()["emails"]
     assert emails == []
 
 
@@ -215,9 +218,14 @@ def test_resend_invitation_creates_a_new_attempt(fake_supabase, client):
     }, headers=_AUTH_ORG_1)
     code_id = resp.json()["id"]
 
-    resend_resp = client.post("/interview-codes/resend-invitation", json={"code_id": code_id})
+    # /interview-codes/resend-invitation now requires auth (Phase 1.3) — it
+    # used to let anyone who could name a code_id make this service send a
+    # real email on demand, with no rate limit anywhere in the chain.
+    resend_resp = client.post(
+        "/interview-codes/resend-invitation", json={"code_id": code_id}, headers=_AUTH_ORG_1,
+    )
     assert resend_resp.status_code == 200, resend_resp.text
     assert resend_resp.json()["status"] == "failed"
 
-    emails = client.get(f"/interview-codes/{code_id}/emails").json()["emails"]
+    emails = client.get(f"/interview-codes/{code_id}/emails", headers=_AUTH_ORG_1).json()["emails"]
     assert len(emails) == 1, "resend reuses the same invitation row, does not duplicate it"
