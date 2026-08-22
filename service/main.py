@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import secrets
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -63,7 +64,31 @@ logging.basicConfig(
 
 logger = logging.getLogger("cognihire.face")
 
-app = FastAPI(title="CogniHire Face Service", version="0.1.0")
+def _refuse_to_boot_misconfigured_in_production() -> None:
+    """A missing PORTAL_URL in production used to fail silently — every
+    invitation and reminder email a candidate received had a working subject
+    line and an empty link, and nothing about a green health check or a
+    successful deploy would tell you. An invitation with no link is worse
+    than the service refusing to start, so refuse.
+
+    Startup-time, not import-time: raising at import would fire during test
+    collection every time `main` is imported, for a condition (`ENVIRONMENT
+    =production`) no test sets. The lifespan handler only runs when uvicorn
+    actually brings the app up."""
+    if os.environ.get("ENVIRONMENT", "development") == "production" and not os.environ.get("PORTAL_URL"):
+        raise RuntimeError(
+            "PORTAL_URL is not set. In production this means every invitation "
+            "and reminder email links nowhere — refusing to start."
+        )
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    _refuse_to_boot_misconfigured_in_production()
+    yield
+
+
+app = FastAPI(title="CogniHire Face Service", version="0.1.0", lifespan=_lifespan)
 
 # "*" only for local dev. Once this runs on a public VM (Ticket 9), set
 # ALLOWED_ORIGINS to the HR app's and candidate web app's actual origins.
@@ -186,6 +211,13 @@ def health() -> dict:
         "allowed_origins": _allowed_origins,
         "email_provider": email_kind,
         "email_provider_configured": email_configured,
+        # Was invisible from here even though it broke every invitation and
+        # reminder email a candidate received (empty link, empty `<a href>`)
+        # — the `os.environ.get(name, default)` bug fixed in
+        # notifications/workflow.py's _portal_url() and the OAuth callback
+        # above. `bool("")` is False, so this reports the same "unset" a
+        # genuinely absent value would, which is exactly the case that broke.
+        "portal_url_set": bool(os.environ.get("PORTAL_URL")),
     }
 
 
@@ -1326,7 +1358,13 @@ async def google_oauth_callback(code: str, state: str) -> Response:
     except supabase_store.SupabaseError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    portal_url = os.environ.get("PORTAL_URL", "")
+    # Same `os.environ.get(name, default)` trap as PORTAL_URL_DEFAULT in
+    # notifications/workflow.py: docker-compose.api.yml always sets the key
+    # (present-but-empty when the host .env doesn't define it), so the
+    # default never fired and this redirected to a bare "/settings?..." —
+    # relative to api.cognihire.online, which has no such route, so the
+    # OAuth flow 404'd on its last step. `or` catches empty, not just absent.
+    portal_url = os.environ.get("PORTAL_URL") or "http://localhost:3000"
     return RedirectResponse(f"{portal_url}/settings?google=connected")
 
 
