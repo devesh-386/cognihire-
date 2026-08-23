@@ -632,11 +632,34 @@ async def send_due_reminders(x_internal_secret: str | None = Header(default=None
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@app.post("/interview/start")
+@app.post(
+    "/interview/start",
+    dependencies=[Depends(rate_limit.limit("interview-start", 10))],
+)
 async def interview_start(req: InterviewStartRequest) -> dict:
     """Redeem a code and either resume its in-progress session or open a new
     one. The candidate portal never sends an id it wasn't handed by a human
-    — only the code."""
+    — only the code.
+
+    This is the interview code's verification endpoint, and the code is the
+    candidate's whole credential (see `InterviewAnswerRequest.code`) — which
+    makes this the candidate-side equivalent of `/auth/login`, and it had no
+    limiter either. Worse, the reply distinguishes a code that doesn't exist
+    (404, via `_CODE_ERROR_STATUS`) from one that does but can't be redeemed
+    right now (409), so an unlimited caller gets a clean live/dead oracle to
+    guess against.
+
+    A code is 8 characters over a 31-symbol alphabet
+    (`interview_codes._ALPHABET`), so the space is ~8.5e11 and guessing was
+    never going to be fast — but "the search space is large" is not a rate
+    limit, and it stops being the only thing standing in the way the moment
+    the alphabet or length is ever shortened. 10/minute leaves a legitimate
+    candidate (who types one code, once, and retries a couple of times if
+    they fat-finger it) untouched.
+
+    The oracle itself stays: telling a candidate "that code has expired"
+    rather than "that code was not recognized" is worth more to the honest
+    user than it costs against a now-capped attacker."""
     try:
         return await interview_codes.start_with_code(req.code)
     except interview_codes.CodeError as exc:
@@ -650,10 +673,18 @@ async def interview_start(req: InterviewStartRequest) -> dict:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@app.post("/interview/answer")
+@app.post(
+    "/interview/answer",
+    dependencies=[Depends(rate_limit.limit("interview-answer", 30))],
+)
 async def interview_answer(req: InterviewAnswerRequest) -> dict:
     """Record the candidate's answer to the current question and return the
-    next turn — a follow-up, the next topic's question, or completion."""
+    next turn — a follow-up, the next topic's question, or completion.
+
+    Public and code-authenticated like the rest of the interview flow, and
+    every call behind it is an LLM turn — the same "expensive, reachable
+    without a bearer token" shape `/extract-claims` is limited for. 30/min
+    is far above the ~1 answer/minute a real interview produces."""
     await _require_code_owns_session(req.code, req.session_id)
     try:
         return await interview_session.answer(req.session_id, req.answer_text)
@@ -703,7 +734,15 @@ async def interview_live(websocket: WebSocket, session_id: str) -> None:
         pass
 
 
-@app.post("/interview/event")
+@app.post(
+    "/interview/event",
+    # Deliberately the loosest of the four: tab_hidden/tab_visible and
+    # window_blur/window_focus fire in pairs on every alt-tab, and a nervous
+    # candidate glancing at another window generates real bursts. 120/min is
+    # high enough not to drop honest telemetry (dropping it would corrupt
+    # the very signal HR reads) while still bounding a flood.
+    dependencies=[Depends(rate_limit.limit("interview-event", 120))],
+)
 async def interview_event(req: InterviewEventRequest) -> dict:
     """Record one client-observed signal (face verification result, tab/
     window/fullscreen/connection change) against a session. Same code+session
@@ -753,7 +792,10 @@ async def interview_report(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@app.post("/interview/finish")
+@app.post(
+    "/interview/finish",
+    dependencies=[Depends(rate_limit.limit("interview-finish", 10))],
+)
 async def interview_finish(req: InterviewFinishRequest) -> dict:
     """Abandon a session early (candidate disconnected, timed out, etc).
     A session that runs its plan to completion finishes itself — this is
@@ -1052,8 +1094,38 @@ async def auth_signup(req: SignupRequest) -> dict:
     }
 
 
-@app.post("/auth/login")
+@app.post(
+    "/auth/login",
+    dependencies=[Depends(rate_limit.limit("auth-login-ip", 20))],
+)
 async def auth_login(req: LoginRequest) -> dict:
+    """Sign in an HR user.
+
+    Rate-limited on TWO identities, because either one alone leaves the
+    other attack open. This is the only route in the file that verifies a
+    password, and it was the only public route with no limiter at all —
+    every other one (`/extract-claims`, `/candidates/apply`, `/face/analyze`
+    …) already had one, so this was an omission, not a decision.
+
+    Per-IP (the dependency above) stops one host spraying a password list.
+    It does nothing about a distributed attempt against one account, so the
+    per-email bucket below caps attempts on a single address regardless of
+    where they come from. Neither is a defence against a botnet spread
+    across both axes; that needs an edge layer, same caveat
+    `security/rate_limit.py`'s own docstring already carries.
+
+    The email bucket is consumed BEFORE `sign_in` is called, so a wrong
+    password costs the attacker a slot exactly like a right one does — a
+    limiter that only counted successes would not be a limiter. The cost to
+    a real user is that fat-fingering their password five times in a minute
+    makes them wait for the rest of it.
+
+    `/auth/signup` already tells a caller whether an address is registered
+    (409 `email_registered`, a trade its own docstring accepts). That makes
+    recruiter emails harvestable, which is precisely what turns an unlimited
+    login route into a practical account takeover — the enumeration is only
+    cheap because this cap now exists to blunt what follows it."""
+    rate_limit.check("auth-login-email", req.email.strip().lower(), 5)
     try:
         token = await demo_store.sign_in(req.email, req.password)
     except supabase_store.SupabaseError as exc:
