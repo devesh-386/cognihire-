@@ -28,6 +28,7 @@ jobs:
           script_stop: true
           envs: KEY_VALUE
           command_timeout: 10m
+          debug: true
           script: |
             set -e
             cd ~/CogniHire
