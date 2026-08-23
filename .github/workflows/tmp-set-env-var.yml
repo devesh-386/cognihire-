@@ -30,9 +30,32 @@ jobs:
           command_timeout: 10m
           debug: true
           script: |
-            cd ~/CogniHire
+            cd ~/CogniHire || { echo "FAILED: could not cd to ~/CogniHire"; exit 1; }
             echo "step 1: cd ok"
-            pwd
-            echo "step 2: KEY_VALUE length is ${#KEY_VALUE}"
+
+            KEY_NAME="GOOGLE_TOKEN_ENCRYPTION_KEY"
+            touch .env
+            if grep -q "^${KEY_NAME}=" .env; then
+              sed -i "s#^${KEY_NAME}=.*#${KEY_NAME}=${KEY_VALUE}#" .env
+              echo "step 2: updated existing ${KEY_NAME} in .env"
+            else
+              echo "${KEY_NAME}=${KEY_VALUE}" >> .env
+              echo "step 2: appended ${KEY_NAME} to .env"
+            fi
+
+            docker compose -f docker-compose.api.yml up -d --force-recreate api \
+              && echo "step 3: container recreated" \
+              || echo "step 3 FAILED: docker compose up exited non-zero"
+
+            for i in $(seq 1 30); do
+              if curl -fsS http://localhost:8000/health > /tmp/health.json 2>/dev/null; then
+                echo "step 4: service responded after $i attempt(s)"
+                break
+              fi
+              echo "waiting for the service to come up ($i/30)..."
+              sleep 5
+            done
+            echo "step 5: health response follows"
+            cat /tmp/health.json || echo "(no health.json — service never responded)"
         env:
           KEY_VALUE: ${{ secrets.TEMP_GOOGLE_TOKEN_ENCRYPTION_KEY }}
