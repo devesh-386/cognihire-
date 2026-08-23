@@ -54,6 +54,7 @@ class _FakeSupabase:
             "status": "in_progress", "role_title": "Backend Engineer",
             "question_plan": {"topics": []}, "coverage_state": {"completion_percent": 0},
             "outcomes": {}, "current_topic": None, "last_question": None,
+            "version": 0,
             **extra,
         })
 

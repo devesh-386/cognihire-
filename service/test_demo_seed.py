@@ -132,6 +132,7 @@ class _FakeBackend:
                             [r.get("sequence", 0) for r in self.tables[table]
                              if r.get("session_id") == row.get("session_id")] or [0]
                         )
+                    row.setdefault("version", 0)
                     row.setdefault("session_id", None)
                     row.setdefault("attempts_used", 0)
                     row.setdefault("status", row.get("status", "active"))

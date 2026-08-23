@@ -53,16 +53,29 @@ async def fetch_session(session_id: str) -> dict | None:
     return rows[0] if rows else None
 
 
-async def update_session(session_id: str, fields: dict) -> None:
+async def update_session(session_id: str, fields: dict, *, expected_version: int) -> bool:
+    """Compare-and-swap: writes `fields` (plus an incremented `version`) only
+    if the row's `version` still matches `expected_version` — the value the
+    caller read alongside everything it computed `fields` from. One PATCH is
+    one atomic Postgres UPDATE, so there is no read-then-write gap for a
+    second, concurrent `answer()` call on the same session to land in. Same
+    reasoning as `codes_store.claim_code`'s compare-and-swap; see migration
+    0015_interview_sessions_version.sql.
+
+    Returns True if this call won the race (the row matched and was
+    updated), False if it lost — the caller must not treat its `fields` as
+    applied; another writer already changed the row since it was read.
+    """
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         response = await client.patch(
             f"{SUPABASE_URL}/rest/v1/interview_sessions",
-            headers=_headers(),
-            params={"id": f"eq.{session_id}"},
-            json=fields,
+            headers={**_headers(), "Prefer": "return=representation"},
+            params={"id": f"eq.{session_id}", "version": f"eq.{expected_version}"},
+            json={**fields, "version": expected_version + 1},
         )
     if response.status_code not in (200, 204):
         raise SupabaseError(f"session update failed: HTTP {response.status_code} {response.text[:200]}")
+    return bool(response.json())
 
 
 async def append_event(event: dict) -> None:

@@ -71,15 +71,20 @@ class _FakeSessionStore:
     async def create_session(self, fields):
         sid = fields.get("id") or f"session-{self._next_id}"
         self._next_id += 1
-        row = {**fields, "id": sid}
+        row = {"version": 0, **fields, "id": sid}
         self.sessions[sid] = row
         return row
 
     async def fetch_session(self, session_id):
         return self.sessions.get(session_id)
 
-    async def update_session(self, session_id, fields):
-        self.sessions[session_id].update(fields)
+    async def update_session(self, session_id, fields, *, expected_version):
+        row = self.sessions[session_id]
+        if row["version"] != expected_version:
+            return False
+        row.update(fields)
+        row["version"] = expected_version + 1
+        return True
 
     async def append_event(self, event):
         pass

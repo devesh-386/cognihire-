@@ -68,15 +68,38 @@ class _FakeStore:
     async def create_session(self, fields):
         sid = f"session-{self._next_id}"
         self._next_id += 1
-        row = {"id": sid, **fields}
+        # `version` starts at 0, same default the real column carries — see
+        # migration 0015_interview_sessions_version.sql.
+        row = {"id": sid, "version": 0, **fields}
         self.sessions[sid] = row
         return row
 
     async def fetch_session(self, session_id):
-        return self.sessions.get(session_id)
+        # Snapshot BEFORE yielding, not a live lookup after resuming: a real
+        # network read's result is fixed at the moment the response arrives,
+        # not re-evaluated against however the database has changed by the
+        # time the caller's coroutine happens to be rescheduled. Getting this
+        # backwards defeats the whole point of the fake — two concurrent
+        # `interview_session.answer()` calls need to see the SAME
+        # pre-write row to reproduce the race
+        # (test_two_concurrent_answers_on_one_session_...); a fake that
+        # re-reads on resume would have the second call see the first call's
+        # already-completed write and fail at the top-level status guard
+        # instead, which is a different, uninteresting failure that says
+        # nothing about the compare-and-swap this test exists to prove.
+        snapshot = dict(self.sessions[session_id]) if session_id in self.sessions else None
+        await asyncio.sleep(0)
+        return snapshot
 
-    async def update_session(self, session_id, fields):
-        self.sessions[session_id].update(fields)
+    async def update_session(self, session_id, fields, *, expected_version):
+        # Plays the real compare-and-swap PATCH's part: refuse (return
+        # False) if the row moved on since the caller read it.
+        row = self.sessions[session_id]
+        if row["version"] != expected_version:
+            return False
+        row.update(fields)
+        row["version"] = expected_version + 1
+        return True
 
     async def append_event(self, event):
         # `sequence` is assigned by the database now (migration 0011), so the
@@ -395,3 +418,71 @@ def test_abandon_marks_the_session_and_logs_an_event(fake_store, monkeypatch):
 def test_abandon_unknown_session_raises(fake_store):
     with pytest.raises(interview_session.SessionError):
         _run(interview_session.abandon("no-such-session", "x"))
+
+
+# --- concurrency: two answers racing on one session --------------------------
+#
+# session/live_interview.py calls `interview_session.answer()` once per
+# finalized voice transcript, and a candidate speaking in bursts can produce
+# more than one finalized transcript in quick succession — two concurrent
+# `answer()` calls for the SAME session is the realistic shape of this race,
+# not a contrived one. Before migration 0015 (interview_sessions.version) and
+# the compare-and-swap in `session_store.update_session`, both calls would
+# read the same session row, both compute independently, and whichever write
+# landed second would silently discard the first's result.
+
+
+def test_two_concurrent_answers_on_one_session_one_wins_one_conflicts(
+    fake_store, monkeypatch,
+):
+    fake_store.profile = PROFILE_ROW
+    _patch_model_sequence(monkeypatch, [PLAN_REPLY, QUESTION_REPLY])
+    started = _run(interview_session.start("cand-1", "org-1", "Backend Engineer"))
+    session_id = started["session_id"]
+    assert fake_store.sessions[session_id]["version"] == 0
+
+    # Both concurrent calls answer the SAME single-topic plan; either
+    # ordering consumes two structurally-identical "supported" replies (no
+    # next_turn call: with one topic and coverage complete, next_turn is
+    # deterministic and doesn't touch the model — see the single-reply
+    # single-topic tests above).
+    _patch_model_sequence(monkeypatch, [
+        {
+            "supported": True, "confidence": 0.9, "followup_required": False,
+            "evidence_quote": "I ran the standups myself.", "reason": "Concrete detail.",
+        },
+        {
+            "supported": True, "confidence": 0.9, "followup_required": False,
+            "evidence_quote": "I ran the standups myself.", "reason": "Concrete detail.",
+        },
+    ])
+
+    async def scenario():
+        return await asyncio.gather(
+            interview_session.answer(session_id, "I ran the standups myself."),
+            interview_session.answer(session_id, "I ran the standups myself."),
+            return_exceptions=True,
+        )
+
+    results = _run(scenario())
+
+    successes = [r for r in results if not isinstance(r, BaseException)]
+    conflicts = [r for r in results if isinstance(r, interview_session.SessionConflictError)]
+    assert len(successes) == 1, results
+    assert len(conflicts) == 1, results
+
+    # The row reflects exactly one applied write, not a merge of both and
+    # not the second write silently clobbering the first.
+    row = fake_store.sessions[session_id]
+    assert row["version"] == 1
+    assert row["status"] == state_machine.COMPLETE
+
+    # Both calls still appended their own events before racing on the
+    # session-row write — see interview_session.answer's own comment on why
+    # that ordering is deliberate (a failed write must never look like
+    # nothing happened). Losing the row race does not erase the loser's
+    # events.
+    session_events = [e for e in fake_store.events if e["session_id"] == session_id]
+    event_types = [e["event_type"] for e in session_events]
+    assert event_types.count("answer") == 2
+    assert event_types.count("analysis") == 2

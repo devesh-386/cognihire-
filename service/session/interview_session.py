@@ -39,6 +39,16 @@ class SessionError(RuntimeError):
     itself failed."""
 
 
+class SessionConflictError(SessionError):
+    """The session row changed between when this call read it and when it
+    tried to write — another concurrent call (typically the live voice
+    relay, which can call `answer()` once per finalized utterance and
+    finalizes several in quick succession from one burst of speech) already
+    won. `main.py` maps this the same way as any other `SessionError` — 409
+    — but as its own type so a caller can tell "you raced someone" apart
+    from "this session is in the wrong state" if it ever needs to."""
+
+
 def _plan_from_dict(d: dict) -> QuestionPlan:
     topics = [PlannedTopic(**t) for t in d.get("topics", [])]
     return QuestionPlan(
@@ -223,13 +233,25 @@ async def answer(
             SessionEvent(session_id, event_type, payload).to_dict()
         )
 
-    await session_store.update_session(session_id, {
+    # Compare-and-swap on `row["version"]` — the value read at the top of
+    # this function, before the (possibly slow) analysis/next_turn calls
+    # above. If another call updated this session in the meantime, this
+    # write is refused rather than silently overwriting whatever that call
+    # decided. The events already appended above are not rolled back: they
+    # are an honest record of what THIS call computed, same as a retried
+    # answer after any other failure in this function. See migration
+    # 0015_interview_sessions_version.sql.
+    won = await session_store.update_session(session_id, {
         "status": state_machine.COMPLETE if is_complete else state_machine.IN_PROGRESS,
         "coverage_state": new_coverage.to_dict(),
         "outcomes": _outcomes_to_dict(outcomes),
         "current_topic": turn.topic,
         "last_question": turn.question,
-    })
+    }, expected_version=row["version"])
+    if not won:
+        raise SessionConflictError(
+            f"session {session_id} was answered concurrently — this answer was not applied"
+        )
 
     if is_complete:
         # Best-effort: a code failing to flip to 'used' does not affect the
@@ -301,7 +323,13 @@ async def abandon(session_id: str, reason: str) -> None:
         raise SessionError(f"no session {session_id}")
     state_machine.require_transition(row["status"], state_machine.ABANDONED)
 
-    await session_store.update_session(session_id, {"status": state_machine.ABANDONED})
+    won = await session_store.update_session(
+        session_id, {"status": state_machine.ABANDONED}, expected_version=row["version"],
+    )
+    if not won:
+        raise SessionConflictError(
+            f"session {session_id} changed concurrently — retry abandon"
+        )
     await session_store.append_event(
         SessionEvent(session_id, EventType.SESSION_ABANDONED,
                      {"reason": reason}).to_dict()
