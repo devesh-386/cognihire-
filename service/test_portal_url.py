@@ -131,3 +131,63 @@ def test_health_reports_google_token_encryption_key_unset(monkeypatch):
             assert client.get("/health").json()["google_token_encryption_key_set"] is False
     finally:
         importlib.reload(main)
+
+
+# --- ALLOWED_ORIGINS in production -------------------------------------------
+#
+# docker-compose.api.yml defaults ALLOWED_ORIGINS to "*" in the file whose own
+# header calls it the production stack, so forgetting to set it in the VM's
+# .env leaves production permissive by default rather than by decision. Unlike
+# PORTAL_URL this warns rather than refusing to boot — see the function's
+# docstring for why the two are treated differently.
+
+
+def test_production_with_wildcard_origins_warns(monkeypatch, caplog):
+    import main
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setattr(main, "_allowed_origins", "*")
+
+    with caplog.at_level("WARNING"):
+        main._warn_if_origins_unrestricted_in_production()
+
+    assert any("ALLOWED_ORIGINS is '*'" in r.message for r in caplog.records)
+
+
+def test_production_with_real_origins_is_silent(monkeypatch, caplog):
+    import main
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setattr(main, "_allowed_origins", "https://cognihire.online,https://api.cognihire.online")
+
+    with caplog.at_level("WARNING"):
+        main._warn_if_origins_unrestricted_in_production()
+
+    assert not any("ALLOWED_ORIGINS" in r.message for r in caplog.records)
+
+
+def test_development_with_wildcard_origins_is_silent(monkeypatch, caplog):
+    """"*" is the right answer for local dev and must not nag there."""
+    import main
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setattr(main, "_allowed_origins", "*")
+
+    with caplog.at_level("WARNING"):
+        main._warn_if_origins_unrestricted_in_production()
+
+    assert not any("ALLOWED_ORIGINS" in r.message for r in caplog.records)
+
+
+def test_the_warning_does_not_prevent_startup(monkeypatch):
+    """The distinction from PORTAL_URL: this one must never take the
+    service down. A misconfigured origin list degrades a defence in depth;
+    refusing to boot over it would stop hiring entirely."""
+    import main
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("PORTAL_URL", "https://portal.example.com")
+    monkeypatch.setattr(main, "_allowed_origins", "*")
+
+    with TestClient(main.app) as client:
+        assert client.get("/health").status_code == 200

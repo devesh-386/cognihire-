@@ -83,9 +83,45 @@ def _refuse_to_boot_misconfigured_in_production() -> None:
         )
 
 
+def _warn_if_origins_unrestricted_in_production() -> None:
+    """ALLOWED_ORIGINS defaults to "*" in docker-compose.api.yml — the file
+    whose own header says it is the production stack — so forgetting to set
+    it in the VM's .env leaves production wide open by default rather than
+    by decision.
+
+    Two things go slack when it is "*". CORS accepts any origin, which is
+    the milder half: this service authenticates with bearer tokens held in
+    the portal's localStorage, and no cross-origin page can read those, so
+    a permissive CORS policy does not by itself hand anyone a session. The
+    sharper half is the WebSocket upgrade at `/interview/live/{session_id}`,
+    which CORSMiddleware does not cover and which therefore does its own
+    Origin check by hand — and that check is written as
+    `_allowed_origins == "*" or origin in ...`, so "*" turns it off
+    entirely. What still stands behind it is the interview code, which the
+    socket demands as its first message.
+
+    A warning rather than a refusal, unlike PORTAL_URL above. That one
+    silently broke every candidate's invitation link, so failing the boot
+    was strictly better than starting. This one degrades a defence in depth
+    while the actual credential checks keep working, and a service that
+    refuses to start over it would take the whole hiring pipeline down to
+    fix a hardening gap. It is reported by GET /health as `allowed_origins`
+    too, so it is visible without reading logs."""
+    if os.environ.get("ENVIRONMENT", "development") != "production":
+        return
+    if _allowed_origins.strip() != "*":
+        return
+    logger.warning(
+        "ALLOWED_ORIGINS is '*' in production. CORS will accept any origin and the "
+        "WebSocket Origin check on /interview/live is disabled. Set ALLOWED_ORIGINS "
+        "to the portal's and HR app's real origins (comma-separated) in the VM's .env."
+    )
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     _refuse_to_boot_misconfigured_in_production()
+    _warn_if_origins_unrestricted_in_production()
     yield
 
 
