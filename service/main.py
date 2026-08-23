@@ -358,12 +358,35 @@ class InterviewEventRequest(BaseModel):
 
 
 async def _require_code_owns_session(code: str, session_id: str) -> None:
+    """Same code+session ownership check `/interview/start` uses to redeem a
+    code, run again on every subsequent call the candidate makes against
+    that session (answer, event, finish) and on the live voice WebSocket's
+    initial handshake (`live_interview.authorize`).
+
+    Ownership alone used to be the whole check: once a code had redeemed a
+    session, revoking that code afterward — the exact action HR takes for a
+    wrong candidate or a suspected fraud — did nothing. The candidate kept
+    answering, kept talking to the live relay, and the interview completed
+    normally. Status and expiry are now re-checked on every call, not only
+    at redemption, so a revocation actually takes effect mid-interview
+    instead of only blocking a session that hasn't started yet."""
     try:
         code_row = await codes_store.fetch_by_code(code)
     except supabase_store.SupabaseError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     if code_row is None or code_row.get("session_id") != session_id:
         raise HTTPException(status_code=403, detail="that code does not match this interview session")
+    if code_row.get("status") == "revoked":
+        raise HTTPException(status_code=403, detail="this interview code has been revoked")
+    expires_at = code_row.get("expires_at")
+    if expires_at and datetime.fromisoformat(expires_at) < datetime.now(timezone.utc):
+        raise HTTPException(status_code=403, detail="this interview code has expired")
+    # window_start/window_end are deliberately NOT re-checked here. Those
+    # bound when a candidate may START — once a session is legitimately
+    # in_progress, the scheduled window closing under them mid-answer must
+    # not abort an interview that began on time. Revoked and expired are
+    # both "this credential should stop working right now"; the window is
+    # not that.
 
 
 # Phase 3's reasons map to HTTP status the way a REST API should read: a

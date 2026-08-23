@@ -329,6 +329,48 @@ def test_finish_with_wrong_code_is_rejected(client, fake_supabase):
     assert resp.status_code == 403
 
 
+def test_answer_with_a_revoked_code_is_rejected(client, fake_supabase):
+    # The gap this closes: revoking a code used to do nothing once it had
+    # already redeemed a session — ownership was the whole check, checked
+    # once, at redemption. HR revoking mid-interview (wrong candidate,
+    # suspected fraud) must actually stop that candidate's next request.
+    fake_supabase.seed_session("sess-1", "org-1", current_topic="t1", last_question="Q?")
+    fake_supabase.seed_code("code-1", "REALCODE", session_id="sess-1", status="revoked")
+
+    resp = client.post("/interview/answer", json={
+        "session_id": "sess-1", "answer_text": "hi", "code": "REALCODE",
+    })
+    assert resp.status_code == 403
+
+
+def test_answer_with_an_expired_code_is_rejected(client, fake_supabase):
+    fake_supabase.seed_session("sess-1", "org-1", current_topic="t1", last_question="Q?")
+    fake_supabase.seed_code(
+        "code-1", "REALCODE", session_id="sess-1",
+        expires_at="2000-01-01T00:00:00+00:00",
+    )
+
+    resp = client.post("/interview/answer", json={
+        "session_id": "sess-1", "answer_text": "hi", "code": "REALCODE",
+    })
+    assert resp.status_code == 403
+
+
+def test_answer_with_a_still_valid_code_is_not_blocked_by_the_new_checks(
+    client, fake_supabase,
+):
+    """A code that isn't revoked and hasn't expired must not be caught by
+    the checks the two tests above exist for — pins that this is a genuine
+    status/expiry check, not something that accidentally rejects everything."""
+    fake_supabase.seed_session("sess-1", "org-1", current_topic="t1", last_question="Q?")
+    fake_supabase.seed_code("code-1", "REALCODE", session_id="sess-1")
+
+    resp = client.post("/interview/answer", json={
+        "session_id": "sess-1", "answer_text": "hi", "code": "REALCODE",
+    })
+    assert resp.status_code != 403
+
+
 # --- /demo/seed and /demo/reset ---------------------------------------------
 
 

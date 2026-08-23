@@ -29,6 +29,7 @@ class FakeCandidateWS:
     def __init__(self):
         self.sent_text: list[dict] = []
         self.sent_bytes: list[bytes] = []
+        self.close_codes: list[int] = []
 
     async def send_text(self, data: str) -> None:
         self.sent_text.append(json.loads(data))
@@ -40,7 +41,7 @@ class FakeCandidateWS:
         return {"type": "websocket.disconnect"}
 
     async def close(self, code: int = 1000) -> None:
-        pass
+        self.close_codes.append(code)
 
 
 class FakeOpenAIWS:
@@ -91,6 +92,27 @@ def test_authorize_rejects_unknown_code(monkeypatch):
         run(live_interview.authorize("NOPE", "sess-1"))
 
 
+def test_authorize_rejects_a_revoked_code(monkeypatch):
+    async def fake_fetch_by_code(code):
+        return {"code": code, "session_id": "sess-1", "status": "revoked"}
+
+    monkeypatch.setattr(codes_store, "fetch_by_code", fake_fetch_by_code)
+    with pytest.raises(live_interview.LiveSessionError):
+        run(live_interview.authorize("ABC123", "sess-1"))
+
+
+def test_authorize_rejects_an_expired_code(monkeypatch):
+    async def fake_fetch_by_code(code):
+        return {
+            "code": code, "session_id": "sess-1",
+            "expires_at": "2000-01-01T00:00:00+00:00",
+        }
+
+    monkeypatch.setattr(codes_store, "fetch_by_code", fake_fetch_by_code)
+    with pytest.raises(live_interview.LiveSessionError):
+        run(live_interview.authorize("ABC123", "sess-1"))
+
+
 # --- configure_session() -------------------------------------------------
 
 def test_configure_session_disables_auto_response():
@@ -98,7 +120,7 @@ def test_configure_session_disables_auto_response():
     free-generating a reply — this is the single most important assertion
     in this file. Shape verified against the live GA Realtime API."""
     openai_ws = FakeOpenAIWS()
-    orch = live_interview.LiveOrchestrator(FakeCandidateWS(), openai_ws, "sess-1")
+    orch = live_interview.LiveOrchestrator(FakeCandidateWS(), openai_ws, "sess-1", "CODE1")
     run(orch.configure_session())
 
     assert len(openai_ws.sent) == 1
@@ -116,7 +138,7 @@ def test_configure_session_disables_auto_response():
 
 def test_speak_sends_scripted_text_not_bare_response_create():
     openai_ws = FakeOpenAIWS()
-    orch = live_interview.LiveOrchestrator(FakeCandidateWS(), openai_ws, "sess-1")
+    orch = live_interview.LiveOrchestrator(FakeCandidateWS(), openai_ws, "sess-1", "CODE1")
     run(orch.speak("What's your experience with distributed systems?"))
 
     assert len(openai_ws.sent) == 1
@@ -149,9 +171,13 @@ def test_candidate_utterance_calls_answer_and_speaks_next_question(monkeypatch):
             "analysis": {},
         }
 
+    async def fake_fetch_by_code(code):
+        return {"code": code, "session_id": "sess-1"}
+
+    monkeypatch.setattr(codes_store, "fetch_by_code", fake_fetch_by_code)
     monkeypatch.setattr(interview_session, "answer", fake_answer)
     openai_ws = FakeOpenAIWS()
-    orch = live_interview.LiveOrchestrator(FakeCandidateWS(), openai_ws, "sess-1")
+    orch = live_interview.LiveOrchestrator(FakeCandidateWS(), openai_ws, "sess-1", "CODE1")
 
     run(orch._on_candidate_utterance("I've used Redis for caching in production."))
 
@@ -171,9 +197,13 @@ def test_candidate_utterance_announces_turn_to_the_ui(monkeypatch):
             "analysis": {},
         }
 
+    async def fake_fetch_by_code(code):
+        return {"code": code, "session_id": "sess-1"}
+
+    monkeypatch.setattr(codes_store, "fetch_by_code", fake_fetch_by_code)
     monkeypatch.setattr(interview_session, "answer", fake_answer)
     candidate_ws = FakeCandidateWS()
-    orch = live_interview.LiveOrchestrator(candidate_ws, FakeOpenAIWS(), "sess-1")
+    orch = live_interview.LiveOrchestrator(candidate_ws, FakeOpenAIWS(), "sess-1", "CODE1")
 
     run(orch._on_candidate_utterance("Redis, mostly."))
 
@@ -192,10 +222,14 @@ def test_candidate_utterance_on_completion_notifies_candidate_not_openai(monkeyp
             "analysis": {},
         }
 
+    async def fake_fetch_by_code(code):
+        return {"code": code, "session_id": "sess-1"}
+
+    monkeypatch.setattr(codes_store, "fetch_by_code", fake_fetch_by_code)
     monkeypatch.setattr(interview_session, "answer", fake_answer)
     candidate_ws = FakeCandidateWS()
     openai_ws = FakeOpenAIWS()
-    orch = live_interview.LiveOrchestrator(candidate_ws, openai_ws, "sess-1")
+    orch = live_interview.LiveOrchestrator(candidate_ws, openai_ws, "sess-1", "CODE1")
 
     run(orch._on_candidate_utterance("That's everything I know."))
 
@@ -203,12 +237,72 @@ def test_candidate_utterance_on_completion_notifies_candidate_not_openai(monkeyp
     assert candidate_ws.sent_text[-1] == {"type": "interview_complete"}
 
 
+# --- mid-interview revocation ---------------------------------------------
+#
+# `authorize()` used to run once, at WebSocket connect. HR revoking a code
+# after the candidate was already talking to the relay did nothing: the
+# socket stayed open, kept accepting audio, and the interview completed as
+# if nothing had happened. `_on_candidate_utterance` now re-runs the same
+# check on every turn, since that is the one point in an open connection
+# where "is this credential still good" can be asked without a background
+# poller.
+
+
+def test_a_revoked_code_stops_the_next_utterance_from_being_answered(monkeypatch):
+    answer_calls = []
+
+    async def fake_answer(session_id, answer_text, provider_override=None):
+        answer_calls.append(answer_text)
+        return {"session_id": session_id, "turn": {"kind": "complete"}, "coverage": {}, "analysis": {}}
+
+    # Revoked NOW, unlike the "accepts" fakes above — this is what HR
+    # clicking "revoke" mid-interview looks like from this function's POV.
+    async def fake_fetch_by_code(code):
+        return {"code": code, "session_id": "sess-1", "status": "revoked"}
+
+    monkeypatch.setattr(codes_store, "fetch_by_code", fake_fetch_by_code)
+    monkeypatch.setattr(interview_session, "answer", fake_answer)
+    candidate_ws = FakeCandidateWS()
+    orch = live_interview.LiveOrchestrator(candidate_ws, FakeOpenAIWS(), "sess-1", "CODE1")
+
+    with pytest.raises(live_interview.LiveSessionError):
+        run(orch._on_candidate_utterance("Still talking, unaware anything changed."))
+
+    # The turn was never answered — revocation is checked BEFORE the model
+    # is ever asked to judge anything, not after.
+    assert answer_calls == []
+    # And the candidate actually sees a closed connection, not a socket that
+    # silently stops responding.
+    assert candidate_ws.close_codes == [1008]
+
+
+def test_an_expired_code_stops_the_next_utterance_from_being_answered(monkeypatch):
+    async def fake_answer(session_id, answer_text, provider_override=None):
+        raise AssertionError("must not be called once the code has expired")
+
+    async def fake_fetch_by_code(code):
+        return {
+            "code": code, "session_id": "sess-1",
+            "expires_at": "2000-01-01T00:00:00+00:00",
+        }
+
+    monkeypatch.setattr(codes_store, "fetch_by_code", fake_fetch_by_code)
+    monkeypatch.setattr(interview_session, "answer", fake_answer)
+    candidate_ws = FakeCandidateWS()
+    orch = live_interview.LiveOrchestrator(candidate_ws, FakeOpenAIWS(), "sess-1", "CODE1")
+
+    with pytest.raises(live_interview.LiveSessionError):
+        run(orch._on_candidate_utterance("Anything."))
+
+    assert candidate_ws.close_codes == [1008]
+
+
 # --- barge-in / interruption ---------------------------------------------
 
 def test_speech_started_while_speaking_cancels_and_flushes():
     candidate_ws = FakeCandidateWS()
     openai_ws = FakeOpenAIWS()
-    orch = live_interview.LiveOrchestrator(candidate_ws, openai_ws, "sess-1")
+    orch = live_interview.LiveOrchestrator(candidate_ws, openai_ws, "sess-1", "CODE1")
     orch._state.speaking = True
     orch._state.active_response_id = "resp-1"
 
@@ -225,7 +319,7 @@ def test_speech_started_while_not_speaking_is_a_noop():
     talking — that's just the candidate's normal turn, not a barge-in."""
     candidate_ws = FakeCandidateWS()
     openai_ws = FakeOpenAIWS()
-    orch = live_interview.LiveOrchestrator(candidate_ws, openai_ws, "sess-1")
+    orch = live_interview.LiveOrchestrator(candidate_ws, openai_ws, "sess-1", "CODE1")
     orch._state.speaking = False
 
     run(orch._on_speech_started())
@@ -240,7 +334,7 @@ def test_stale_audio_delta_after_cancel_is_dropped():
     question briefly resumes playing after the candidate spoke over it."""
     candidate_ws = FakeCandidateWS()
     openai_ws = FakeOpenAIWS()
-    orch = live_interview.LiveOrchestrator(candidate_ws, openai_ws, "sess-1")
+    orch = live_interview.LiveOrchestrator(candidate_ws, openai_ws, "sess-1", "CODE1")
     orch._state.active_response_id = None  # already cancelled
 
     stale_audio = base64.b64encode(b"late-audio-bytes").decode("ascii")
@@ -256,7 +350,7 @@ def test_stale_audio_delta_after_cancel_is_dropped():
 def test_live_audio_delta_for_active_response_is_forwarded():
     candidate_ws = FakeCandidateWS()
     openai_ws = FakeOpenAIWS()
-    orch = live_interview.LiveOrchestrator(candidate_ws, openai_ws, "sess-1")
+    orch = live_interview.LiveOrchestrator(candidate_ws, openai_ws, "sess-1", "CODE1")
     orch._state.active_response_id = "resp-1"
 
     audio_bytes = b"real-audio-bytes"
@@ -277,7 +371,7 @@ def test_speak_current_turn_speaks_the_pending_question(monkeypatch):
 
     monkeypatch.setattr(session_store, "fetch_session", fake_fetch_session)
     openai_ws = FakeOpenAIWS()
-    orch = live_interview.LiveOrchestrator(FakeCandidateWS(), openai_ws, "sess-1")
+    orch = live_interview.LiveOrchestrator(FakeCandidateWS(), openai_ws, "sess-1", "CODE1")
 
     spoke = run(orch.speak_current_turn())
 
@@ -291,7 +385,7 @@ def test_speak_current_turn_returns_false_when_already_complete(monkeypatch):
 
     monkeypatch.setattr(session_store, "fetch_session", fake_fetch_session)
     openai_ws = FakeOpenAIWS()
-    orch = live_interview.LiveOrchestrator(FakeCandidateWS(), openai_ws, "sess-1")
+    orch = live_interview.LiveOrchestrator(FakeCandidateWS(), openai_ws, "sess-1", "CODE1")
 
     spoke = run(orch.speak_current_turn())
 
