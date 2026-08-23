@@ -48,6 +48,48 @@ OPENAI_REALTIME_URL = "wss://api.openai.com/v1/realtime?model=gpt-realtime-2"
 # have no question text to speak — see _speak_turn.
 _SPEAKABLE_KINDS = {"question", "followup"}
 
+# A finalized OpenAI transcript used to become an `interview_session.answer()`
+# call unconditionally — there was no notion of "that wasn't actually an
+# answer." The text-typing path has an explicit submit button; a candidate
+# asserts "this is my answer" by clicking it. Voice has no equivalent act, so
+# "sorry, could you repeat that?" was graded as the candidate's answer,
+# judged unsupported, and spent one of `_MAX_ATTEMPTS_PER_TOPIC` (see
+# ai/coverage_manager.py) — two clarifying questions and a topic the
+# candidate was never actually asked to substantiate twice gets written off
+# as "not supported" in the report a recruiter reads.
+#
+# This is a narrow, conservative gate, not a classifier: it only catches
+# short, unambiguous "I didn't catch that" phrasing. A real answer that
+# happens to start with "sorry, I mean..." still matches none of these
+# (checked against the whole utterance, and these are complete short
+# utterances in the training/eval sense — a longer utterance containing one
+# of these substrings is deliberately still treated as a real answer,
+# enforced by `_LOOKS_LIKE_CLARIFICATION_MAX_CHARS` below).
+_CLARIFICATION_PHRASES = (
+    "sorry", "come again", "one more time", "repeat that", "repeat the question",
+    "say that again", "what was the question", "could you repeat",
+    "can you repeat", "didn't catch that", "didn't hear that", "pardon",
+)
+# A genuine "please repeat" is short. Capped so a real, substantial answer
+# that happens to contain "sorry" (e.g. "I'm sorry to say the migration
+# failed, so we...") is never caught by this gate — length is what tells
+# the two apart, not the phrase alone.
+_LOOKS_LIKE_CLARIFICATION_MAX_CHARS = 60
+
+# Below this, a "transcript" is VAD noise, not speech — a stray sound
+# finalized into one or two characters. Real short answers ("Yes.", "No.")
+# clear this easily; it exists only to stop empty/near-empty noise from
+# being graded as a substantive answer.
+_MIN_SUBSTANTIVE_UTTERANCE_CHARS = 2
+
+
+def _is_clarification_request(text: str) -> bool:
+    stripped = text.strip()
+    if len(stripped) > _LOOKS_LIKE_CLARIFICATION_MAX_CHARS:
+        return False
+    lowered = stripped.lower()
+    return any(phrase in lowered for phrase in _CLARIFICATION_PHRASES)
+
 
 class LiveSessionError(RuntimeError):
     """A live voice session could not be authorized or started — the caller
@@ -241,6 +283,18 @@ class LiveOrchestrator:
         except LiveSessionError as exc:
             await self.candidate_ws.close(code=1008)
             raise LiveSessionError(f"revoked mid-interview: {exc}") from exc
+
+        # Not every finalized transcript is an answer — see the module-level
+        # comment on `_CLARIFICATION_PHRASES`. Re-speaking the pending
+        # question costs nothing against the interview state machine: no
+        # `answer()` call, no attempt spent, no event appended. If the
+        # session somehow has nothing left to speak (a narrow race with the
+        # session completing elsewhere), fall through silently rather than
+        # telling the candidate to hold on for a question that isn't coming.
+        stripped = text.strip()
+        if len(stripped) < _MIN_SUBSTANTIVE_UTTERANCE_CHARS or _is_clarification_request(stripped):
+            await self.speak_current_turn()
+            return
 
         result = await interview_session.answer(self.session_id, text)
         turn = result["turn"]

@@ -297,6 +297,108 @@ def test_an_expired_code_stops_the_next_utterance_from_being_answered(monkeypatc
     assert candidate_ws.close_codes == [1008]
 
 
+# --- not every transcript is an answer ------------------------------------
+#
+# The typed-answer path has a submit button — an explicit act of asserting
+# "this is my answer." Voice has no equivalent: every finalized transcript
+# used to become an `interview_session.answer()` call unconditionally, so
+# "sorry, could you repeat that?" was judged, marked unsupported, and spent
+# one of the topic's limited attempts.
+
+
+def test_a_clarification_request_re_asks_instead_of_being_graded(monkeypatch):
+    async def fake_answer(session_id, answer_text, provider_override=None):
+        raise AssertionError("a request to repeat the question must not be graded")
+
+    async def fake_fetch_by_code(code):
+        return {"code": code, "session_id": "sess-1"}
+
+    async def fake_fetch_session(session_id):
+        return {"status": "in_progress", "current_topic": "systems-design",
+                "last_question": "Tell me about caching."}
+
+    monkeypatch.setattr(codes_store, "fetch_by_code", fake_fetch_by_code)
+    monkeypatch.setattr(interview_session, "answer", fake_answer)
+    monkeypatch.setattr(session_store, "fetch_session", fake_fetch_session)
+    openai_ws = FakeOpenAIWS()
+    orch = live_interview.LiveOrchestrator(FakeCandidateWS(), openai_ws, "sess-1", "CODE1")
+
+    run(orch._on_candidate_utterance("Sorry, could you repeat that?"))
+
+    # The question got spoken again — not graded, not skipped.
+    assert openai_ws.sent[-1]["response"]["input"][0]["content"][0]["text"] == "Tell me about caching."
+
+
+def test_near_empty_noise_re_asks_instead_of_being_graded(monkeypatch):
+    async def fake_answer(session_id, answer_text, provider_override=None):
+        raise AssertionError("near-empty noise must not be graded as an answer")
+
+    async def fake_fetch_by_code(code):
+        return {"code": code, "session_id": "sess-1"}
+
+    async def fake_fetch_session(session_id):
+        return {"status": "in_progress", "current_topic": "systems-design",
+                "last_question": "Tell me about caching."}
+
+    monkeypatch.setattr(codes_store, "fetch_by_code", fake_fetch_by_code)
+    monkeypatch.setattr(interview_session, "answer", fake_answer)
+    monkeypatch.setattr(session_store, "fetch_session", fake_fetch_session)
+    openai_ws = FakeOpenAIWS()
+    orch = live_interview.LiveOrchestrator(FakeCandidateWS(), openai_ws, "sess-1", "CODE1")
+
+    run(orch._on_candidate_utterance("h"))
+
+    assert openai_ws.sent[-1]["response"]["input"][0]["content"][0]["text"] == "Tell me about caching."
+
+
+def test_a_short_real_answer_still_gets_graded(monkeypatch):
+    """The gate must not swallow genuinely short answers — pins that this is
+    a narrow, deliberate filter, not an accidentally-broad one."""
+    calls = []
+
+    async def fake_answer(session_id, answer_text, provider_override=None):
+        calls.append(answer_text)
+        return {"session_id": session_id, "turn": {"kind": "complete"}, "coverage": {}, "analysis": {}}
+
+    async def fake_fetch_by_code(code):
+        return {"code": code, "session_id": "sess-1"}
+
+    monkeypatch.setattr(codes_store, "fetch_by_code", fake_fetch_by_code)
+    monkeypatch.setattr(interview_session, "answer", fake_answer)
+    orch = live_interview.LiveOrchestrator(FakeCandidateWS(), FakeOpenAIWS(), "sess-1", "CODE1")
+
+    run(orch._on_candidate_utterance("Redis."))
+
+    assert calls == ["Redis."]
+
+
+def test_a_long_answer_that_happens_to_start_with_sorry_still_gets_graded(monkeypatch):
+    """Length is what tells a real answer apart from a clarification request
+    — the phrase alone isn't enough, or a candidate apologizing mid-answer
+    ("Sorry, I mean the primary index, not the replica...") would get
+    silently discarded instead of graded."""
+    calls = []
+
+    async def fake_answer(session_id, answer_text, provider_override=None):
+        calls.append(answer_text)
+        return {"session_id": session_id, "turn": {"kind": "complete"}, "coverage": {}, "analysis": {}}
+
+    async def fake_fetch_by_code(code):
+        return {"code": code, "session_id": "sess-1"}
+
+    monkeypatch.setattr(codes_store, "fetch_by_code", fake_fetch_by_code)
+    monkeypatch.setattr(interview_session, "answer", fake_answer)
+    orch = live_interview.LiveOrchestrator(FakeCandidateWS(), FakeOpenAIWS(), "sess-1", "CODE1")
+
+    long_answer = (
+        "Sorry, I mean the primary index handled it, not the replica — we "
+        "moved the read traffic there after the migration finished."
+    )
+    run(orch._on_candidate_utterance(long_answer))
+
+    assert calls == [long_answer]
+
+
 # --- barge-in / interruption ---------------------------------------------
 
 def test_speech_started_while_speaking_cancels_and_flushes():
