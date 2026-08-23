@@ -63,6 +63,14 @@ Reply with JSON only, in this exact shape:
 {"supported": true, "confidence": 0.8, "followup_required": false, "evidence_quote": "<verbatim from the answer, or null>", "reason": "<one sentence>"}
 """
 
+# Bumped whenever `_INSTRUCTION` changes in a way that could shift verdicts —
+# persisted on every AnswerAnalysis (see the ANALYSIS event payload in
+# session/interview_session.py) so a report can be traced back to exactly
+# which prompt produced it, not just which provider answered. A verdict from
+# before this field existed reads as `prompt_version: None` — genuinely
+# unknown, not backfilled to a version it may not have used.
+_PROMPT_VERSION = "answer_analysis.v1"
+
 # A deterministic backstop, not a substitute for the prompt hardening above —
 # the model is told never to follow instructions embedded in the answer, but
 # "the model was told not to" is not a guarantee for a system this
@@ -98,6 +106,14 @@ class AnswerAnalysis:
 
     kind: str = "heuristic_rule"
     degraded_reason: str | None = None
+
+    # Reproducibility (§4.3): which provider/model/prompt actually produced
+    # this verdict. None for the heuristic fallback path — there is no
+    # model or prompt to attribute a similarity score to.
+    provider: str | None = None
+    model: str | None = None
+    prompt_version: str | None = None
+    temperature: float | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -239,4 +255,8 @@ async def analyze(
         reason=reason,
         evidence_quote=grounded_quote,
         kind=provider.kind_for(reply.provider),
+        provider=reply.provider,
+        model=reply.model,
+        prompt_version=_PROMPT_VERSION,
+        temperature=reply.temperature,
     )

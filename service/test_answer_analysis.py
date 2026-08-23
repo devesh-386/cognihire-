@@ -150,6 +150,40 @@ def test_normal_supported_answer_still_works(monkeypatch):
     assert result.evidence_quote == "I built a dashboard in React."
 
 
+def test_a_real_verdict_records_provider_model_and_prompt_version(monkeypatch):
+    """§4.3: a verdict must be traceable to exactly what produced it —
+    provider, model, and prompt version — not just attributable to
+    "openai" in general."""
+    _configure_openai(monkeypatch)
+    monkeypatch.setattr(provider, "OPENAI_MODEL", "gpt-4o-mini")
+    monkeypatch.setattr(
+        httpx, "AsyncClient",
+        lambda *a, **k: _FakeAsyncClient(lambda url, kw: _FakeResponse(200, _openai_verdict())),
+    )
+
+    result = _run(answer_analysis.analyze("What did you build?", "I built a dashboard.", "Built a dashboard."))
+
+    assert result.provider == "openai"
+    assert result.model == "gpt-4o-mini"
+    assert result.prompt_version == answer_analysis._PROMPT_VERSION
+    assert result.temperature == 0
+
+
+def test_a_heuristic_fallback_verdict_has_no_provider_or_model(monkeypatch):
+    """The heuristic path never called a model or used a prompt — recording
+    a provider/model for it would misattribute the verdict to a model that
+    never actually answered."""
+    _configure_openai(monkeypatch)
+    monkeypatch.setattr(provider, "OPENAI_API_KEY", "")  # forces the fallback
+
+    result = _run(answer_analysis.analyze("What did you build?", "I built a dashboard.", "Built a dashboard."))
+
+    assert result.kind == "heuristic_rule"
+    assert result.provider is None
+    assert result.model is None
+    assert result.prompt_version is None
+
+
 def test_empty_answer_is_unsupported_without_calling_the_model(monkeypatch):
     _configure_openai(monkeypatch)
     client = _FakeAsyncClient(lambda url, kw: (_ for _ in ()).throw(
