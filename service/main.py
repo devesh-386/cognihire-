@@ -218,6 +218,11 @@ def health() -> dict:
         # above. `bool("")` is False, so this reports the same "unset" a
         # genuinely absent value would, which is exactly the case that broke.
         "portal_url_set": bool(os.environ.get("PORTAL_URL")),
+        # Whether Google OAuth tokens can actually be encrypted at rest
+        # (security/token_crypto.py) — False means google_oauth_store.py's
+        # encrypt/decrypt calls will raise on the next read or write, not
+        # that tokens are silently stored in plaintext.
+        "google_token_encryption_key_set": bool(os.environ.get("GOOGLE_TOKEN_ENCRYPTION_KEY")),
         # The commit this running container was built from — see
         # docker-compose.api.yml's GIT_SHA. None on a deploy that didn't set
         # it (e.g. local dev), distinguishable from an empty string.

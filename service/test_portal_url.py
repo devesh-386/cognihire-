@@ -109,3 +109,25 @@ def test_health_reports_git_sha_as_none_when_unset(monkeypatch):
             assert client.get("/health").json()["git_sha"] is None
     finally:
         importlib.reload(main)
+
+
+def test_health_reports_google_token_encryption_key_set(monkeypatch):
+    monkeypatch.setenv("GOOGLE_TOKEN_ENCRYPTION_KEY", "a-fernet-key")
+    import main
+    importlib.reload(main)
+    try:
+        with TestClient(main.app) as client:
+            assert client.get("/health").json()["google_token_encryption_key_set"] is True
+    finally:
+        importlib.reload(main)
+
+
+def test_health_reports_google_token_encryption_key_unset(monkeypatch):
+    monkeypatch.delenv("GOOGLE_TOKEN_ENCRYPTION_KEY", raising=False)
+    import main
+    importlib.reload(main)
+    try:
+        with TestClient(main.app) as client:
+            assert client.get("/health").json()["google_token_encryption_key_set"] is False
+    finally:
+        importlib.reload(main)
