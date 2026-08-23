@@ -27,7 +27,18 @@ class TopicReport:
     objective: str
     # None if the topic was planned but the interview never reached it.
     outcome: str | None = None  # "supported" | "not_supported" | None
+    # A genuine model's stated certainty in its verdict, 0-1. None when the
+    # topic wasn't reached, OR when the model was unavailable and a
+    # heuristic ran instead — see `heuristic_similarity` for that case. The
+    # two used to share this one field, which let an unverified cosine-
+    # similarity score display and average identically to a real model's
+    # judgement, with nothing marking the difference.
     confidence: float | None = None
+    # A cosine-similarity (or, if embeddings were also unavailable, plain
+    # keyword-overlap) score standing in for `confidence` when the model
+    # could not be reached — see ai/answer_analysis.py's `_fallback`.
+    # Populated instead of, never alongside, `confidence`.
+    heuristic_similarity: float | None = None
     evidence_quote: str | None = None
     reason: str | None = None
     attempts: int = 0
@@ -75,10 +86,18 @@ class TransparencyMetrics:
 
     supported: int
     not_supported: int
-    # Mean model confidence across examined topics, or None if none were
-    # examined. A number the reader can discount by, not one that stands in
-    # for a decision.
+    # Mean of GENUINE model confidence across examined topics that a model
+    # actually graded — None if none were. Heuristic-graded topics are
+    # deliberately excluded: averaging a cosine-similarity score in with
+    # real model certainty would let a degraded, unverified measurement
+    # quietly pull this number around as if it were the same kind of thing.
+    # A number the reader can discount by, not one that stands in for a
+    # decision.
     mean_confidence: float | None
+    # How many examined topics were graded by the heuristic fallback rather
+    # than a model — surfaced so the reader knows `mean_confidence` doesn't
+    # cover the whole interview when this is nonzero.
+    topics_graded_by_heuristic: int
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -160,12 +179,14 @@ def build_report(
         # while the completion percentage disagreed was the exact drift this
         # shared constant exists to prevent.
         cleared = last.supported and last.confidence >= SUPPORTED_THRESHOLD
+        is_heuristic = last.analysis_kind == "heuristic_rule"
         topics.append(TopicReport(
             topic=planned.topic,
             claim_text=claim_text,
             objective=planned.objective,
             outcome="supported" if cleared else "not_supported",
-            confidence=last.confidence,
+            confidence=None if is_heuristic else last.confidence,
+            heuristic_similarity=last.confidence if is_heuristic else None,
             evidence_quote=last.evidence_quote,
             reason=last.reason,
             attempts=len(attempts),
@@ -189,6 +210,9 @@ def _transparency(plan: QuestionPlan, topics: list[TopicReport]) -> Transparency
     """Derive the process-disclosure metrics from the plan's provenance and the
     already-built topic reports. Pure counting — no re-judging."""
     examined = [t for t in topics if t.outcome is not None]
+    # Only genuine model confidence, never the heuristic stand-in — see
+    # TopicReport.heuristic_similarity's own comment on why the two must
+    # not be averaged together.
     confidences = [t.confidence for t in examined if t.confidence is not None]
 
     planned = len(plan.topics)
@@ -212,4 +236,5 @@ def _transparency(plan: QuestionPlan, topics: list[TopicReport]) -> Transparency
         mean_confidence=(
             round(sum(confidences) / len(confidences), 3) if confidences else None
         ),
+        topics_graded_by_heuristic=sum(1 for t in examined if t.heuristic_similarity is not None),
     )

@@ -103,6 +103,12 @@ export default function ReportDetailPage({
                       {topic.confidence != null ? (
                         <span>Confidence: {Math.round(topic.confidence * 100)}%</span>
                       ) : null}
+                      {topic.heuristic_similarity != null ? (
+                        <span>
+                          Similarity (unverified, model unavailable):{' '}
+                          {Math.round(topic.heuristic_similarity * 100)}%
+                        </span>
+                      ) : null}
                       {topic.attempts > 0 ? (
                         <span>
                           {topic.attempts} {topic.attempts === 1 ? 'attempt' : 'attempts'}
@@ -151,6 +157,7 @@ type Transparency = {
   supported: number
   not_supported: number
   mean_confidence: number | null
+  topics_graded_by_heuristic: number
 }
 
 const PLANNER_LABEL: Record<string, string> = {
@@ -181,7 +188,10 @@ function TransparencyPanel({ t }: { t: Transparency }) {
     {
       label: 'Mean confidence',
       value: t.mean_confidence != null ? `${Math.round(t.mean_confidence * 100)}%` : '—',
-      hint: 'Model confidence across examined topics',
+      hint:
+        t.topics_graded_by_heuristic > 0
+          ? `Model confidence across examined topics — excludes ${t.topics_graded_by_heuristic} graded by the deterministic fallback while the model was unavailable`
+          : 'Model confidence across examined topics',
     },
   ]
 
