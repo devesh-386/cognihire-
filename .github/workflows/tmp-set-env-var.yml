@@ -1,0 +1,63 @@
+# TEMPORARY, one-off utility — set a single key=value pair in the VM's .env
+# and restart the api container to pick it up. Manual dispatch only, never
+# runs automatically. Deleted after use (see the branch this ships on:
+# temp/set-google-key) — never merged into main/infra/foundations-epic0, so
+# this capability doesn't sit around as a standing "write arbitrary secrets
+# to the VM" button for anyone with push access.
+#
+# The value is passed as a workflow_dispatch input rather than a repo
+# secret, since this is a one-time bootstrap for a key that doesn't exist
+# yet anywhere else. The script never echoes it.
+name: TEMP - set env var on VM
+
+on:
+  workflow_dispatch:
+    inputs:
+      key_name:
+        required: true
+        type: string
+      key_value:
+        required: true
+        type: string
+
+jobs:
+  set-env:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH in, upsert the var, restart api
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.AZURE_VM_HOST }}
+          username: ${{ secrets.AZURE_VM_USER }}
+          key: ${{ secrets.AZURE_VM_SSH_KEY }}
+          script_stop: true
+          envs: KEY_NAME,KEY_VALUE
+          command_timeout: 10m
+          script: |
+            set -e
+            cd ~/CogniHire
+            touch .env
+
+            # Idempotent upsert: replace an existing line for this key, or
+            # append if it's not there yet. Never echoes KEY_VALUE.
+            if grep -q "^${KEY_NAME}=" .env; then
+              sed -i "s#^${KEY_NAME}=.*#${KEY_NAME}=${KEY_VALUE}#" .env
+              echo "Updated existing ${KEY_NAME} in .env"
+            else
+              echo "${KEY_NAME}=${KEY_VALUE}" >> .env
+              echo "Appended ${KEY_NAME} to .env"
+            fi
+
+            docker compose -f docker-compose.api.yml up -d --force-recreate api
+
+            for i in $(seq 1 30); do
+              if curl -fsS http://localhost:8000/health > /tmp/health.json 2>/dev/null; then
+                break
+              fi
+              echo "waiting for the service to come up ($i/30)..."
+              sleep 5
+            done
+            cat /tmp/health.json
+        env:
+          KEY_NAME: ${{ inputs.key_name }}
+          KEY_VALUE: ${{ inputs.key_value }}
