@@ -145,11 +145,30 @@ async def start_with_code(code: str, _retries_left: int = 3) -> dict:
             )
         return await start_with_code(code, _retries_left=_retries_left - 1)
 
-    result = await interview_session.start(
-        row["candidate_id"], row["organization_id"], row["role_title"],
-        required_skills=row.get("required_skills") or [],
-        difficulty=row.get("difficulty") or "standard",
-        available_minutes=row.get("available_minutes") or 20,
-    )
+    try:
+        result = await interview_session.start(
+            row["candidate_id"], row["organization_id"], row["role_title"],
+            required_skills=row.get("required_skills") or [],
+            difficulty=row.get("difficulty") or "standard",
+            available_minutes=row.get("available_minutes") or 20,
+        )
+    except interview_session.SessionError:
+        # The claim above already spent an attempt before finding out
+        # `start` would fail (the candidate's résumé is still processing, or
+        # finished with nothing to build an interview from). Left alone, a
+        # candidate who clicks their link one step too early loses an
+        # attempt to a failure that was never theirs — three premature
+        # clicks and a code that would otherwise have worked fine reports
+        # max_attempts_exceeded instead. Release it back with the same
+        # compare-and-swap `claim_code` uses to spend it: CAS from the
+        # attempts_used value we just set back to what it was before, still
+        # guarded by `session_id is null` (still true — `start` failed
+        # before session_id was ever written). A lost race here (some other
+        # request also touched this code's attempts_used in the interim)
+        # just means the release doesn't happen; the attempt stays spent,
+        # which is the current behaviour everywhere else, not a regression.
+        await codes_store.claim_code(row["id"], row["attempts_used"] + 1, row["attempts_used"])
+        raise
+
     await codes_store.update_code(row["id"], {"session_id": result["session_id"]})
     return result

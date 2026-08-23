@@ -240,6 +240,39 @@ def test_max_attempts_exceeded(fake_codes, fake_sessions, monkeypatch):
     assert exc.value.reason == "max_attempts_exceeded"
 
 
+def test_a_failed_start_releases_the_attempt_it_spent(fake_codes, fake_sessions, monkeypatch):
+    """`claim_code` spends an attempt BEFORE `interview_session.start` is
+    called, since the CAS is what makes concurrent redemption safe — but
+    that means a `start` failure (the résumé is still processing, or
+    finished with no grounded claims to interview on) used to burn a real
+    attempt for a reason that was never the candidate's fault. A code with
+    `max_attempts=1` that fails once used to be permanently dead; it should
+    still be redeemable once the underlying problem (e.g. processing
+    finishes) is gone."""
+    row = _run(interview_codes.generate("cand-1", "org-1", "Backend Engineer", max_attempts=1))
+
+    async def failing_start(candidate_id, organization_id, role_title, **kwargs):
+        raise interview_session.SessionError("candidate is not ready for interview")
+
+    monkeypatch.setattr(interview_session, "start", failing_start)
+
+    with pytest.raises(interview_session.SessionError):
+        _run(interview_codes.start_with_code(row["code"]))
+
+    released = _run(codes_store.fetch_by_code(row["code"]))
+    assert released["attempts_used"] == 0, "the failed attempt must not count against max_attempts"
+    assert released["session_id"] is None
+
+    # And the code is still genuinely usable — this is the actual guarantee,
+    # not just an internal counter looking right.
+    async def working_start(candidate_id, organization_id, role_title, **kwargs):
+        return await _fake_start_factory(fake_sessions, "session-recovered")
+
+    monkeypatch.setattr(interview_session, "start", working_start)
+    result = _run(interview_codes.start_with_code(row["code"]))
+    assert result["session_id"] == "session-recovered"
+
+
 def test_concurrent_redemption_does_not_create_duplicate_sessions(fake_codes, fake_sessions, monkeypatch):
     """Regression test for the race condition flagged in review: two
     simultaneous redemptions of the same code used to both pass the
