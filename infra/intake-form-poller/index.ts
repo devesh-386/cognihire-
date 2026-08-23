@@ -15,6 +15,17 @@
 // (see that function's live cron job for the exact shape to mirror when
 // scheduling this one).
 //
+// Required Edge Function secrets (Supabase -> Edge Functions -> Secrets):
+//   SCHEDULER_SECRET            — must equal the value the pg_cron job sends
+//   INTAKE_WEBHOOK_SECRET       — forwarded to the intake-webhook function
+//   API_BASE_URL                — e.g. https://api.cognihire.online
+//   INTERNAL_AUTOINVITE_SECRET  — must equal the API service's value
+// GOOGLE_OAUTH_CLIENT_ID/SECRET are deliberately NOT needed here any more:
+// this function no longer refreshes Google tokens itself, because the
+// google_oauth_connections token columns are encrypted and the key lives
+// with the API service. See POST /internal/google/access-token in
+// service/main.py.
+//
 // UNVERIFIED: the exact JSON shape Google returns for a `dateQuestion`
 // (includeTime: true) answer has not been observed against a real
 // submission yet — the parsing below is a best-effort guess (ISO-parseable
@@ -23,7 +34,6 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const FORMS_API = "https://forms.googleapis.com/v1/forms";
-const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
 Deno.serve(async (req: Request) => {
   const expectedSecret = Deno.env.get("SCHEDULER_SECRET");
@@ -35,14 +45,17 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const clientId = Deno.env.get("GOOGLE_OAUTH_CLIENT_ID");
-  const clientSecret = Deno.env.get("GOOGLE_OAUTH_CLIENT_SECRET");
+  // No GOOGLE_OAUTH_* here any more. Access tokens come from the API
+  // service, which holds the encryption key for google_oauth_connections;
+  // this function cannot read those columns and should not try.
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const webhookSecret = Deno.env.get("INTAKE_WEBHOOK_SECRET");
-  if (!clientId || !clientSecret || !webhookSecret) {
+  const apiBaseUrl = Deno.env.get("API_BASE_URL");
+  const internalSecret = Deno.env.get("INTERNAL_AUTOINVITE_SECRET");
+  if (!webhookSecret || !apiBaseUrl || !internalSecret) {
     return new Response(
-      JSON.stringify({ error: "GOOGLE_OAUTH_CLIENT_ID/CLIENT_SECRET or INTAKE_WEBHOOK_SECRET not configured" }),
+      JSON.stringify({ error: "INTAKE_WEBHOOK_SECRET/API_BASE_URL/INTERNAL_AUTOINVITE_SECRET not configured" }),
       { status: 500, headers: { "Content-Type": "application/json" } },
     );
   }
@@ -67,42 +80,24 @@ Deno.serve(async (req: Request) => {
 
   for (const intake of intakes ?? []) {
     try {
-      const { data: connection } = await client
-        .from("google_oauth_connections")
-        .select("access_token, refresh_token, token_expires_at")
-        .eq("organization_id", intake.organization_id)
-        .maybeSingle();
-      // Org disconnected its Google account (or never connected) — this
+      // One call replaces the old read-decrypt-refresh-writeback dance.
+      // The service refreshes and re-encrypts on its side when needed, so
+      // the stored ciphertext stays intact — the previous version wrote the
+      // refreshed token back in plaintext, corrupting it for the service.
+      const tokenRes = await fetch(
+        `${apiBaseUrl}/internal/google/access-token?organization_id=${
+          encodeURIComponent(intake.organization_id)
+        }`,
+        { method: "POST", headers: { "x-internal-secret": internalSecret } },
+      );
+      // 503 means the org never connected Google (or disconnected) — this
       // intake's form just doesn't get polled, not a failure to report.
-      if (!connection) continue;
-
-      let accessToken = connection.access_token as string;
-      const expiresAt = new Date(connection.token_expires_at as string).getTime();
-      if (expiresAt - Date.now() < 60_000) {
-        const refreshRes = await fetch(TOKEN_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams({
-            refresh_token: connection.refresh_token as string,
-            client_id: clientId,
-            client_secret: clientSecret,
-            grant_type: "refresh_token",
-          }),
-        });
-        if (!refreshRes.ok) {
-          failures.push(`${intake.id}: token refresh failed (HTTP ${refreshRes.status})`);
-          continue;
-        }
-        const refreshed = await refreshRes.json();
-        accessToken = refreshed.access_token;
-        await client
-          .from("google_oauth_connections")
-          .update({
-            access_token: accessToken,
-            token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
-          })
-          .eq("organization_id", intake.organization_id);
+      if (tokenRes.status === 503) continue;
+      if (!tokenRes.ok) {
+        failures.push(`${intake.id}: access token unavailable (HTTP ${tokenRes.status})`);
+        continue;
       }
+      const accessToken = (await tokenRes.json()).access_token as string;
 
       const formRes = await fetch(`${FORMS_API}/${intake.google_form_id}`, {
         headers: { Authorization: `Bearer ${accessToken}` },

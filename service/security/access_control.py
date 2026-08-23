@@ -66,6 +66,10 @@ PUBLIC_ROUTES: list[tuple[str, str]] = [
     ("POST", "/resumes/process"),
     ("POST", "/internal/candidates/{candidate_id}/auto-invite"),
     ("POST", "/email/send-due-reminders"),
+    # Hands a decrypted Google access token to the intake-form-poller Edge
+    # Function, which cannot hold the encryption key. Gated by
+    # INTERNAL_AUTOINVITE_SECRET in the handler.
+    ("POST", "/internal/google/access-token"),
 
     # Hit directly by Google's OAuth redirect — no bearer token is available
     # to send; authenticity comes from `_verify_state`'s HMAC, not from this

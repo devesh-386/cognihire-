@@ -213,3 +213,124 @@ def test_creating_a_form_without_a_connection_asks_to_connect_first(client, fake
     resp = client.post("/intakes/intake-1/google-form", headers=_auth("org-1"))
     assert resp.status_code == 409
     assert "connect" in resp.json()["detail"].lower()
+
+
+# --- /internal/google/access-token -------------------------------------
+#
+# The intake-form-poller Edge Function used to read access_token/
+# refresh_token straight out of google_oauth_connections. Once those columns
+# became Fernet ciphertext, that read sent ciphertext to Google as a refresh
+# token (HTTP 400) while the function still returned 200 — a silent, total
+# failure of Google Forms polling. These tests pin the replacement: Deno asks
+# this service for a token, and never touches the encrypted columns.
+
+
+def _seed_connection(fake_backend, org, *, expires_at):
+    """Seed a row the way the DB really holds it — ciphertext, not plaintext."""
+    import datetime
+
+    from security import token_crypto
+
+    fake_backend._connections = getattr(fake_backend, "_connections", [])
+    fake_backend._connections.append({
+        "organization_id": org,
+        "google_account_email": "hr@innotech.example",
+        "access_token": token_crypto.encrypt("stored-access-token"),
+        "refresh_token": token_crypto.encrypt("stored-refresh-token"),
+        "token_expires_at": expires_at.isoformat(),
+        "scope": "forms.body drive.file",
+    })
+
+
+def _future(seconds=3600):
+    import datetime
+    return datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=seconds)
+
+
+def _past(seconds=3600):
+    import datetime
+    return datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=seconds)
+
+
+def _internal(secret="fake-internal-secret") -> dict:
+    return {"x-internal-secret": secret}
+
+
+def test_access_token_rejects_a_missing_secret(client, monkeypatch):
+    monkeypatch.setenv("INTERNAL_AUTOINVITE_SECRET", "fake-internal-secret")
+    resp = client.post("/internal/google/access-token", params={"organization_id": "org-1"})
+    assert resp.status_code == 401
+
+
+def test_access_token_rejects_a_wrong_secret(client, monkeypatch):
+    monkeypatch.setenv("INTERNAL_AUTOINVITE_SECRET", "fake-internal-secret")
+    resp = client.post(
+        "/internal/google/access-token",
+        params={"organization_id": "org-1"}, headers=_internal("not-the-secret"),
+    )
+    assert resp.status_code == 401
+
+
+def test_access_token_refuses_when_no_secret_is_configured(client, monkeypatch):
+    # An unset INTERNAL_AUTOINVITE_SECRET must fail closed, not authorise
+    # everyone by comparing "" to "".
+    monkeypatch.delenv("INTERNAL_AUTOINVITE_SECRET", raising=False)
+    resp = client.post(
+        "/internal/google/access-token",
+        params={"organization_id": "org-1"}, headers=_internal(""),
+    )
+    assert resp.status_code == 401
+
+
+def test_access_token_returns_503_when_the_org_never_connected(client, monkeypatch):
+    monkeypatch.setenv("INTERNAL_AUTOINVITE_SECRET", "fake-internal-secret")
+    resp = client.post(
+        "/internal/google/access-token",
+        params={"organization_id": "org-nope"}, headers=_internal(),
+    )
+    # The poller keys "skip this intake quietly" off exactly this status.
+    assert resp.status_code == 503
+
+
+def test_access_token_decrypts_a_live_stored_token(client, fake_backend, monkeypatch):
+    monkeypatch.setenv("INTERNAL_AUTOINVITE_SECRET", "fake-internal-secret")
+    _seed_connection(fake_backend, "org-1", expires_at=_future())
+
+    resp = client.post(
+        "/internal/google/access-token",
+        params={"organization_id": "org-1"}, headers=_internal(),
+    )
+
+    assert resp.status_code == 200, resp.text
+    # Plaintext out, even though the row holds ciphertext. This is the exact
+    # value the old Edge Function failed to produce.
+    assert resp.json()["access_token"] == "stored-access-token"
+
+
+def test_access_token_refreshes_an_expired_token_without_storing_plaintext(
+    client, fake_backend, monkeypatch,
+):
+    monkeypatch.setenv("INTERNAL_AUTOINVITE_SECRET", "fake-internal-secret")
+    _seed_connection(fake_backend, "org-1", expires_at=_past())
+
+    resp = client.post(
+        "/internal/google/access-token",
+        params={"organization_id": "org-1"}, headers=_internal(),
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["access_token"] == "fake-access-token"
+
+    # Google was asked to refresh with the DECRYPTED refresh token. Sending
+    # ciphertext here is precisely what produced HTTP 400 on every run.
+    assert fake_backend.google_token_calls
+    assert fake_backend.google_token_calls[-1]["refresh_token"] == "stored-refresh-token"
+
+    # And the refreshed token went back to the DB re-encrypted. The old Edge
+    # Function wrote it in plaintext, silently corrupting the column for the
+    # service that owns the key.
+    from security import token_crypto
+
+    stored = [c for c in fake_backend._connections if c["organization_id"] == "org-1"][-1]
+    assert stored["access_token"] != "fake-access-token"
+    assert token_crypto.decrypt(stored["access_token"]) == "fake-access-token"
