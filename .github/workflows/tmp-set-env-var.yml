@@ -25,33 +25,14 @@ jobs:
           host: ${{ secrets.AZURE_VM_HOST }}
           username: ${{ secrets.AZURE_VM_USER }}
           key: ${{ secrets.AZURE_VM_SSH_KEY }}
-          script_stop: true
+          script_stop: false
           envs: KEY_VALUE
           command_timeout: 10m
           debug: true
           script: |
-            set -e
             cd ~/CogniHire
-            touch .env
-
-            KEY_NAME="GOOGLE_TOKEN_ENCRYPTION_KEY"
-            if grep -q "^${KEY_NAME}=" .env; then
-              sed -i "s#^${KEY_NAME}=.*#${KEY_NAME}=${KEY_VALUE}#" .env
-              echo "Updated existing ${KEY_NAME} in .env"
-            else
-              echo "${KEY_NAME}=${KEY_VALUE}" >> .env
-              echo "Appended ${KEY_NAME} to .env"
-            fi
-
-            docker compose -f docker-compose.api.yml up -d --force-recreate api
-
-            for i in $(seq 1 30); do
-              if curl -fsS http://localhost:8000/health > /tmp/health.json 2>/dev/null; then
-                break
-              fi
-              echo "waiting for the service to come up ($i/30)..."
-              sleep 5
-            done
-            cat /tmp/health.json
+            echo "step 1: cd ok"
+            pwd
+            echo "step 2: KEY_VALUE length is ${#KEY_VALUE}"
         env:
           KEY_VALUE: ${{ secrets.TEMP_GOOGLE_TOKEN_ENCRYPTION_KEY }}
