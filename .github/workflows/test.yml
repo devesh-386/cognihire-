@@ -51,7 +51,15 @@ jobs:
         run: flutter pub get
 
       - name: flutter test
-        run: flutter test
+        # test/preview/*.dart (@Tags(['preview'])) renders screens to PNGs
+        # for visual review, not assertions — its own doc comment says so
+        # ("nothing fails if pixels change"). It still needs a real network
+        # fetch for Google Fonts, which this runner (and most CI sandboxes)
+        # can't reach, so it failed on an unrelated network error, not a
+        # pixel diff, on every run. Excluded from the gating run; still
+        # runnable directly with `flutter test test/preview
+        # --update-goldens` when a developer wants to regenerate the shots.
+        run: flutter test --exclude-tags=preview
 
   portal:
     runs-on: ubuntu-latest

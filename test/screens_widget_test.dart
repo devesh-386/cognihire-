@@ -176,7 +176,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Not examined'), findsOneWidget);
+      // VerdictStamp renders all-caps labels ("the signature Case File
+      // component" — see lib/core/design/verdict_stamp.dart) — this
+      // assertion predates that redesign and never got updated.
+      expect(find.text('NOT EXAMINED'), findsOneWidget);
     });
 
     testWidgets('navigates to the evidence graph without throwing',
