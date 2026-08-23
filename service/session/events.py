@@ -21,6 +21,7 @@ class EventType(str, Enum):
     COVERAGE_UPDATE = "coverage_update"
     SESSION_COMPLETE = "session_complete"
     SESSION_ABANDONED = "session_abandoned"
+    SESSION_TIME_EXPIRED = "session_time_expired"
 
     # Client-observed signals, recorded as-is — never a verdict. The report
     # layer surfaces these as counts ("3 tab visibility changes"), never as

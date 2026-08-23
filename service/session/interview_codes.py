@@ -120,6 +120,14 @@ async def start_with_code(code: str, _retries_left: int = 3) -> dict:
             if session["status"] == state_machine.COMPLETE:
                 raise CodeError("already_used", "This interview has already been completed.")
             if session["status"] == state_machine.IN_PROGRESS:
+                if interview_session.is_time_expired(session):
+                    # The candidate let the tab sit past their allotted time
+                    # and only now reopened it. Without this check the
+                    # session would sit "in_progress" forever, serving the
+                    # same stale question to anyone who redeems the code
+                    # again — nothing else ever revisits a session that
+                    # isn't actively being answered.
+                    return await interview_session.complete_on_time_expiry(session["id"], session)
                 # Resume rather than restart — a refresh or a dropped
                 # connection should not cost the candidate their progress
                 # or count against their attempts.

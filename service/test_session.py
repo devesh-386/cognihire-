@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -418,6 +419,61 @@ def test_abandon_marks_the_session_and_logs_an_event(fake_store, monkeypatch):
 def test_abandon_unknown_session_raises(fake_store):
     with pytest.raises(interview_session.SessionError):
         _run(interview_session.abandon("no-such-session", "x"))
+
+
+# --- interview time limit (§6.3) ---------------------------------------------
+#
+# `available_minutes` used to only shape question-planning pacing — nothing
+# on the session remembered it afterward or checked the wall clock. A
+# candidate (or a live-relay connection left open) could keep answering
+# indefinitely, each answer a paid model call.
+
+
+def test_answering_past_the_deadline_force_completes_without_grading_the_answer(
+    fake_store, monkeypatch,
+):
+    fake_store.profile = PROFILE_ROW
+    _patch_model_sequence(monkeypatch, [PLAN_REPLY, QUESTION_REPLY])
+    started = _run(interview_session.start("cand-1", "org-1", "Backend Engineer"))
+    session_id = started["session_id"]
+
+    fake_store.sessions[session_id]["available_minutes"] = 20
+    fake_store.sessions[session_id]["started_at"] = (
+        datetime.now(timezone.utc) - timedelta(minutes=25)
+    ).isoformat()
+
+    # If `answer` reached the analysis step it would call the model for a
+    # verdict — no replies are queued, so any such call raises IndexError
+    # (`_patch_model_sequence` was never called again after `start`) and this
+    # test would fail loudly rather than silently passing regardless.
+    result = _run(interview_session.answer(session_id, "an answer that arrives too late"))
+
+    assert result["turn"]["kind"] == "complete"
+    assert result["analysis"] is None
+    row = fake_store.sessions[session_id]
+    assert row["status"] == state_machine.COMPLETE
+    event_types = [e["event_type"] for e in fake_store.events if e["session_id"] == session_id]
+    assert "session_time_expired" in event_types
+    assert "answer" not in event_types  # the late answer itself was never recorded
+
+
+def test_answering_comfortably_within_the_deadline_is_unaffected(fake_store, monkeypatch):
+    fake_store.profile = PROFILE_ROW
+    _patch_model_sequence(monkeypatch, [PLAN_REPLY, QUESTION_REPLY])
+    started = _run(interview_session.start("cand-1", "org-1", "Backend Engineer"))
+    session_id = started["session_id"]
+
+    fake_store.sessions[session_id]["available_minutes"] = 20
+    fake_store.sessions[session_id]["started_at"] = datetime.now(timezone.utc).isoformat()
+
+    _patch_model_sequence(monkeypatch, [{
+        "supported": True, "confidence": 0.9, "followup_required": False,
+        "evidence_quote": "I ran the standups myself.", "reason": "Concrete detail.",
+    }])
+    result = _run(interview_session.answer(session_id, "I ran the standups myself."))
+
+    assert result["analysis"]["supported"] is True
+    assert result["turn"]["kind"] == "complete"
 
 
 # --- concurrency: two answers racing on one session --------------------------

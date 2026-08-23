@@ -21,6 +21,8 @@ built for.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from ai import answer_analysis, evidence_linking, question_planning, report_generation
 from ai.coverage_manager import CoverageState, TopicOutcome, evaluate
 from ai.interview import InterviewTurn, TurnKind, next_turn
@@ -37,6 +39,27 @@ class SessionError(RuntimeError):
     a session that already completed, or starting one for a candidate whose
     profile isn't ready. Distinct from `SupabaseError`, which means storage
     itself failed."""
+
+
+# `available_minutes` (HR-configured, per interview_codes.generate) was only
+# ever used to shape the question plan's pacing — nothing stopped a session
+# from running arbitrarily long past it. A candidate (or a live-relay
+# connection left open) could keep answering for hours, and each answer is
+# a paid model call. This is a soft deadline, not a mid-answer cutoff: grace
+# room for the last in-flight question, not a guarantee the interview stops
+# the instant the clock hits zero.
+_TIME_LIMIT_GRACE_SECONDS = 120
+
+
+def is_time_expired(row: dict) -> bool:
+    started_at = row.get("started_at")
+    available_minutes = row.get("available_minutes")
+    if not started_at or not available_minutes:
+        return False
+    deadline = datetime.fromisoformat(started_at) + timedelta(
+        minutes=available_minutes, seconds=_TIME_LIMIT_GRACE_SECONDS,
+    )
+    return datetime.now(timezone.utc) >= deadline
 
 
 class SessionConflictError(SessionError):
@@ -142,6 +165,7 @@ async def start(
         "outcomes": {},
         "current_topic": turn.topic,
         "last_question": turn.question,
+        "available_minutes": available_minutes,
     })
     session_id = row["id"]
 
@@ -156,6 +180,43 @@ async def start(
     return {"session_id": session_id, "turn": turn.to_dict(), "coverage": coverage.to_dict()}
 
 
+async def complete_on_time_expiry(session_id: str, row: dict) -> dict:
+    """The candidate's `available_minutes` window has passed. Ends the
+    interview here rather than analyzing the answer that arrived after the
+    deadline — same reasoning as everywhere else the model isn't asked to
+    judge something it was never supposed to be handed. The trailing answer
+    is simply not recorded; the report reflects only what was covered inside
+    the allotted time, which is the honest account of what happened."""
+    won = await session_store.update_session(
+        session_id, {"status": state_machine.COMPLETE}, expected_version=row["version"],
+    )
+    if not won:
+        raise SessionConflictError(
+            f"session {session_id} was completed concurrently"
+        )
+    await session_store.append_event(
+        SessionEvent(session_id, EventType.SESSION_TIME_EXPIRED, {
+            "available_minutes": row.get("available_minutes"),
+        }).to_dict()
+    )
+    await session_store.append_event(
+        SessionEvent(session_id, EventType.SESSION_COMPLETE, {}).to_dict()
+    )
+
+    from . import codes_store
+    linked_code = await codes_store.fetch_by_session(session_id)
+    if linked_code is not None:
+        await codes_store.update_code(linked_code["id"], {"status": "used"})
+
+    turn = InterviewTurn(kind=TurnKind.COMPLETE)
+    return {
+        "session_id": session_id,
+        "turn": turn.to_dict(),
+        "coverage": row["coverage_state"],
+        "analysis": None,
+    }
+
+
 async def answer(
     session_id: str,
     answer_text: str,
@@ -167,6 +228,9 @@ async def answer(
         raise SessionError(f"no session {session_id}")
     if row["status"] != state_machine.IN_PROGRESS:
         raise SessionError(f"session {session_id} is {row['status']}, not in_progress")
+
+    if is_time_expired(row):
+        return await complete_on_time_expiry(session_id, row)
 
     plan = _plan_from_dict(row["question_plan"])
     outcomes = _outcomes_from_dict(row.get("outcomes") or {})
