@@ -80,6 +80,12 @@ services:
       GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
       GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-}
       GOOGLE_OAUTH_STATE_SECRET: ${GOOGLE_OAUTH_STATE_SECRET:-}
+      # Encrypts google_oauth_connections.access_token/refresh_token at
+      # rest (service/security/token_crypto.py). Generate once with:
+      # python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+      # and never commit it. Rotating requires re-encrypting the existing
+      # connection rows in the same deploy — see infra/README.md.
+      GOOGLE_TOKEN_ENCRYPTION_KEY: ${GOOGLE_TOKEN_ENCRYPTION_KEY:-}
 
       # Email (Ticket 21). Unset -> NullEmailProvider, which records an
       # honest "not configured" failure rather than pretending to send.

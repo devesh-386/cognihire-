@@ -11,8 +11,30 @@ from __future__ import annotations
 import httpx
 
 from pipeline.supabase_store import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL, SupabaseError
+from security import token_crypto
 
 _TIMEOUT = 30
+
+# access_token/refresh_token are encrypted in every row this module writes
+# and decrypted in every row it returns — callers (google_integration/oauth.py)
+# never see ciphertext and never need to know encryption is happening.
+_ENCRYPTED_FIELDS = ("access_token", "refresh_token")
+
+
+def _encrypt_row(fields: dict) -> dict:
+    out = dict(fields)
+    for field in _ENCRYPTED_FIELDS:
+        if out.get(field):
+            out[field] = token_crypto.encrypt(out[field])
+    return out
+
+
+def _decrypt_row(row: dict) -> dict:
+    out = dict(row)
+    for field in _ENCRYPTED_FIELDS:
+        if out.get(field):
+            out[field] = token_crypto.decrypt(out[field])
+    return out
 
 
 def _headers() -> dict[str, str]:
@@ -35,7 +57,7 @@ async def get_connection(organization_id: str) -> dict | None:
     if response.status_code != 200:
         raise SupabaseError(f"google_oauth_connections lookup failed: HTTP {response.status_code}")
     rows = response.json()
-    return rows[0] if rows else None
+    return _decrypt_row(rows[0]) if rows else None
 
 
 async def upsert_connection(fields: dict) -> dict:
@@ -46,10 +68,10 @@ async def upsert_connection(fields: dict) -> dict:
             f"{SUPABASE_URL}/rest/v1/google_oauth_connections",
             headers={**_headers(), "Prefer": "return=representation,resolution=merge-duplicates"},
             params={"on_conflict": "organization_id"},
-            json=fields,
+            json=_encrypt_row(fields),
         )
     if response.status_code not in (200, 201):
         raise SupabaseError(
             f"google_oauth_connections upsert failed: HTTP {response.status_code} {response.text[:200]}"
         )
-    return response.json()[0]
+    return _decrypt_row(response.json()[0])

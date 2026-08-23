@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
+from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
 from pipeline import demo_store, google_oauth_store, supabase_store
@@ -122,6 +123,7 @@ def client(fake_backend, monkeypatch):
     monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "fake-client-secret")
     monkeypatch.setenv("GOOGLE_OAUTH_REDIRECT_URI", "https://api.cognihire.online/google/oauth/callback")
     monkeypatch.setenv("GOOGLE_OAUTH_STATE_SECRET", "fake-state-secret")
+    monkeypatch.setenv("GOOGLE_TOKEN_ENCRYPTION_KEY", Fernet.generate_key().decode())
     return TestClient(main.app)
 
 
@@ -183,6 +185,25 @@ def test_callback_stores_the_connection_and_status_then_reports_it(client, fake_
 
     status_resp = client.get("/organizations/org-1/google/status", headers=_auth("org-1"))
     assert status_resp.json() == {"connected": True, "google_account_email": "hr@innotech.example"}
+
+
+def test_tokens_are_encrypted_in_the_stored_row_not_plaintext(client, fake_backend):
+    """The bug this closes: google_oauth_connections.access_token/refresh_token
+    were written verbatim — readable by anyone with DB read access (a leaked
+    service-role key, a backup, a misconfigured RLS policy) without needing
+    to touch Google at all."""
+    connect_resp = client.get("/organizations/org-1/google/connect", headers=_auth("org-1"))
+    state = parse_qs(urlparse(connect_resp.json()["authorize_url"]).query)["state"][0]
+    client.get(
+        "/google/oauth/callback",
+        params={"code": "auth-code", "state": state},
+        follow_redirects=False,
+    )
+
+    stored = fake_backend._connections[0]
+    assert stored["access_token"] != "fake-access-token"
+    assert stored["refresh_token"] != "fake-refresh-token"
+    assert "fake-access-token" not in stored["access_token"]
 
 
 def test_creating_a_form_without_a_connection_asks_to_connect_first(client, fake_backend):

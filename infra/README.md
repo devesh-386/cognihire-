@@ -611,6 +611,24 @@ GOOGLE_OAUTH_STATE_SECRET=generate-a-random-32-byte-value
 Until these are set, `GET /organizations/{id}/google/connect` returns a
 clean `503` (not a crash) — see `service/google_integration/oauth.py`.
 
+5. Set a fourth secret so the stored tokens are encrypted at rest, not
+   plaintext in the database (`service/security/token_crypto.py`):
+
+```bash
+GOOGLE_TOKEN_ENCRYPTION_KEY=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+```
+
+   **Deploy ordering matters**: any `google_oauth_connections` row written
+   before this key existed is still plaintext. The first deploy that sets
+   `GOOGLE_TOKEN_ENCRYPTION_KEY` must also run
+   `tool/reencrypt_google_tokens.py` once (service-role, encrypts any
+   plaintext row in place, idempotent — a row already encrypted with the
+   current key is left alone) — otherwise `get_valid_access_token` raises
+   `TokenCryptoError` the next time it reads that org's connection.
+   Rotating the key later means decrypting with the old key and
+   re-encrypting with the new one in the same script run, not just
+   swapping the env var.
+
 Once set, an HR user connects their org from the portal ("Connect Google" on
 the org settings page), and every subsequent "Create Application Form" for
 that org is a plain backend call — no further browser step per form.
