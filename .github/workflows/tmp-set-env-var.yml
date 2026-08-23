@@ -1,24 +1,19 @@
-# TEMPORARY, one-off utility — set a single key=value pair in the VM's .env
-# and restart the api container to pick it up. Manual dispatch only, never
-# runs automatically. Deleted after use (see the branch this ships on:
-# temp/set-google-key) — never merged into main/infra/foundations-epic0, so
-# this capability doesn't sit around as a standing "write arbitrary secrets
-# to the VM" button for anyone with push access.
+# TEMPORARY, one-off utility — set GOOGLE_TOKEN_ENCRYPTION_KEY in the VM's
+# .env and restart the api container to pick it up. Manual dispatch only,
+# never runs automatically. Deleted after use — never merged as a lasting
+# fixture, so this capability doesn't sit around as a standing "write
+# arbitrary secrets to the VM" button for anyone with push access.
 #
-# The value is passed as a workflow_dispatch input rather than a repo
-# secret, since this is a one-time bootstrap for a key that doesn't exist
-# yet anywhere else. The script never echoes it.
+# The value comes from a real GitHub Actions secret (TEMP_GOOGLE_TOKEN_
+# ENCRYPTION_KEY), not a workflow_dispatch input — a plain input is never
+# masked in logs (learned the hard way: an earlier version of this file
+# passed the key as an input and GitHub's own step-debug "env:" block
+# printed it in cleartext). A `secrets.*` reference is masked everywhere
+# GitHub renders it, including this exact debug block.
 name: TEMP - set env var on VM
 
 on:
-  workflow_dispatch:
-    inputs:
-      key_name:
-        required: true
-        type: string
-      key_value:
-        required: true
-        type: string
+  workflow_dispatch: {}
 
 jobs:
   set-env:
@@ -31,15 +26,14 @@ jobs:
           username: ${{ secrets.AZURE_VM_USER }}
           key: ${{ secrets.AZURE_VM_SSH_KEY }}
           script_stop: true
-          envs: KEY_NAME,KEY_VALUE
+          envs: KEY_VALUE
           command_timeout: 10m
           script: |
             set -e
             cd ~/CogniHire
             touch .env
 
-            # Idempotent upsert: replace an existing line for this key, or
-            # append if it's not there yet. Never echoes KEY_VALUE.
+            KEY_NAME="GOOGLE_TOKEN_ENCRYPTION_KEY"
             if grep -q "^${KEY_NAME}=" .env; then
               sed -i "s#^${KEY_NAME}=.*#${KEY_NAME}=${KEY_VALUE}#" .env
               echo "Updated existing ${KEY_NAME} in .env"
@@ -59,5 +53,4 @@ jobs:
             done
             cat /tmp/health.json
         env:
-          KEY_NAME: ${{ inputs.key_name }}
-          KEY_VALUE: ${{ inputs.key_value }}
+          KEY_VALUE: ${{ secrets.TEMP_GOOGLE_TOKEN_ENCRYPTION_KEY }}
