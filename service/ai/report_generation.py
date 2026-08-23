@@ -99,6 +99,14 @@ class TransparencyMetrics:
     # cover the whole interview when this is nonzero.
     topics_graded_by_heuristic: int
 
+    # Truncation disclosure (§4.5): true when the candidate had more usable
+    # claims/topics than claim_extraction/question_planning's own caps
+    # allowed through. A capped interview built from a subset should say so
+    # rather than reading as complete coverage of everything the candidate
+    # claimed.
+    claims_truncated: bool
+    topics_truncated: bool
+
     def to_dict(self) -> dict:
         return asdict(self)
 
@@ -237,4 +245,6 @@ def _transparency(plan: QuestionPlan, topics: list[TopicReport]) -> Transparency
             round(sum(confidences) / len(confidences), 3) if confidences else None
         ),
         topics_graded_by_heuristic=sum(1 for t in examined if t.heuristic_similarity is not None),
+        claims_truncated=plan.claims_truncated,
+        topics_truncated=plan.topics_truncated,
     )

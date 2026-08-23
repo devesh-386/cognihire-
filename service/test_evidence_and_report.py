@@ -184,6 +184,21 @@ def test_heuristic_graded_topics_have_no_confidence_and_dont_pull_the_mean():
     assert report.transparency.topics_graded_by_heuristic == 1
 
 
+def test_transparency_metrics_surface_truncation():
+    """§4.5: capping claims/topics without disclosure lets a report read as
+    complete coverage of everything the candidate claimed when it wasn't."""
+    truncated_plan = QuestionPlan(
+        topics=list(PLAN.topics),
+        kind="hosted_llm",
+        claims_truncated=True,
+        topics_truncated=True,
+    )
+    report = build_report(truncated_plan, CoverageState(), [], "Backend Engineer", "in_progress")
+
+    assert report.transparency.claims_truncated is True
+    assert report.transparency.topics_truncated is True
+
+
 def test_transparency_metrics_flag_the_deterministic_fallback():
     fallback_plan = QuestionPlan(
         topics=list(PLAN.topics),

@@ -81,6 +81,8 @@ def _plan_from_dict(d: dict) -> QuestionPlan:
         kind=d.get("kind", "heuristic_rule"),
         degraded_reason=d.get("degraded_reason"),
         rejected_ungrounded=d.get("rejected_ungrounded", []),
+        topics_truncated=d.get("topics_truncated", False),
+        claims_truncated=d.get("claims_truncated", False),
     )
 
 
@@ -139,6 +141,7 @@ async def start(
         profile, claims, role_title,
         required_skills=required_skills, difficulty=difficulty,
         available_minutes=available_minutes, provider_override=provider_override,
+        claims_truncated=bool(profile_row.get("claims_truncated")),
     )
     if not plan.topics:
         # Refused rather than opened-and-instantly-completed. A session with

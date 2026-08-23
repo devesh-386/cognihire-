@@ -250,6 +250,19 @@ def test_provider_outage_falls_back_to_claim_order(monkeypatch):
     assert all(t.grounded_in for t in result.topics)
 
 
+def test_fallback_plan_flags_truncation_when_time_caps_the_topic_count(monkeypatch):
+    """The heuristic fallback caps topics to what `available_minutes` can
+    fit (`count = min(len(ordered), available_minutes // 5)`) — when that's
+    fewer than the claims actually available, the plan must say so rather
+    than silently covering a subset."""
+    _patch_model(monkeypatch, error=httpx.TimeoutException("slow"))
+
+    result = _run(_plan(available_minutes=5))  # fits only 1 of 2 claims
+
+    assert len(result.topics) == 1
+    assert result.topics_truncated is True
+
+
 def test_provider_outage_orders_fallback_by_relevance_to_required_skills(monkeypatch):
     """The fallback plan is claim-order by default (see
     test_provider_outage_falls_back_to_claim_order), but when required_skills
@@ -345,6 +358,29 @@ def test_topic_count_is_capped(monkeypatch):
     result = _run(_plan())
 
     assert len(result.topics) == question_planning._MAX_TOPICS
+    assert result.topics_truncated is True
+
+
+def test_topic_count_under_the_cap_is_not_flagged_truncated(monkeypatch):
+    _patch_model(
+        monkeypatch,
+        {"topics": [{"topic": "Topic 1", "objective": "o", "grounded_in": ["Python"], "minutes": 5}], "coverage": []},
+    )
+    result = _run(_plan())
+    assert result.topics_truncated is False
+
+
+def test_claims_truncated_is_passed_through_from_the_caller(monkeypatch):
+    """This stage never sees the raw claim count claim_extraction started
+    with — only the already-capped list — so `claims_truncated` must be
+    whatever the caller (session/interview_session.start) says it is,
+    unrelated to this stage's own topic count."""
+    _patch_model(
+        monkeypatch,
+        {"topics": [{"topic": "Topic 1", "objective": "o", "grounded_in": ["Python"], "minutes": 5}], "coverage": []},
+    )
+    result = _run(_plan(claims_truncated=True))
+    assert result.claims_truncated is True
 
 
 def test_absurd_minutes_are_replaced_with_a_default(monkeypatch):

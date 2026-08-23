@@ -57,25 +57,37 @@ class ClaimExtraction:
     kind: str  # "hosted_llm" | "local_llm" | "heuristic_rule"
     degraded_reason: str | None = None
     rejected_ungrounded: list[str] = field(default_factory=list)
+    # True when the source had more usable claims than `_MAX_CANDIDATES`
+    # allowed through — the interview this candidate gets is built from a
+    # subset, not everything they claimed. Surfaced (via profile_builder's
+    # persisted `claims_truncated` and question_planning's own
+    # `claims_truncated` param) in the report's transparency block, rather
+    # than silently capping without disclosure.
+    claims_truncated: bool = False
 
 
-def _heuristic(document_text: str, source: str) -> list[Claim]:
+def _heuristic(document_text: str, source: str) -> tuple[list[Claim], bool]:
     """Shape-and-length fallback: no model, no meaning, just line filtering."""
     claims: list[Claim] = []
+    truncated = False
     for raw_line in document_text.splitlines():
         line = _BULLET_PREFIX.sub("", raw_line).strip()
-        if 15 <= len(line) <= 240:
-            claims.append(Claim(id=f"c{len(claims) + 1}", text=line, source=source))
+        if not (15 <= len(line) <= 240):
+            continue
         if len(claims) >= _MAX_CANDIDATES:
+            truncated = True
             break
-    return claims
+        claims.append(Claim(id=f"c{len(claims) + 1}", text=line, source=source))
+    return claims, truncated
 
 
 def _degrade(document_text: str, source: str, reason: str) -> ClaimExtraction:
+    claims, truncated = _heuristic(document_text, source)
     return ClaimExtraction(
-        claims=_heuristic(document_text, source),
+        claims=claims,
         kind="heuristic_rule",
         degraded_reason=reason,
+        claims_truncated=truncated,
     )
 
 
@@ -107,9 +119,11 @@ async def extract_claims(
     claims: list[Claim] = []
     rejected: list[str] = []
     seen: set[str] = set()
+    truncated = False
 
     for entry in raw:
         if len(claims) >= _MAX_CANDIDATES:
+            truncated = True
             break
         if not isinstance(entry, dict):
             continue
@@ -145,4 +159,5 @@ async def extract_claims(
         claims=claims,
         kind=provider.kind_for(reply.provider),
         rejected_ungrounded=rejected,
+        claims_truncated=truncated,
     )
