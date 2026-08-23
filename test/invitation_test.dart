@@ -7,6 +7,7 @@ void main() {
     String id = 'inv-1',
     String code = 'ABC123',
     InvitationStatus status = InvitationStatus.pending,
+    DateTime? expiresAt,
   }) =>
       Invitation(
         id: id,
@@ -16,6 +17,7 @@ void main() {
         code: code,
         createdAt: DateTime(2026, 8, 5, 10, 30),
         status: status,
+        expiresAt: expiresAt,
       );
 
   group('Invitation model', () {
@@ -43,6 +45,41 @@ void main() {
       expect(accepted.status, InvitationStatus.accepted);
       expect(accepted.code, 'ABC123');
       expect(accepted.roleId, 'role-backend');
+    });
+
+    test('expiresAt round-trips through JSON, null or set', () {
+      final withExpiry =
+          sample(expiresAt: DateTime(2026, 8, 12, 10, 30));
+      expect(
+        Invitation.fromJson(withExpiry.toJson()).expiresAt,
+        DateTime(2026, 8, 12, 10, 30),
+      );
+      expect(Invitation.fromJson(sample().toJson()).expiresAt, isNull);
+    });
+
+    test('revoked and scheduled statuses round-trip through JSON', () {
+      expect(
+        Invitation.fromJson(sample(status: InvitationStatus.revoked).toJson())
+            .status,
+        InvitationStatus.revoked,
+      );
+      expect(
+        Invitation.fromJson(
+                sample(status: InvitationStatus.scheduled).toJson())
+            .status,
+        InvitationStatus.scheduled,
+      );
+    });
+
+    test('isExpired is false with no expiresAt (never expires)', () {
+      expect(sample().isExpired, isFalse);
+    });
+
+    test('isExpired reflects whether expiresAt has passed', () {
+      final past = sample(expiresAt: DateTime(2000, 1, 1));
+      final future = sample(expiresAt: DateTime(2099, 1, 1));
+      expect(past.isExpired, isTrue);
+      expect(future.isExpired, isFalse);
     });
   });
 
@@ -107,6 +144,59 @@ void main() {
       final store = InMemoryInvitationStore();
       await store.saveInvitation(sample(code: 'ABC123'));
       expect(await store.findRedeemable('NOPE'), isNull);
+    });
+
+    test('an expired pending invitation cannot be redeemed', () async {
+      final store = InMemoryInvitationStore();
+      await store.saveInvitation(
+        sample(code: 'STALE', expiresAt: DateTime(2000, 1, 1)),
+      );
+      expect(await store.findRedeemable('STALE'), isNull);
+    });
+
+    test('an unexpired invitation with a future expiry is redeemable',
+        () async {
+      final store = InMemoryInvitationStore();
+      await store.saveInvitation(
+        sample(code: 'FRESH', expiresAt: DateTime(2099, 1, 1)),
+      );
+      expect(await store.findRedeemable('FRESH'), isNotNull);
+    });
+
+    test('revokeInvitation moves a pending invitation to revoked', () async {
+      final store = InMemoryInvitationStore();
+      await store.saveInvitation(sample(code: 'ABC123'));
+      final invitation = (await store.listInvitations()).invitations.single;
+
+      await store.revokeInvitation(invitation);
+
+      final after = (await store.listInvitations()).invitations.single;
+      expect(after.status, InvitationStatus.revoked);
+    });
+
+    test('a revoked invitation cannot be redeemed', () async {
+      final store = InMemoryInvitationStore();
+      await store.saveInvitation(sample(code: 'ABC123'));
+      final invitation = (await store.listInvitations()).invitations.single;
+      await store.revokeInvitation(invitation);
+
+      expect(await store.findRedeemable('ABC123'), isNull);
+    });
+
+    test('revoking an already-accepted invitation is a no-op, not an error',
+        () async {
+      // HR clicking Revoke on something a candidate just redeemed a moment
+      // ago should not throw or silently un-accept it.
+      final store = InMemoryInvitationStore();
+      await store.saveInvitation(
+        sample(code: 'ABC123', status: InvitationStatus.accepted),
+      );
+      final invitation = (await store.listInvitations()).invitations.single;
+
+      await store.revokeInvitation(invitation);
+
+      final after = (await store.listInvitations()).invitations.single;
+      expect(after.status, InvitationStatus.accepted);
     });
   });
 }

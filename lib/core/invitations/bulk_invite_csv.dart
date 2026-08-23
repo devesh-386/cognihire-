@@ -134,6 +134,7 @@ List<Invitation> buildInvitationsFromRows(
         roleId: roleId,
         code: generateInvitationCode(salt: i),
         createdAt: now,
+        expiresAt: now.add(defaultInvitationValidity),
       ),
   ];
 }

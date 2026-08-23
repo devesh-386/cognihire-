@@ -106,6 +106,11 @@ Deno.serve(async (req: Request) => {
   const oneHourMs = 60 * 60 * 1000;
   const codeSendAt = new Date(scheduledAt.getTime() - oneHourMs);
   const reminderSendAt = new Date(scheduledAt.getTime() - oneHourMs / 2);
+  // A code for a scheduled slot is meaningless once that slot has passed —
+  // give it a day past the scheduled time as a grace window (a candidate
+  // running late, a clock skew) rather than expiring it at the exact
+  // instant the interview was supposed to start.
+  const expiresAt = new Date(scheduledAt.getTime() + 24 * oneHourMs);
 
   const invitationId = `inv-apply-${crypto.randomUUID()}`;
   const { error: invitationError } = await client.from("invitations").insert({
@@ -118,6 +123,7 @@ Deno.serve(async (req: Request) => {
     scheduled_at: scheduledAt.toISOString(),
     code_send_at: codeSendAt.toISOString(),
     reminder_send_at: reminderSendAt.toISOString(),
+    expires_at: expiresAt.toISOString(),
   });
   if (invitationError) {
     return json({ error: invitationError.message }, 500);

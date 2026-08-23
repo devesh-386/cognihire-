@@ -110,5 +110,17 @@ void main() {
     test('an empty row list builds nothing', () {
       expect(buildInvitationsFromRows(const [], 'role-backend'), isEmpty);
     });
+
+    test('every built invitation gets an expiry, not left open forever', () {
+      const rows = [BulkInviteRow(name: 'Jordan Rivera', email: 'jordan@example.com')];
+      final invitations = buildInvitationsFromRows(rows, 'role-backend');
+      final invitation = invitations.single;
+
+      expect(invitation.expiresAt, isNotNull);
+      expect(
+        invitation.expiresAt!.difference(invitation.createdAt),
+        defaultInvitationValidity,
+      );
+    });
   });
 }

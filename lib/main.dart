@@ -398,6 +398,11 @@ class _NoInvitationStore implements InvitationStore {
 
   @override
   Future<Invitation?> findRedeemable(String code) async => null;
+
+  @override
+  Future<void> revokeInvitation(Invitation invitation) => throw UnsupportedError(
+        'No invitation store was supplied to this HomeScreen.',
+      );
 }
 
 /// Entry point: nine destinations behind one persistent rail. What exists is
