@@ -1161,6 +1161,33 @@ async def list_candidates(authorization: str | None = Header(default=None)) -> d
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+def _safe_download_filename(resume_path: str) -> str:
+    """The last path segment of `resume_path`, reduced to characters that
+    cannot break out of the quoted `filename="..."` in a Content-Disposition
+    header.
+
+    That segment is not ours. It is whatever the candidate's browser called
+    the file at upload time, carried through `infra/apply-webhook` (and the
+    Google Form intake path) into the storage key and back out here. A
+    filename containing a double quote closes the quoted string early and
+    lets the rest be read as further header parameters; a CR or LF is a
+    header-splitting attempt. Starlette rejects the most blatant of those,
+    but "the framework probably catches it" is not the check — this is.
+
+    Everything outside [A-Za-z0-9._-] becomes an underscore, leading dots
+    are dropped so the result can't be a hidden/relative name, and the
+    length is capped. An empty or fully-stripped name falls back to a
+    constant rather than emitting `filename=""`.
+
+    The upload side validates this too (see `infra/apply-webhook`), so this
+    is the second of two independent checks, not the only one — résumés
+    predating that validation are already in the bucket."""
+    segment = resume_path.rsplit("/", 1)[-1]
+    cleaned = "".join(c if (c.isalnum() and c.isascii()) or c in "._-" else "_" for c in segment)
+    cleaned = cleaned.lstrip(".")[:120]
+    return cleaned or "resume.pdf"
+
+
 @app.get("/candidates/{candidate_id}/resume")
 async def get_candidate_resume(
     candidate_id: str, authorization: str | None = Header(default=None),
@@ -1193,11 +1220,10 @@ async def get_candidate_resume(
     except supabase_store.SupabaseError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    filename = resume_path.rsplit("/", 1)[-1]
     return Response(
         content=content,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        headers={"Content-Disposition": f'inline; filename="{_safe_download_filename(resume_path)}"'},
     )
 
 
