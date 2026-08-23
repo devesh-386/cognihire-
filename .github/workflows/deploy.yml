@@ -17,10 +17,21 @@ name: Deploy backend to Azure VM
 # support path filtering, and Tests already fires on every push, so gating
 # on Tests implicitly still means "something changed", just not scoped to
 # which files.
+#
+# `main` is the deploy branch (Phase 2.3 of the remediation plan). This
+# filter still said `infra/foundations-epic0` long after PRs started
+# merging into `main`, so a merge to `main` ran Tests, went green, and then
+# deployed nothing — while the deploy history still looked healthy, because
+# every commit that did deploy happened to sit on BOTH branches. PR #5 was
+# the first merge to land on `main` alone, and it silently never shipped.
+#
+# Deliberately ONE branch, not both: two branches auto-deploying to a single
+# VM race each other, and whichever finishes last decides what is actually
+# running.
 on:
   workflow_run:
     workflows: ["Tests"]
-    branches: [infra/foundations-epic0]
+    branches: [main]
     types: [completed]
   workflow_dispatch: {}
 
