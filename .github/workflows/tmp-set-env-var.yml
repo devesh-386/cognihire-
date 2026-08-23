@@ -33,29 +33,35 @@ jobs:
             cd ~/CogniHire || { echo "FAILED: could not cd to ~/CogniHire"; exit 1; }
             echo "step 1: cd ok"
 
-            KEY_NAME="GOOGLE_TOKEN_ENCRYPTION_KEY"
-            touch .env
-            if grep -q "^${KEY_NAME}=" .env; then
-              sed -i "s#^${KEY_NAME}=.*#${KEY_NAME}=${KEY_VALUE}#" .env
-              echo "step 2: updated existing ${KEY_NAME} in .env"
-            else
-              echo "${KEY_NAME}=${KEY_VALUE}" >> .env
-              echo "step 2: appended ${KEY_NAME} to .env"
+            # tool/ isn't in the image (build context is ./service only) —
+            # copy the script into the running container's /app so it can
+            # import `security.token_crypto` the same way main.py does
+            # (Python auto-adds a script's own directory to sys.path[0]).
+            CONTAINER=$(docker compose -f docker-compose.api.yml ps -q api)
+            if [ -z "$CONTAINER" ]; then
+              echo "FAILED: no running api container found"; exit 1
             fi
+            docker cp tool/reencrypt_google_tokens.py "$CONTAINER":/app/reencrypt_google_tokens.py \
+              && echo "step 2: script copied into container" \
+              || echo "step 2 FAILED: docker cp"
 
-            docker compose -f docker-compose.api.yml up -d --force-recreate api \
-              && echo "step 3: container recreated" \
-              || echo "step 3 FAILED: docker compose up exited non-zero"
+            echo "step 3: dry run"
+            docker compose -f docker-compose.api.yml exec -T api \
+              python reencrypt_google_tokens.py --dry-run \
+              || echo "step 3 FAILED: dry-run exited non-zero"
 
-            for i in $(seq 1 30); do
-              if curl -fsS http://localhost:8000/health > /tmp/health.json 2>/dev/null; then
-                echo "step 4: service responded after $i attempt(s)"
-                break
-              fi
-              echo "waiting for the service to come up ($i/30)..."
-              sleep 5
-            done
-            echo "step 5: health response follows"
-            cat /tmp/health.json || echo "(no health.json — service never responded)"
+            echo "step 4: apply"
+            docker compose -f docker-compose.api.yml exec -T api \
+              python reencrypt_google_tokens.py --apply \
+              || echo "step 4 FAILED: apply exited non-zero"
+
+            echo "step 5: re-run dry-run to confirm — should report 'already encrypted'"
+            docker compose -f docker-compose.api.yml exec -T api \
+              python reencrypt_google_tokens.py --dry-run \
+              || echo "step 5 FAILED: confirmation dry-run exited non-zero"
+
+            docker compose -f docker-compose.api.yml exec -T api \
+              rm -f /app/reencrypt_google_tokens.py
+            echo "step 6: cleanup done"
         env:
           KEY_VALUE: ${{ secrets.TEMP_GOOGLE_TOKEN_ENCRYPTION_KEY }}
