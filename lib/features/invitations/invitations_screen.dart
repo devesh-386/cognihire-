@@ -261,6 +261,32 @@ class InvitationsScreenState extends State<InvitationsScreen> {
     );
   }
 
+  Future<void> _revoke(Invitation invitation) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Revoke this invitation?'),
+        content: Text(
+          'The code for ${invitation.candidateName} will stop working '
+          'immediately. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Revoke'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await widget.invitationStore.revokeInvitation(invitation);
+    await reload();
+  }
+
   Role? _roleFor(String id, List<Role> roles) {
     for (final role in roles) {
       if (role.id == id) return role;
@@ -332,6 +358,9 @@ class InvitationsScreenState extends State<InvitationsScreen> {
                           invitation,
                           _roleFor(invitation.roleId, roles),
                         ),
+                onRevoke: invitation.status == InvitationStatus.pending
+                    ? () => _revoke(invitation)
+                    : null,
               ),
             ),
       ],
@@ -345,6 +374,7 @@ class _InvitationCard extends StatelessWidget {
     required this.role,
     required this.result,
     required this.onSendEmail,
+    required this.onRevoke,
   });
 
   final Invitation invitation;
@@ -358,10 +388,17 @@ class _InvitationCard extends StatelessWidget {
   /// button is hidden rather than shown disabled with no way to explain why.
   final VoidCallback? onSendEmail;
 
+  /// Null when this invitation isn't in a revocable state (already
+  /// accepted/revoked, or expired) — the action is hidden rather than shown
+  /// disabled with no way to explain why, same reasoning as [onSendEmail].
+  final VoidCallback? onRevoke;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final accepted = invitation.status == InvitationStatus.accepted;
+    final expired = invitation.status == InvitationStatus.pending &&
+        invitation.isExpired;
+
     return Card(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(Radii.surface),
@@ -387,49 +424,99 @@ class _InvitationCard extends StatelessWidget {
                 ],
               ),
             ),
-            if (!accepted) ...[
-              SelectableText(
-                invitation.code,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                  letterSpacing: 2,
-                ),
-              ),
-              const SizedBox(width: Spacing.sm),
-              IconButton(
-                tooltip: 'Copy code',
-                icon: const Icon(Icons.copy_outlined, size: 18),
-                onPressed: () =>
-                    Clipboard.setData(ClipboardData(text: invitation.code)),
-              ),
-              if (onSendEmail != null) ...[
-                const SizedBox(width: Spacing.xs),
-                IconButton(
-                  tooltip: 'Email the code to ${invitation.candidateEmail}',
-                  icon: const Icon(Icons.email_outlined, size: 18),
-                  onPressed: onSendEmail,
-                ),
-              ],
-            ] else if (result != null)
-              OutlinedButton.icon(
-                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => ClaimAuditScreen(
-                    audit: result!.audit,
-                    label: result!.label,
-                  ),
-                )),
-                icon: const Icon(Icons.fact_check_outlined, size: 18),
-                label: const Text('View report'),
-              )
-            else
-              Chip(
-                avatar: const Icon(Icons.hourglass_empty, size: 16),
-                label: const Text('Redeemed — awaiting interview'),
-              ),
+            ..._trailing(context, expired: expired),
           ],
         ),
       ),
     );
+  }
+
+  List<Widget> _trailing(BuildContext context, {required bool expired}) {
+    switch (invitation.status) {
+      case InvitationStatus.scheduled:
+        // Not yet emailed (infra/reminder-scheduler hasn't reached
+        // code_send_at) — the code is real but showing it as ready to hand
+        // out would race the automated send and confuse HR about who's
+        // actually responsible for delivering it.
+        return const [
+          Chip(
+            avatar: Icon(Icons.schedule_outlined, size: 16),
+            label: Text('Scheduled — code not sent yet'),
+          ),
+        ];
+
+      case InvitationStatus.revoked:
+        return const [
+          Chip(
+            avatar: Icon(Icons.block_outlined, size: 16),
+            label: Text('Revoked'),
+          ),
+        ];
+
+      case InvitationStatus.accepted:
+        if (result != null) {
+          return [
+            OutlinedButton.icon(
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => ClaimAuditScreen(
+                  audit: result!.audit,
+                  label: result!.label,
+                ),
+              )),
+              icon: const Icon(Icons.fact_check_outlined, size: 18),
+              label: const Text('View report'),
+            ),
+          ];
+        }
+        return const [
+          Chip(
+            avatar: Icon(Icons.hourglass_empty, size: 16),
+            label: Text('Redeemed — awaiting interview'),
+          ),
+        ];
+
+      case InvitationStatus.pending:
+        if (expired) {
+          return const [
+            Chip(
+              avatar: Icon(Icons.timer_off_outlined, size: 16),
+              label: Text('Expired'),
+            ),
+          ];
+        }
+        return [
+          SelectableText(
+            invitation.code,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                  letterSpacing: 2,
+                ),
+          ),
+          const SizedBox(width: Spacing.sm),
+          IconButton(
+            tooltip: 'Copy code',
+            icon: const Icon(Icons.copy_outlined, size: 18),
+            onPressed: () =>
+                Clipboard.setData(ClipboardData(text: invitation.code)),
+          ),
+          if (onSendEmail != null) ...[
+            const SizedBox(width: Spacing.xs),
+            IconButton(
+              tooltip: 'Email the code to ${invitation.candidateEmail}',
+              icon: const Icon(Icons.email_outlined, size: 18),
+              onPressed: onSendEmail,
+            ),
+          ],
+          if (onRevoke != null) ...[
+            const SizedBox(width: Spacing.xs),
+            IconButton(
+              tooltip: 'Revoke this invitation',
+              icon: const Icon(Icons.block_outlined, size: 18),
+              onPressed: onRevoke,
+            ),
+          ],
+        ];
+    }
   }
 }
 
@@ -472,13 +559,15 @@ class _InviteDialogState extends State<_InviteDialog> {
       setState(() => _error = 'Pick a role.');
       return;
     }
+    final now = DateTime.now();
     Navigator.of(context).pop(Invitation(
-      id: 'inv-${DateTime.now().microsecondsSinceEpoch}',
+      id: 'inv-${now.microsecondsSinceEpoch}',
       candidateName: name,
       candidateEmail: _email.text.trim(),
       roleId: roleId,
       code: generateInvitationCode(),
-      createdAt: DateTime.now(),
+      createdAt: now,
+      expiresAt: now.add(defaultInvitationValidity),
     ));
   }
 

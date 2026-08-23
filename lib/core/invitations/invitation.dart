@@ -19,13 +19,30 @@ library;
 
 /// Where an invitation is in its short lifecycle.
 enum InvitationStatus {
+  /// Created ahead of time (the self-hosted Apply page's auto-invite path —
+  /// see infra/apply-webhook), but its code hasn't been emailed yet
+  /// (`code_send_at` hasn't arrived — infra/reminder-scheduler sends it and
+  /// advances the row to [pending]). Not redeemable: `get_redeemable_invitation`
+  /// and `accept_invitation` only ever match `status = 'pending'`.
+  /// invitations_screen.dart's manual HR-invite path skips this state
+  /// entirely and creates rows as [pending] directly.
+  scheduled,
+
   /// Issued by HR, not yet redeemed by the candidate.
   pending,
 
   /// Redeemed — the candidate has entered through it. Kept (not deleted) so HR
   /// can see that an invitation was acted on and trace it to the resulting
   /// session.
-  accepted;
+  accepted,
+
+  /// HR withdrew it before it was redeemed. Terminal, like [accepted] — kept
+  /// rather than deleted so HR can see it was deliberately withdrawn, not
+  /// just quietly vanish. A revoked code stops working immediately: the
+  /// server-side RPCs only ever match `status = 'pending'`, so leaving this
+  /// state is enough on its own — no separate "is revoked" check needed
+  /// anywhere a redemption happens.
+  revoked;
 
   String get wireValue => name;
 
@@ -59,6 +76,13 @@ String generateInvitationCode({int salt = 0}) {
   return buffer.toString();
 }
 
+/// How long a manually-issued (invitations_screen.dart) invitation stays
+/// redeemable if HR doesn't set anything else — matches interview_codes'
+/// `expires_in_hours` default of 72h, same reasoning: long enough to
+/// actually reach the candidate, short enough that a code isn't usable
+/// indefinitely.
+const defaultInvitationValidity = Duration(hours: 72);
+
 class Invitation {
   const Invitation({
     required this.id,
@@ -68,6 +92,7 @@ class Invitation {
     required this.createdAt,
     this.candidateEmail = '',
     this.status = InvitationStatus.pending,
+    this.expiresAt,
   });
 
   final String id;
@@ -91,6 +116,15 @@ class Invitation {
   final DateTime createdAt;
   final InvitationStatus status;
 
+  /// Null means "never expires" — the pre-hardening behaviour, and still
+  /// what a row from before this field existed reads as. Only newly-created
+  /// invitations set it (see `_InviteDialogState._save` and
+  /// `buildInvitationsFromRows`).
+  final DateTime? expiresAt;
+
+  bool get isExpired =>
+      expiresAt != null && expiresAt!.isBefore(DateTime.now());
+
   Invitation copyWith({InvitationStatus? status}) => Invitation(
         id: id,
         candidateName: candidateName,
@@ -99,6 +133,7 @@ class Invitation {
         code: code,
         createdAt: createdAt,
         status: status ?? this.status,
+        expiresAt: expiresAt,
       );
 
   Map<String, Object?> toJson() => {
@@ -109,6 +144,7 @@ class Invitation {
         'code': code,
         'createdAt': createdAt.toIso8601String(),
         'status': status.wireValue,
+        'expiresAt': expiresAt?.toIso8601String(),
       };
 
   /// Strict decoder, matching the rest of the codebase: a missing or wrongly
@@ -128,6 +164,8 @@ class Invitation {
       throw FormatException('Invitation.status: unknown "${json['status']}"');
     }
 
+    final expiresAtRaw = json['expiresAt'] as String?;
+
     return Invitation(
       id: need<String>('id'),
       candidateName: need<String>('candidateName'),
@@ -136,6 +174,7 @@ class Invitation {
       code: need<String>('code'),
       createdAt: DateTime.parse(need<String>('createdAt')),
       status: status,
+      expiresAt: expiresAtRaw == null ? null : DateTime.parse(expiresAtRaw),
     );
   }
 }

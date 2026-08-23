@@ -85,7 +85,25 @@ class SupabaseInvitationStore implements InvitationStore {
       'code': invitation.code,
       'status': invitation.status.wireValue,
       'created_at': invitation.createdAt.toIso8601String(),
+      'expires_at': invitation.expiresAt?.toIso8601String(),
     });
+  }
+
+  @override
+  Future<void> revokeInvitation(Invitation invitation) async {
+    // RLS-gated ('org members update own invitations': organization_id =
+    // auth_organization_id()) rather than a SECURITY DEFINER RPC — unlike
+    // accept_invitation/get_redeemable_invitation, this is HR revoking their
+    // own organization's invitation from an authenticated session, so the
+    // ordinary org-scoped policy already covers it; no new RPC needed.
+    // `.eq('status', 'pending')` mirrors accept_invitation's own guard: a
+    // revoke that loses the race to a candidate's accept simply matches
+    // zero rows rather than un-accepting them.
+    await _client
+        .from('invitations')
+        .update({'status': InvitationStatus.revoked.wireValue})
+        .eq('id', invitation.id)
+        .eq('status', InvitationStatus.pending.wireValue);
   }
 
   @override
@@ -100,6 +118,7 @@ class SupabaseInvitationStore implements InvitationStore {
 
   Invitation _fromJoinedRow(Map<String, dynamic> row) {
     final candidate = row['candidates'] as Map<String, dynamic>?;
+    final expiresAtRaw = row['expires_at'] as String?;
     return Invitation(
       id: row['id'] as String,
       candidateName: candidate?['name'] as String? ?? '',
@@ -109,6 +128,7 @@ class SupabaseInvitationStore implements InvitationStore {
       createdAt: DateTime.parse(row['created_at'] as String),
       status: InvitationStatus.fromWire(row['status'] as String?) ??
           InvitationStatus.pending,
+      expiresAt: expiresAtRaw == null ? null : DateTime.parse(expiresAtRaw),
     );
   }
 

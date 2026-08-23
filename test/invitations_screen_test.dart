@@ -139,6 +139,129 @@ void main() {
     expect(find.text('View report'), findsNothing);
   });
 
+  testWidgets('an expired pending invitation shows Expired, not its code',
+      (tester) async {
+    setRealisticSize(tester);
+    final roleStore = InMemoryRoleStore();
+    await roleStore.saveRole(Role(
+      id: 'r1',
+      title: 'Senior Backend',
+      requiredSkills: const [],
+      createdAt: DateTime(2026, 1, 1),
+    ));
+    final invitationStore = InMemoryInvitationStore();
+    await invitationStore.saveInvitation(Invitation(
+      id: 'inv-1',
+      candidateName: 'Jordan Rivera',
+      roleId: 'r1',
+      code: 'ABC123',
+      createdAt: DateTime(2026, 1, 1),
+      expiresAt: DateTime(2026, 1, 2), // long past
+    ));
+
+    await tester.pumpWidget(screenWith(roleStore, invitationStore));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Expired'), findsOneWidget);
+    expect(find.text('ABC123'), findsNothing);
+  });
+
+  testWidgets(
+      'a scheduled invitation (auto-invite, code not sent yet) hides the code',
+      (tester) async {
+    setRealisticSize(tester);
+    final roleStore = InMemoryRoleStore();
+    await roleStore.saveRole(Role(
+      id: 'r1',
+      title: 'Senior Backend',
+      requiredSkills: const [],
+      createdAt: DateTime(2026, 1, 1),
+    ));
+    final invitationStore = InMemoryInvitationStore();
+    await invitationStore.saveInvitation(Invitation(
+      id: 'inv-1',
+      candidateName: 'Jordan Rivera',
+      roleId: 'r1',
+      code: 'ABC123',
+      createdAt: DateTime(2026, 8, 1),
+      status: InvitationStatus.scheduled,
+    ));
+
+    await tester.pumpWidget(screenWith(roleStore, invitationStore));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Scheduled — code not sent yet'), findsOneWidget);
+    expect(find.text('ABC123'), findsNothing);
+  });
+
+  testWidgets('a pending invitation can be revoked, with confirmation',
+      (tester) async {
+    setRealisticSize(tester);
+    final roleStore = InMemoryRoleStore();
+    await roleStore.saveRole(Role(
+      id: 'r1',
+      title: 'Senior Backend',
+      requiredSkills: const [],
+      createdAt: DateTime(2026, 1, 1),
+    ));
+    final invitationStore = InMemoryInvitationStore();
+    await invitationStore.saveInvitation(Invitation(
+      id: 'inv-1',
+      candidateName: 'Jordan Rivera',
+      roleId: 'r1',
+      code: 'ABC123',
+      createdAt: DateTime(2026, 8, 1),
+      expiresAt: DateTime(2099, 1, 1),
+    ));
+
+    await tester.pumpWidget(screenWith(roleStore, invitationStore));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Revoke this invitation'));
+    await tester.pumpAndSettle();
+    // Cancelling the confirmation must not revoke it.
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('ABC123'), findsOneWidget);
+    final afterCancel = await invitationStore.listInvitations();
+    expect(afterCancel.invitations.single.status, InvitationStatus.pending);
+
+    await tester.tap(find.byTooltip('Revoke this invitation'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Revoke'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Revoked'), findsOneWidget);
+    final afterRevoke = await invitationStore.listInvitations();
+    expect(afterRevoke.invitations.single.status, InvitationStatus.revoked);
+  });
+
+  testWidgets('an accepted invitation has no revoke action',
+      (tester) async {
+    setRealisticSize(tester);
+    final roleStore = InMemoryRoleStore();
+    await roleStore.saveRole(Role(
+      id: 'r1',
+      title: 'Senior Backend',
+      requiredSkills: const [],
+      createdAt: DateTime(2026, 1, 1),
+    ));
+    final invitationStore = InMemoryInvitationStore();
+    await invitationStore.saveInvitation(Invitation(
+      id: 'inv-1',
+      candidateName: 'Jordan Rivera',
+      roleId: 'r1',
+      code: 'ABC123',
+      createdAt: DateTime(2026, 8, 1),
+      status: InvitationStatus.accepted,
+    ));
+
+    await tester.pumpWidget(screenWith(roleStore, invitationStore));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('Revoke this invitation'), findsNothing);
+  });
+
   testWidgets(
       'an accepted invitation with no session yet shows a waiting status',
       (tester) async {

@@ -26,10 +26,17 @@ abstract class InvitationStore {
   /// Creates or replaces an invitation, keyed on [Invitation.id].
   Future<void> saveInvitation(Invitation invitation);
 
-  /// The pending invitation matching [code] (case-insensitively), or null when
-  /// no pending invitation has that code. Already-accepted invitations do not
-  /// match, so a code cannot be redeemed twice.
+  /// The pending, unexpired invitation matching [code] (case-insensitively),
+  /// or null when none matches. Already-accepted, revoked, and expired
+  /// invitations do not match, so a code cannot be redeemed twice, after
+  /// HR withdraws it, or past its own deadline.
   Future<Invitation?> findRedeemable(String code);
+
+  /// Withdraws [invitation] before it's redeemed — a terminal transition,
+  /// same as accepting. Calling this on an already-accepted/revoked/expired
+  /// invitation is a no-op, not an error: HR clicking Revoke on something
+  /// that just got redeemed a moment ago should not throw in their face.
+  Future<void> revokeInvitation(Invitation invitation);
 }
 
 class InMemoryInvitationStore implements InvitationStore {
@@ -53,10 +60,19 @@ class InMemoryInvitationStore implements InvitationStore {
     if (needle.isEmpty) return null;
     for (final invitation in _invitations.values) {
       if (invitation.status == InvitationStatus.pending &&
+          !invitation.isExpired &&
           invitation.code.toLowerCase() == needle) {
         return invitation;
       }
     }
     return null;
+  }
+
+  @override
+  Future<void> revokeInvitation(Invitation invitation) async {
+    final current = _invitations[invitation.id];
+    if (current == null || current.status != InvitationStatus.pending) return;
+    _invitations[invitation.id] =
+        current.copyWith(status: InvitationStatus.revoked);
   }
 }
