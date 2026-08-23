@@ -22,5 +22,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Runs as an unprivileged user rather than root (the image's default) — a
+# code-execution bug in this service (or a compromised dependency) then
+# can't write outside what this user owns, can't install packages, and
+# can't touch anything else on a shared host. `/app` is chown'd since pip's
+# install above already ran as root and left root-owned files; nothing else
+# under it needs to be writable at runtime (uploads/temp files go through
+# Python's tempfile module, which uses /tmp — world-writable regardless of
+# UID).
+RUN useradd --create-home --uid 1000 cognihire && chown -R cognihire:cognihire /app
+USER cognihire
+
 EXPOSE 8000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

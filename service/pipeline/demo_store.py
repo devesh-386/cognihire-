@@ -83,6 +83,40 @@ async def create_organization(name: str) -> dict:
     return await _insert_one("organizations", {"name": name})
 
 
+async def create_invite(fields: dict) -> dict:
+    """One pending invitation into an existing organization. `fields` carries
+    `token_hash`, never the raw token — see migration 0013 for why the raw
+    value is returned to the caller once and never stored."""
+    return await _insert_one("organization_invites", fields)
+
+
+async def fetch_live_invite(token_hash: str) -> dict | None:
+    """A pending, unaccepted invitation for this token, or None. Expiry and
+    the email match are checked by the caller, which owns the error copy."""
+    return await _get_one("organization_invites", {
+        "token_hash": f"eq.{token_hash}", "accepted_at": "is.null", "select": "*",
+    })
+
+
+async def mark_invite_accepted(invite_id: str, accepted_at: str) -> bool:
+    """Compare-and-swap: spends the invitation only if it is still unspent,
+    so two simultaneous redemptions of one invite cannot both create an
+    account. Same single-PATCH-is-one-atomic-UPDATE reasoning as
+    `session/codes_store.py`'s `claim_code`. True if this caller won."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        response = await client.patch(
+            f"{SUPABASE_URL}/rest/v1/organization_invites",
+            headers={**_headers(), "Prefer": "return=representation"},
+            params={"id": f"eq.{invite_id}", "accepted_at": "is.null"},
+            json={"accepted_at": accepted_at},
+        )
+    if response.status_code not in (200, 204):
+        raise SupabaseError(
+            f"invite claim failed: HTTP {response.status_code} {response.text[:200]}"
+        )
+    return bool(response.json()) if response.status_code == 200 else True
+
+
 async def find_role(organization_id: str, title: str) -> dict | None:
     return await _get_one("roles", {
         "organization_id": f"eq.{organization_id}", "title": f"eq.{title}", "select": "*",
@@ -145,14 +179,27 @@ async def find_auth_user_by_email(email: str) -> dict | None:
 async def create_hr_user(
     email: str, password: str, organization_id: str, *, name: str | None = None,
 ) -> dict:
+    # `organization_id` and `role` go in app_metadata, NOT user_metadata.
+    #
+    # user_metadata is the user's own: GoTrue lets any signed-in account
+    # rewrite it with its own token (PUT /auth/v1/user). Both this system's
+    # authorization layers read the organization from the JWT — the database's
+    # `auth_organization_id()` for every RLS policy, and `_require_org` in
+    # main.py for every backend route — so with the org id in user_metadata,
+    # a recruiter could re-point themselves at another company and both
+    # layers would agree. app_metadata is service-role-only, carried in the
+    # JWT identically, and cannot be written by the account it describes.
+    # See infra/migrations/0012_auth_org_from_app_metadata.sql.
+    #
     # Every account this function creates is HR/recruiter — there is no
     # candidate equivalent (candidates never get a Supabase Auth user, only
     # an interview code) — so "role": "recruiter" is a fact, not a guess.
     # Flutter's principalFromUser() (supabase_auth_store.dart) refuses to
     # sign in any account missing this key rather than default it.
-    user_metadata = {"organization_id": organization_id, "role": "recruiter"}
-    if name:
-        user_metadata["name"] = name
+    app_metadata = {"organization_id": organization_id, "role": "recruiter"}
+    # Display name is genuinely the user's own and grants nothing, so it
+    # stays where a user is allowed to edit it.
+    user_metadata = {"name": name} if name else {}
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         response = await client.post(
             f"{SUPABASE_URL}/auth/v1/admin/users",
@@ -161,6 +208,7 @@ async def create_hr_user(
                 "email": email,
                 "password": password,
                 "email_confirm": True,
+                "app_metadata": app_metadata,
                 "user_metadata": user_metadata,
             },
         )

@@ -115,6 +115,16 @@ class QuestionPlan:
     # actually claimed, and were therefore dropped.
     rejected_ungrounded: list[str] = field(default_factory=list)
 
+    # Truncation disclosure (§4.5): a plan built from fewer topics/claims
+    # than actually existed, without saying so, reads as complete coverage
+    # when it wasn't. `topics_truncated` is this stage's own cap
+    # (`_MAX_TOPICS`); `claims_truncated` is passed through from
+    # claim_extraction's own cap (`_MAX_CANDIDATES`) — this stage never
+    # sees the raw claim count itself, only the already-capped list handed
+    # to `plan()`, so the caller (interview_session.start) supplies it.
+    topics_truncated: bool = False
+    claims_truncated: bool = False
+
     @property
     def is_degraded(self) -> bool:
         return self.degraded_reason is not None
@@ -155,6 +165,7 @@ async def _fallback(
     available_minutes: int,
     reason: str | None,
     required_skills: list[str] | None = None,
+    claims_truncated: bool = False,
 ) -> QuestionPlan:
     """Deterministic plan: cover the claims most relevant to the role first,
     falling back to extraction order when relevance can't be scored.
@@ -165,7 +176,9 @@ async def _fallback(
     interview *quality* rather than costing the candidate their interview.
     """
     if not claims:
-        return QuestionPlan(kind="heuristic_rule", degraded_reason=reason)
+        return QuestionPlan(
+            kind="heuristic_rule", degraded_reason=reason, claims_truncated=claims_truncated,
+        )
 
     ordered = await _order_by_relevance(claims, required_skills or [])
 
@@ -188,6 +201,8 @@ async def _fallback(
         estimated_minutes=sum(t.minutes for t in topics),
         kind="heuristic_rule",
         degraded_reason=reason,
+        topics_truncated=count < len(ordered),
+        claims_truncated=claims_truncated,
     )
 
 
@@ -244,12 +259,19 @@ async def plan(
     difficulty: str = "standard",
     available_minutes: int = 20,
     provider_override: str | None = None,
+    claims_truncated: bool = False,
 ) -> QuestionPlan:
     """Build a question plan. Never raises.
 
     `claims` are the grounded claim texts from `claim_extraction`. `profile`
     supplies role-relevant context. Raw resume text is deliberately not a
     parameter — everything flows through the structured profile.
+
+    `claims_truncated` is passed through, not computed here — this stage
+    only ever sees the already-capped claims list, never the raw count
+    `claim_extraction` started with (see `ClaimExtraction.claims_truncated`,
+    `pipeline/profile_builder.py`'s persisted `claims_truncated` column, and
+    `session/interview_session.start`, which threads it through).
     """
     required_skills = required_skills or []
     if difficulty not in _DIFFICULTIES:
@@ -262,6 +284,7 @@ async def plan(
         return QuestionPlan(
             kind="heuristic_rule",
             degraded_reason="the candidate profile contains no grounded claims to interview against",
+            claims_truncated=claims_truncated,
         )
 
     reply = await provider.chat_json(
@@ -273,7 +296,9 @@ async def plan(
         provider=provider_override,
     )
     if not reply.ok:
-        return await _fallback(claims, available_minutes, reply.error, required_skills)
+        return await _fallback(
+            claims, available_minutes, reply.error, required_skills, claims_truncated,
+        )
 
     parsed = provider.parse_json_object(reply.content)
     if parsed is None:
@@ -282,6 +307,7 @@ async def plan(
             available_minutes,
             f"the {reply.provider} model returned malformed JSON",
             required_skills,
+            claims_truncated,
         )
 
     raw_topics = parsed.get("topics")
@@ -291,6 +317,7 @@ async def plan(
             available_minutes,
             f"the {reply.provider} model did not return a topics list",
             required_skills,
+            claims_truncated,
         )
 
     # A topic may only be grounded in something the candidate actually
@@ -299,9 +326,11 @@ async def plan(
 
     topics: list[PlannedTopic] = []
     rejected: list[str] = []
+    topics_truncated = False
 
     for entry in raw_topics:
         if len(topics) >= _MAX_TOPICS:
+            topics_truncated = True
             break
         if not isinstance(entry, dict):
             continue
@@ -342,6 +371,7 @@ async def plan(
             available_minutes,
             f"the {reply.provider} model produced no topics tied to a verified claim",
             required_skills,
+            claims_truncated,
         )
 
     raw_coverage = parsed.get("coverage")
@@ -358,4 +388,6 @@ async def plan(
         estimated_minutes=sum(t.minutes for t in topics),
         kind=provider.kind_for(reply.provider),
         rejected_ungrounded=rejected,
+        topics_truncated=topics_truncated,
+        claims_truncated=claims_truncated,
     )

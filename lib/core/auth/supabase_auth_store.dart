@@ -20,15 +20,36 @@ import 'user_role.dart';
 /// tenancy model, ED-30, instead of needing a second identity store kept in
 /// sync with the first).
 ///
-/// ## Role and organisation live in Supabase's `user_metadata`
+/// ## Role and organisation live in Supabase's `app_metadata`, not `user_metadata`
 ///
-/// Supabase Auth has no first-class "role" concept — [UserRole] and
-/// `organisationId` are set into `user_metadata` at [register] and read back
-/// out at [signIn]/[current] via [principalFromUser]. This keeps [AuthStore],
-/// [Principal], and [UserRole] the single source of truth for what a role
-/// *means* (permissions, shell selection); Supabase is purely the credential-
-/// verification backend behind them, exactly as the interface's own doc
-/// comment describes the seam's purpose.
+/// Supabase Auth has no first-class "role" concept, so [UserRole] and
+/// `organisationId` are read back out at [signIn]/[current] via
+/// [principalFromUser] — from `appMetadata`, which only a service-role or
+/// `SECURITY DEFINER` caller can write (see migration
+/// 0012_auth_org_from_app_metadata.sql). `user_metadata` was tried first and
+/// moved off: GoTrue lets the signed-in account rewrite its own
+/// `user_metadata` with nothing but its own token, so authorization decided
+/// from it let a recruiter re-point themselves at another organisation.
+///
+/// [register] below still writes `role` into `user_metadata` via the client
+/// SDK's `signUp(data: ...)` — the ONLY metadata a client-side call is
+/// capable of writing at all; GoTrue has no client path to `app_metadata`
+/// under any circumstance. That makes [register] unable to produce a
+/// principal [principalFromUser] recognises on its own, which is why nothing
+/// in this app calls it: recruiter registration happens on the web portal
+/// (`AppConfig.portalUrl`/signup — see `sign_in_screen.dart`'s
+/// `_openBrowserRegistration`), whose backend holds the service-role key and
+/// sets `app_metadata` directly. [register] is kept for [AuthStore]
+/// interface completeness and exercised in tests against
+/// [InMemoryAuthStore]'s independent metadata model; wiring a native
+/// in-app registration flow to it would need a server-side step in between,
+/// the same shape `provision_organization()` uses for organisation
+/// creation (see `main.dart`'s `_provisionOrganization`).
+///
+/// This keeps [AuthStore], [Principal], and [UserRole] the single source of
+/// truth for what a role *means* (permissions, shell selection); Supabase is
+/// purely the credential-verification backend behind them, exactly as the
+/// interface's own doc comment describes the seam's purpose.
 ///
 /// ## Why sign-in/register revoke the session on a role mismatch
 ///
@@ -218,7 +239,15 @@ Principal? principalFromUser(supabase.User? user) {
   final email = user.email;
   if (email == null || email.isEmpty) return null;
 
-  final role = UserRole.fromWire(user.userMetadata?['role'] as String?);
+  // Role and organisation come from appMetadata, not userMetadata.
+  //
+  // userMetadata is writable by the signed-in account itself, and this app
+  // reads Supabase directly under RLS — so an organisation id taken from
+  // there would be an authorisation decision made from a value the user
+  // controls. The database agrees: `auth_organization_id()` reads the
+  // app_metadata claim (migration 0012), and so does the backend's
+  // `_require_org`. All three read the same place on purpose.
+  final role = UserRole.fromWire(user.appMetadata['role'] as String?);
   if (role == null) return null;
 
   return Principal(
@@ -231,6 +260,6 @@ Principal? principalFromUser(supabase.User? user) {
     // `_require_org` and every backend route already read back. This field
     // stays `organisationId` on the Dart side; only the lookup key had to
     // match the real contract.
-    organisationId: user.userMetadata?['organization_id'] as String?,
+    organisationId: user.appMetadata['organization_id'] as String?,
   );
 }

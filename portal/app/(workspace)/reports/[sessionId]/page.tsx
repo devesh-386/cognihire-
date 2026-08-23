@@ -103,6 +103,12 @@ export default function ReportDetailPage({
                       {topic.confidence != null ? (
                         <span>Confidence: {Math.round(topic.confidence * 100)}%</span>
                       ) : null}
+                      {topic.heuristic_similarity != null ? (
+                        <span>
+                          Similarity (unverified, model unavailable):{' '}
+                          {Math.round(topic.heuristic_similarity * 100)}%
+                        </span>
+                      ) : null}
                       {topic.attempts > 0 ? (
                         <span>
                           {topic.attempts} {topic.attempts === 1 ? 'attempt' : 'attempts'}
@@ -151,6 +157,9 @@ type Transparency = {
   supported: number
   not_supported: number
   mean_confidence: number | null
+  topics_graded_by_heuristic: number
+  claims_truncated: boolean
+  topics_truncated: boolean
 }
 
 const PLANNER_LABEL: Record<string, string> = {
@@ -181,7 +190,10 @@ function TransparencyPanel({ t }: { t: Transparency }) {
     {
       label: 'Mean confidence',
       value: t.mean_confidence != null ? `${Math.round(t.mean_confidence * 100)}%` : '—',
-      hint: 'Model confidence across examined topics',
+      hint:
+        t.topics_graded_by_heuristic > 0
+          ? `Model confidence across examined topics — excludes ${t.topics_graded_by_heuristic} graded by the deterministic fallback while the model was unavailable`
+          : 'Model confidence across examined topics',
     },
   ]
 
@@ -202,6 +214,17 @@ function TransparencyPanel({ t }: { t: Transparency }) {
           This interview was planned by the deterministic fallback, not an AI
           model: {t.planning_degraded_reason}. It covers real claims but without
           a model&apos;s reasoning about which matter most.
+        </p>
+      ) : null}
+
+      {t.claims_truncated || t.topics_truncated ? (
+        <p className="mt-4 rounded-lg border border-dashed border-border bg-muted px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+          {t.claims_truncated && t.topics_truncated
+            ? 'The candidate had more usable claims and more proposed topics than this interview was built from — both were capped.'
+            : t.claims_truncated
+            ? 'The candidate had more usable claims than this interview was built from — the claim list was capped.'
+            : 'The planner proposed more topics than this interview was built from — the topic list was capped.'}{' '}
+          This is not full coverage of everything the candidate claimed.
         </p>
       ) : null}
 

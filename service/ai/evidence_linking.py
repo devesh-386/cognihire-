@@ -43,6 +43,15 @@ class EvidenceLink:
     # same topic, kept distinct rather than overwriting the first so a
     # reviewer can see the candidate was given a second chance.
     turn_kind: str = "question"
+    # "hosted_llm" | "local_llm" | "heuristic_rule" — copied straight from
+    # the ANALYSIS event's own `kind` (see ai/answer_analysis.py's
+    # AnswerAnalysis.kind). What `confidence` actually MEANS depends on
+    # this: a genuine model's stated certainty for the first two, an
+    # unverified cosine-similarity/keyword-overlap score standing in for it
+    # when the fallback ran (see answer_analysis._fallback). Carried through
+    # so report_generation can tell the two apart instead of averaging them
+    # together as if they were the same measurement.
+    analysis_kind: str = "heuristic_rule"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -83,6 +92,7 @@ def build_links(plan: QuestionPlan, events: list[dict]) -> list[EvidenceLink]:
                 reason=payload.get("reason") or "",
                 evidence_quote=payload.get("evidence_quote"),
                 turn_kind=pending["kind"],
+                analysis_kind=payload.get("kind") or "heuristic_rule",
             ))
             pending = None
 

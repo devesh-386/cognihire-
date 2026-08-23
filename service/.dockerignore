@@ -1,0 +1,26 @@
+# Build context is `./service` (see docker-compose.api.yml). Without this
+# file, `docker build` copies everything below — including the 700+MB local
+# .venv, __pycache__, and this developer's local scratch/test directories —
+# into the build context on every build, and then into the image via
+# `COPY . .`, none of which the running container needs. Slower builds,
+# bigger images, and a larger blast radius if the image is ever pulled by
+# someone who shouldn't see local dev artifacts.
+
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+.git/
+.gitignore
+
+# Local dev scratch, not part of the shipped service.
+ml/assistance_study/
+
+.env
+.env.*

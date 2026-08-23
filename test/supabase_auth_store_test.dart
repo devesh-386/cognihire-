@@ -17,14 +17,23 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 /// package API (confirmed by reading gotrue 2.26.0's source directly), but
 /// exercising a live network call is not something this sandbox can do.
 void main() {
+  // `role`/`organization_id` live in appMetadata (service-role/SECURITY
+  // DEFINER-only — see migration 0012_auth_org_from_app_metadata.sql and
+  // supabase_auth_store.dart's own comment on principalFromUser); only
+  // `display_name` still comes from userMetadata, which the account holder
+  // can write themselves and which therefore must never carry anything
+  // security-relevant. A fixture that put role/organization_id in
+  // userMetadata would test a shape principalFromUser stopped reading
+  // months ago and pass regardless of what the real function does.
   supabase.User buildUser({
     String id = 'user-1',
     String? email = 'ada@example.com',
+    Map<String, dynamic>? appMetadata,
     Map<String, dynamic>? userMetadata,
   }) {
     return supabase.User(
       id: id,
-      appMetadata: const {},
+      appMetadata: appMetadata ?? const {},
       userMetadata: userMetadata,
       aud: 'authenticated',
       createdAt: DateTime(2026).toIso8601String(),
@@ -39,15 +48,15 @@ void main() {
 
     test('maps a recruiter account correctly', () {
       final user = buildUser(
-        userMetadata: const {
+        appMetadata: const {
           'role': 'recruiter',
-          'display_name': 'Ada',
           // American spelling: matches the backend's demo_store.create_hr_user
           // and every route that reads it back (_require_org) — see
           // supabase_auth_store.dart's principalFromUser for why this must
           // match exactly, not the organisationId Dart field name below.
           'organization_id': 'org-1',
         },
+        userMetadata: const {'display_name': 'Ada'},
       );
 
       final principal = principalFromUser(user);
@@ -62,7 +71,7 @@ void main() {
 
     test('maps a candidate account correctly', () {
       final user = buildUser(
-        userMetadata: const {'role': 'candidate'},
+        appMetadata: const {'role': 'candidate'},
       );
 
       final principal = principalFromUser(user);
@@ -76,24 +85,44 @@ void main() {
     });
 
     test('missing role metadata maps to null (refuse, do not guess)', () {
-      final user = buildUser(userMetadata: const {});
+      final user = buildUser(appMetadata: const {});
       expect(principalFromUser(user), isNull);
     });
 
-    test('null userMetadata maps to null', () {
-      final user = buildUser(userMetadata: null);
+    test('null appMetadata role maps to null', () {
+      final user = buildUser(appMetadata: null);
       expect(principalFromUser(user), isNull);
     });
 
     test('unrecognised role value maps to null, not a default', () {
-      final user = buildUser(userMetadata: const {'role': 'superadmin'});
+      final user = buildUser(appMetadata: const {'role': 'superadmin'});
       expect(principalFromUser(user), isNull);
     });
+
+    test(
+      'a role in userMetadata (not appMetadata) is ignored, not honoured',
+      () {
+        // The regression this guards: userMetadata is writable by the
+        // signed-in account itself. If principalFromUser ever fell back to
+        // reading role/organization_id from there, a candidate could grant
+        // themselves recruiter access by calling
+        // supabase.auth.updateUser({data: {role: 'recruiter', ...}}) — no
+        // server involved.
+        final user = buildUser(
+          appMetadata: const {},
+          userMetadata: const {
+            'role': 'recruiter',
+            'organization_id': 'org-1',
+          },
+        );
+        expect(principalFromUser(user), isNull);
+      },
+    );
 
     test('null email maps to null (Principal requires a non-null email)', () {
       final user = buildUser(
         email: null,
-        userMetadata: const {'role': 'recruiter'},
+        appMetadata: const {'role': 'recruiter'},
       );
       expect(principalFromUser(user), isNull);
     });
@@ -101,7 +130,7 @@ void main() {
     test('empty email maps to null', () {
       final user = buildUser(
         email: '',
-        userMetadata: const {'role': 'recruiter'},
+        appMetadata: const {'role': 'recruiter'},
       );
       expect(principalFromUser(user), isNull);
     });

@@ -71,21 +71,23 @@ class _FakeSessionStore:
     async def create_session(self, fields):
         sid = fields.get("id") or f"session-{self._next_id}"
         self._next_id += 1
-        row = {**fields, "id": sid}
+        row = {"version": 0, **fields, "id": sid}
         self.sessions[sid] = row
         return row
 
     async def fetch_session(self, session_id):
         return self.sessions.get(session_id)
 
-    async def update_session(self, session_id, fields):
-        self.sessions[session_id].update(fields)
+    async def update_session(self, session_id, fields, *, expected_version):
+        row = self.sessions[session_id]
+        if row["version"] != expected_version:
+            return False
+        row.update(fields)
+        row["version"] = expected_version + 1
+        return True
 
     async def append_event(self, event):
         pass
-
-    async def next_sequence(self, session_id):
-        return 0
 
 
 @pytest.fixture
@@ -106,7 +108,6 @@ def fake_sessions(monkeypatch):
     monkeypatch.setattr(session_store, "fetch_session", store.fetch_session)
     monkeypatch.setattr(session_store, "update_session", store.update_session)
     monkeypatch.setattr(session_store, "append_event", store.append_event)
-    monkeypatch.setattr(session_store, "next_sequence", store.next_sequence)
     return store
 
 
@@ -205,6 +206,31 @@ def test_resuming_an_in_progress_session_does_not_consume_an_attempt(fake_codes,
     assert updated["attempts_used"] == 1  # unchanged — this was a resume, not a new attempt
 
 
+def test_resuming_a_session_past_its_time_limit_completes_it_instead(fake_codes, fake_sessions, monkeypatch):
+    """A candidate who let the tab sit past their allotted time and only now
+    reopens it must not be handed the same stale question forever — nothing
+    else ever revisits a session that isn't actively being answered, so the
+    resume path is where an expired-but-still-"in_progress" session gets
+    force-completed."""
+    row = _run(interview_codes.generate("cand-1", "org-1", "Backend Engineer"))
+
+    async def fake_start(candidate_id, organization_id, role_title, **kwargs):
+        return await _fake_start_factory(fake_sessions, "session-x")
+
+    monkeypatch.setattr(interview_session, "start", fake_start)
+    _run(interview_codes.start_with_code(row["code"]))
+
+    fake_sessions.sessions["session-x"]["available_minutes"] = 20
+    fake_sessions.sessions["session-x"]["started_at"] = (
+        datetime.now(timezone.utc) - timedelta(minutes=25)
+    ).isoformat()
+
+    result = _run(interview_codes.start_with_code(row["code"]))
+
+    assert result["turn"]["kind"] == "complete"
+    assert fake_sessions.sessions["session-x"]["status"] == state_machine.COMPLETE
+
+
 def test_starting_a_completed_sessions_code_raises_already_used(fake_codes, fake_sessions, monkeypatch):
     row = _run(interview_codes.generate("cand-1", "org-1", "Backend Engineer"))
 
@@ -237,6 +263,39 @@ def test_max_attempts_exceeded(fake_codes, fake_sessions, monkeypatch):
     with pytest.raises(interview_codes.CodeError) as exc:
         _run(interview_codes.start_with_code(row["code"]))
     assert exc.value.reason == "max_attempts_exceeded"
+
+
+def test_a_failed_start_releases_the_attempt_it_spent(fake_codes, fake_sessions, monkeypatch):
+    """`claim_code` spends an attempt BEFORE `interview_session.start` is
+    called, since the CAS is what makes concurrent redemption safe — but
+    that means a `start` failure (the résumé is still processing, or
+    finished with no grounded claims to interview on) used to burn a real
+    attempt for a reason that was never the candidate's fault. A code with
+    `max_attempts=1` that fails once used to be permanently dead; it should
+    still be redeemable once the underlying problem (e.g. processing
+    finishes) is gone."""
+    row = _run(interview_codes.generate("cand-1", "org-1", "Backend Engineer", max_attempts=1))
+
+    async def failing_start(candidate_id, organization_id, role_title, **kwargs):
+        raise interview_session.SessionError("candidate is not ready for interview")
+
+    monkeypatch.setattr(interview_session, "start", failing_start)
+
+    with pytest.raises(interview_session.SessionError):
+        _run(interview_codes.start_with_code(row["code"]))
+
+    released = _run(codes_store.fetch_by_code(row["code"]))
+    assert released["attempts_used"] == 0, "the failed attempt must not count against max_attempts"
+    assert released["session_id"] is None
+
+    # And the code is still genuinely usable — this is the actual guarantee,
+    # not just an internal counter looking right.
+    async def working_start(candidate_id, organization_id, role_title, **kwargs):
+        return await _fake_start_factory(fake_sessions, "session-recovered")
+
+    monkeypatch.setattr(interview_session, "start", working_start)
+    result = _run(interview_codes.start_with_code(row["code"]))
+    assert result["session_id"] == "session-recovered"
 
 
 def test_concurrent_redemption_does_not_create_duplicate_sessions(fake_codes, fake_sessions, monkeypatch):

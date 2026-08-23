@@ -21,6 +21,7 @@ class EventType(str, Enum):
     COVERAGE_UPDATE = "coverage_update"
     SESSION_COMPLETE = "session_complete"
     SESSION_ABANDONED = "session_abandoned"
+    SESSION_TIME_EXPIRED = "session_time_expired"
 
     # Client-observed signals, recorded as-is — never a verdict. The report
     # layer surfaces these as counts ("3 tab visibility changes"), never as
@@ -40,12 +41,21 @@ class EventType(str, Enum):
 
 @dataclass
 class SessionEvent:
+    """`sequence` is assigned by the database, not here — see migration 0011.
+    The service used to pick it from a count of existing events, which raced
+    with itself whenever two events for one session were written concurrently
+    and lost the loser to the `unique (session_id, sequence)` constraint. Left
+    None, the column is omitted from the insert and a BEFORE INSERT trigger
+    allocates it under a per-session lock."""
+
     session_id: str
-    sequence: int
     event_type: EventType
     payload: dict
+    sequence: int | None = None
 
     def to_dict(self) -> dict:
         d = asdict(self)
         d["event_type"] = self.event_type.value
+        if d["sequence"] is None:
+            del d["sequence"]
         return d

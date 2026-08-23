@@ -31,6 +31,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Awaitable, Callable, Protocol
 
 from pipeline import supabase_store
@@ -46,6 +47,48 @@ OPENAI_REALTIME_URL = "wss://api.openai.com/v1/realtime?model=gpt-realtime-2"
 # Question/followup text is what gets spoken; other turn kinds (complete)
 # have no question text to speak — see _speak_turn.
 _SPEAKABLE_KINDS = {"question", "followup"}
+
+# A finalized OpenAI transcript used to become an `interview_session.answer()`
+# call unconditionally — there was no notion of "that wasn't actually an
+# answer." The text-typing path has an explicit submit button; a candidate
+# asserts "this is my answer" by clicking it. Voice has no equivalent act, so
+# "sorry, could you repeat that?" was graded as the candidate's answer,
+# judged unsupported, and spent one of `_MAX_ATTEMPTS_PER_TOPIC` (see
+# ai/coverage_manager.py) — two clarifying questions and a topic the
+# candidate was never actually asked to substantiate twice gets written off
+# as "not supported" in the report a recruiter reads.
+#
+# This is a narrow, conservative gate, not a classifier: it only catches
+# short, unambiguous "I didn't catch that" phrasing. A real answer that
+# happens to start with "sorry, I mean..." still matches none of these
+# (checked against the whole utterance, and these are complete short
+# utterances in the training/eval sense — a longer utterance containing one
+# of these substrings is deliberately still treated as a real answer,
+# enforced by `_LOOKS_LIKE_CLARIFICATION_MAX_CHARS` below).
+_CLARIFICATION_PHRASES = (
+    "sorry", "come again", "one more time", "repeat that", "repeat the question",
+    "say that again", "what was the question", "could you repeat",
+    "can you repeat", "didn't catch that", "didn't hear that", "pardon",
+)
+# A genuine "please repeat" is short. Capped so a real, substantial answer
+# that happens to contain "sorry" (e.g. "I'm sorry to say the migration
+# failed, so we...") is never caught by this gate — length is what tells
+# the two apart, not the phrase alone.
+_LOOKS_LIKE_CLARIFICATION_MAX_CHARS = 60
+
+# Below this, a "transcript" is VAD noise, not speech — a stray sound
+# finalized into one or two characters. Real short answers ("Yes.", "No.")
+# clear this easily; it exists only to stop empty/near-empty noise from
+# being graded as a substantive answer.
+_MIN_SUBSTANTIVE_UTTERANCE_CHARS = 2
+
+
+def _is_clarification_request(text: str) -> bool:
+    stripped = text.strip()
+    if len(stripped) > _LOOKS_LIKE_CLARIFICATION_MAX_CHARS:
+        return False
+    lowered = stripped.lower()
+    return any(phrase in lowered for phrase in _CLARIFICATION_PHRASES)
 
 
 class LiveSessionError(RuntimeError):
@@ -78,13 +121,29 @@ class CandidateConnection(Protocol):
 async def authorize(code: str, session_id: str) -> None:
     """Same check as `_require_code_owns_session` in main.py, reimplemented
     here (not imported) to avoid a main.py <-> session-package circular
-    import — main.py imports from `session`, never the reverse."""
+    import — main.py imports from `session`, never the reverse. Keep the two
+    in sync by hand.
+
+    Called at WebSocket handshake AND again from `_on_candidate_utterance`
+    on every turn — the handshake alone only stops a NEW connection attempt
+    made after a revocation; a socket already open when HR revokes stays
+    open and keeps accepting audio until the candidate next speaks. That
+    residual window (revoked mid-silence, no further check until the
+    candidate's next utterance) is real and not closed by this function
+    alone — see `_on_candidate_utterance`'s own comment for why a full fix
+    (a background poll independent of candidate speech) is deliberately
+    out of scope here."""
     try:
         code_row = await codes_store.fetch_by_code(code)
     except supabase_store.SupabaseError as exc:
         raise LiveSessionError(f"code lookup failed: {exc}") from exc
     if code_row is None or code_row.get("session_id") != session_id:
         raise LiveSessionError("that code does not match this interview session")
+    if code_row.get("status") == "revoked":
+        raise LiveSessionError("this interview code has been revoked")
+    expires_at = code_row.get("expires_at")
+    if expires_at and datetime.fromisoformat(expires_at) < datetime.now(timezone.utc):
+        raise LiveSessionError("this interview code has expired")
 
 
 @dataclass
@@ -103,10 +162,17 @@ class LiveOrchestrator:
     connection so tests can inject a fake — this class never calls
     `websockets.connect` itself (see `run_live_session`, which does)."""
 
-    def __init__(self, candidate_ws: CandidateConnection, openai_ws: OpenAIRealtimeConnection, session_id: str):
+    def __init__(
+        self, candidate_ws: CandidateConnection, openai_ws: OpenAIRealtimeConnection,
+        session_id: str, code: str,
+    ):
         self.candidate_ws = candidate_ws
         self.openai_ws = openai_ws
         self.session_id = session_id
+        # Kept so `_on_candidate_utterance` can re-check ownership/status on
+        # every turn, not just once at connect — see `authorize`'s own
+        # comment on why a WebSocket needs this where an HTTP route doesn't.
+        self.code = code
         self._state = _State()
 
     async def _send_openai(self, event: dict) -> None:
@@ -202,7 +268,34 @@ class LiveOrchestrator:
     async def _on_candidate_utterance(self, text: str) -> None:
         """The one place a voice event becomes a call into the EXACT same
         state machine `POST /interview/answer` uses — same function, same
-        signature, just a different caller."""
+        signature, just a different caller.
+
+        Re-authorizes first. This is the fix's actual enforcement point: HR
+        revoking a code while a candidate is silent (nothing to trigger a
+        check) leaves the socket open until the candidate next speaks, but
+        the moment they do, this runs before that speech becomes another
+        answer. Closes the socket itself (not just raises) so the candidate
+        sees a clean disconnect rather than the connection going silently
+        dead — see `run`'s `finally` for why raising alone wouldn't produce
+        that."""
+        try:
+            await authorize(self.code, self.session_id)
+        except LiveSessionError as exc:
+            await self.candidate_ws.close(code=1008)
+            raise LiveSessionError(f"revoked mid-interview: {exc}") from exc
+
+        # Not every finalized transcript is an answer — see the module-level
+        # comment on `_CLARIFICATION_PHRASES`. Re-speaking the pending
+        # question costs nothing against the interview state machine: no
+        # `answer()` call, no attempt spent, no event appended. If the
+        # session somehow has nothing left to speak (a narrow race with the
+        # session completing elsewhere), fall through silently rather than
+        # telling the candidate to hold on for a question that isn't coming.
+        stripped = text.strip()
+        if len(stripped) < _MIN_SUBSTANTIVE_UTTERANCE_CHARS or _is_clarification_request(stripped):
+            await self.speak_current_turn()
+            return
+
         result = await interview_session.answer(self.session_id, text)
         turn = result["turn"]
         if turn["kind"] in _SPEAKABLE_KINDS and turn.get("question"):
@@ -292,9 +385,22 @@ class LiveOrchestrator:
         candidate_task = asyncio.ensure_future(pump_candidate())
         openai_task = asyncio.ensure_future(pump_openai())
         try:
-            await asyncio.wait(
+            done, _ = await asyncio.wait(
                 [candidate_task, openai_task], return_when=asyncio.FIRST_COMPLETED,
             )
+            # `asyncio.wait` never raises a task's exception itself — it
+            # just reports the task as done, exception attached and
+            # otherwise silent. Without retrieving it here, a mid-interview
+            # revocation (see `_on_candidate_utterance`) would end the call
+            # with no trace of why, the same blind spot the OpenAI-error
+            # branch in `_handle_openai_event` already logs instead of
+            # swallowing.
+            for task in done:
+                exc = task.exception() if task.cancelled() is False else None
+                if exc is not None and not isinstance(exc, asyncio.CancelledError):
+                    logger.warning(
+                        "live interview session %s ended: %s", self.session_id, exc,
+                    )
         finally:
             candidate_task.cancel()
             openai_task.cancel()
@@ -330,7 +436,7 @@ async def run_live_session(
     await authorize(code, session_id)
     openai_ws = await connect_openai()
     try:
-        orchestrator = LiveOrchestrator(candidate_ws, openai_ws, session_id)
+        orchestrator = LiveOrchestrator(candidate_ws, openai_ws, session_id, code)
         await orchestrator.run()
     finally:
         await openai_ws.close()

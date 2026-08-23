@@ -131,6 +131,46 @@ def test_ollama_happy_path_reports_local_llm(monkeypatch):
     assert result.claims[0].skill == "React"
 
 
+def test_more_claims_than_the_cap_are_flagged_truncated(monkeypatch):
+    """§4.5: capping at _MAX_CANDIDATES without saying so lets a report read
+    as complete coverage of everything the candidate claimed when it was
+    only ever built from a subset."""
+    monkeypatch.setattr(provider, "OPENAI_API_KEY", "sk-test")
+    monkeypatch.setattr(provider, "LLM_PROVIDER", "openai")
+    monkeypatch.setattr(claim_extraction, "_MAX_CANDIDATES", 2)
+    resume = "Led a team of 4 engineers.\nBuilt a React dashboard.\nWrote a migration tool."
+    _patch_client(
+        monkeypatch,
+        lambda url, kw: _FakeResponse(
+            200,
+            _openai_payload([
+                {"text": "Led a team of 4 engineers.", "skill": None},
+                {"text": "Built a React dashboard.", "skill": None},
+                {"text": "Wrote a migration tool.", "skill": None},
+            ]),
+        ),
+    )
+
+    result = _run(claim_extraction.extract_claims(resume, source="resume"))
+
+    assert len(result.claims) == 2
+    assert result.claims_truncated is True
+
+
+def test_fewer_claims_than_the_cap_are_not_flagged_truncated(monkeypatch):
+    monkeypatch.setattr(provider, "OPENAI_API_KEY", "sk-test")
+    monkeypatch.setattr(provider, "LLM_PROVIDER", "openai")
+    _patch_client(
+        monkeypatch,
+        lambda url, kw: _FakeResponse(
+            200, _openai_payload([{"text": "Led a team of 4 engineers.", "skill": None}]),
+        ),
+    )
+
+    result = _run(claim_extraction.extract_claims(RESUME, source="resume"))
+    assert result.claims_truncated is False
+
+
 def test_provider_param_overrides_env_default(monkeypatch):
     monkeypatch.setattr(provider, "LLM_PROVIDER", "openai")
     monkeypatch.setattr(provider, "OPENAI_API_KEY", "sk-test")

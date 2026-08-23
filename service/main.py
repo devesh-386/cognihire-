@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import secrets
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -45,7 +46,7 @@ from google_integration import oauth as google_oauth
 from notifications import store as email_store
 from notifications import workflow as email_workflow
 from pipeline import demo_store, google_oauth_store, profile_builder, supabase_store
-from security import rate_limit
+from security import access_control, rate_limit
 from session import codes_store, interview_codes, interview_session, live_interview, session_store
 from session.events import EventType
 
@@ -63,7 +64,31 @@ logging.basicConfig(
 
 logger = logging.getLogger("cognihire.face")
 
-app = FastAPI(title="CogniHire Face Service", version="0.1.0")
+def _refuse_to_boot_misconfigured_in_production() -> None:
+    """A missing PORTAL_URL in production used to fail silently — every
+    invitation and reminder email a candidate received had a working subject
+    line and an empty link, and nothing about a green health check or a
+    successful deploy would tell you. An invitation with no link is worse
+    than the service refusing to start, so refuse.
+
+    Startup-time, not import-time: raising at import would fire during test
+    collection every time `main` is imported, for a condition (`ENVIRONMENT
+    =production`) no test sets. The lifespan handler only runs when uvicorn
+    actually brings the app up."""
+    if os.environ.get("ENVIRONMENT", "development") == "production" and not os.environ.get("PORTAL_URL"):
+        raise RuntimeError(
+            "PORTAL_URL is not set. In production this means every invitation "
+            "and reminder email links nowhere — refusing to start."
+        )
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    _refuse_to_boot_misconfigured_in_production()
+    yield
+
+
+app = FastAPI(title="CogniHire Face Service", version="0.1.0", lifespan=_lifespan)
 
 # "*" only for local dev. Once this runs on a public VM (Ticket 9), set
 # ALLOWED_ORIGINS to the HR app's and candidate web app's actual origins.
@@ -75,6 +100,12 @@ app.add_middleware(
     allow_methods=["POST", "GET"],
     allow_headers=["*"],
 )
+
+# Default-deny: every route not explicitly listed in
+# security/access_control.py's PUBLIC_ROUTES requires a bearer token to be
+# present before it reaches a handler. See that module's docstring — this
+# replaces six routes that simply forgot to call `_require_org`.
+access_control.install(app)
 
 # ---------------------------------------------------------------------------
 # Engine loading
@@ -180,6 +211,17 @@ def health() -> dict:
         "allowed_origins": _allowed_origins,
         "email_provider": email_kind,
         "email_provider_configured": email_configured,
+        # Was invisible from here even though it broke every invitation and
+        # reminder email a candidate received (empty link, empty `<a href>`)
+        # — the `os.environ.get(name, default)` bug fixed in
+        # notifications/workflow.py's _portal_url() and the OAuth callback
+        # above. `bool("")` is False, so this reports the same "unset" a
+        # genuinely absent value would, which is exactly the case that broke.
+        "portal_url_set": bool(os.environ.get("PORTAL_URL")),
+        # The commit this running container was built from — see
+        # docker-compose.api.yml's GIT_SHA. None on a deploy that didn't set
+        # it (e.g. local dev), distinguishable from an empty string.
+        "git_sha": os.environ.get("GIT_SHA") or None,
     }
 
 
@@ -320,12 +362,35 @@ class InterviewEventRequest(BaseModel):
 
 
 async def _require_code_owns_session(code: str, session_id: str) -> None:
+    """Same code+session ownership check `/interview/start` uses to redeem a
+    code, run again on every subsequent call the candidate makes against
+    that session (answer, event, finish) and on the live voice WebSocket's
+    initial handshake (`live_interview.authorize`).
+
+    Ownership alone used to be the whole check: once a code had redeemed a
+    session, revoking that code afterward — the exact action HR takes for a
+    wrong candidate or a suspected fraud — did nothing. The candidate kept
+    answering, kept talking to the live relay, and the interview completed
+    normally. Status and expiry are now re-checked on every call, not only
+    at redemption, so a revocation actually takes effect mid-interview
+    instead of only blocking a session that hasn't started yet."""
     try:
         code_row = await codes_store.fetch_by_code(code)
     except supabase_store.SupabaseError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     if code_row is None or code_row.get("session_id") != session_id:
         raise HTTPException(status_code=403, detail="that code does not match this interview session")
+    if code_row.get("status") == "revoked":
+        raise HTTPException(status_code=403, detail="this interview code has been revoked")
+    expires_at = code_row.get("expires_at")
+    if expires_at and datetime.fromisoformat(expires_at) < datetime.now(timezone.utc):
+        raise HTTPException(status_code=403, detail="this interview code has expired")
+    # window_start/window_end are deliberately NOT re-checked here. Those
+    # bound when a candidate may START — once a session is legitimately
+    # in_progress, the scheduled window closing under them mid-answer must
+    # not abort an interview that began on time. Revoked and expired are
+    # both "this credential should stop working right now"; the window is
+    # not that.
 
 
 # Phase 3's reasons map to HTTP status the way a REST API should read: a
@@ -495,22 +560,41 @@ class ResendInvitationRequest(BaseModel):
 
 
 @app.get("/interview-codes/{code_id}/emails")
-async def list_code_emails(code_id: str) -> dict:
+async def list_code_emails(
+    code_id: str, authorization: str | None = Header(default=None),
+) -> dict:
     """The HR desktop's Email Status section: one row per email type
     (invitation, reminder_1h, reminder_30m) that has been attempted for this
-    code, each with its status, attempt count, and last error."""
+    code, each with its status, attempt count, and last error.
+
+    Was unauthenticated — any candidate email address plus every send
+    attempt's error text, readable by anyone who could enumerate code ids.
+    Same org-ownership shape as `/interview/report/{session_id}`: 404, not
+    403, on a code that belongs to someone else's org, so a guessed id
+    doesn't confirm whether it's real."""
+    organization_id = await _require_org(authorization)
     try:
+        code_row = await codes_store.fetch_by_id(code_id)
+        if code_row is None or code_row.get("organization_id") != organization_id:
+            raise HTTPException(status_code=404, detail="no such interview code")
         return {"emails": await email_store.list_for_code(code_id)}
     except supabase_store.SupabaseError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.post("/interview-codes/resend-invitation")
-async def resend_invitation(req: ResendInvitationRequest) -> dict:
-    """The HR desktop's "Resend invitation" button."""
+async def resend_invitation(
+    req: ResendInvitationRequest, authorization: str | None = Header(default=None),
+) -> dict:
+    """The HR desktop's "Resend invitation" button.
+
+    Was unauthenticated — anyone who could name a code_id could make this
+    service send a real email, on demand, to whatever candidate address was
+    on file, with no rate limit anywhere in the call chain."""
+    organization_id = await _require_org(authorization)
     try:
         code_row = await codes_store.fetch_by_id(req.code_id)
-        if code_row is None:
+        if code_row is None or code_row.get("organization_id") != organization_id:
             raise HTTPException(status_code=404, detail="no such interview code")
         candidate = await supabase_store.fetch_candidate(code_row["candidate_id"])
         if candidate is None or not candidate.get("email"):
@@ -521,11 +605,22 @@ async def resend_invitation(req: ResendInvitationRequest) -> dict:
 
 
 @app.post("/email/send-due-reminders")
-async def send_due_reminders() -> dict:
+async def send_due_reminders(x_internal_secret: str | None = Header(default=None)) -> dict:
     """The scheduler's entrypoint (Ticket 21's parallel of Ticket 12's
     `reminder-scheduler`) — call on a timer (cron, an external scheduler, or
     a manual poke) to send whatever 1-hour/30-minute reminder is currently
-    due across every active interview code."""
+    due across every active interview code.
+
+    The caller is a scheduler, not a logged-in HR user, so this is gated the
+    same way `/internal/candidates/{id}/auto-invite` already is: a shared
+    secret, not a bearer token. Was unauthenticated — anyone could trigger a
+    reminder sweep across every organization's candidates, on demand,
+    repeatedly."""
+    expected_secret = os.environ.get("INTERNAL_AUTOINVITE_SECRET", "")
+    if not expected_secret or not x_internal_secret or not secrets.compare_digest(
+        x_internal_secret, expected_secret
+    ):
+        raise HTTPException(status_code=401, detail="invalid or missing internal secret")
     try:
         return await email_workflow.send_due_reminders(supabase_store.fetch_candidate)
     except supabase_store.SupabaseError as exc:
@@ -761,10 +856,32 @@ async def candidate_apply(req: SelfRegisterRequest) -> dict:
 
 
 class SignupRequest(BaseModel):
-    organization_name: str
+    # Required when creating a new organization, ignored when redeeming an
+    # invite (the invitation already names the organization, and letting the
+    # request name it too would just be a second, spoofable source).
+    organization_name: str | None = None
+    # The ONLY way into an existing organization. See `_INVITE_TTL_HOURS`.
+    invite_token: str | None = None
     name: str | None = None
     email: str
     password: str
+
+
+class CreateInviteRequest(BaseModel):
+    email: str
+
+
+# Long enough to survive a weekend, short enough that a forgotten invitation
+# in someone's inbox is not a standing key to the company's hiring pipeline.
+_INVITE_TTL_HOURS = 72
+
+
+def _hash_invite_token(token: str) -> str:
+    """Invitations are stored hashed, so a database dump is not a pile of
+    usable ones (migration 0013). SHA-256 without a salt is correct here and
+    not a password shortcut: the token is 32 bytes of `secrets` output, so
+    there is no dictionary to attack."""
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 class LoginRequest(BaseModel):
@@ -780,25 +897,143 @@ async def _require_org(authorization: str | None) -> str:
         user = await demo_store.resolve_user_from_token(token)
     except supabase_store.SupabaseError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
-    organization_id = (user.get("user_metadata") or {}).get("organization_id")
+    # app_metadata, never user_metadata: the latter is writable by the account
+    # it describes (PUT /auth/v1/user), so reading the caller's organization
+    # from it let any recruiter re-point themselves at another company — and
+    # the database's RLS policies, which read the same claim, would have
+    # agreed. There is deliberately no fallback to user_metadata here; a
+    # fallback is the bypass. See migration 0012.
+    organization_id = (user.get("app_metadata") or {}).get("organization_id")
     if not organization_id:
         raise HTTPException(status_code=403, detail="account has no organization")
     return organization_id
 
 
+@app.post("/organizations/invites")
+async def create_organization_invite(
+    req: CreateInviteRequest, authorization: str | None = Header(default=None),
+) -> dict:
+    """Invite one person into the caller's own organization.
+
+    The raw token is returned exactly once, here. It is stored hashed, so
+    there is no route that can show it again — a lost invitation is reissued,
+    never recovered. The org is resolved from the caller's token, never taken
+    from the request, so this cannot mint an invitation into someone else's
+    company.
+
+    Nothing emails it yet: the caller passes it to the invitee out-of-band.
+    Wiring this into `notifications/` is a follow-up, and does not change who
+    is allowed to create one."""
+    organization_id = await _require_org(authorization)
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=_INVITE_TTL_HOURS)
+    try:
+        invite = await demo_store.create_invite({
+            "organization_id": organization_id,
+            "email": req.email.strip().lower(),
+            "token_hash": _hash_invite_token(token),
+            "expires_at": expires_at.isoformat(),
+        })
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {
+        "invite_id": invite["id"],
+        "email": invite["email"],
+        "expires_at": invite["expires_at"],
+        "invite_token": token,
+    }
+
+
+async def _organization_for_signup(req: SignupRequest) -> dict:
+    """Which organization this signup lands in, and the only place that
+    decides it.
+
+    Signup used to look the organization up by NAME and join it if it
+    existed. Names are published by the unauthenticated `/roles/open`, so
+    that made "become a recruiter at any company you can name" a two-request
+    operation. Now: a new organization, or an invitation. Nothing else."""
+    if req.invite_token:
+        invite = await demo_store.fetch_live_invite(_hash_invite_token(req.invite_token))
+        # One message for every way an invite can be unusable — wrong token,
+        # already spent, expired, or issued to a different address. Telling
+        # them apart would turn this into an oracle for which invitations
+        # exist.
+        invalid = HTTPException(
+            status_code=403,
+            detail={"reason": "invalid_invite", "message": "That invitation is not valid."},
+        )
+        if invite is None:
+            raise invalid
+        if datetime.fromisoformat(invite["expires_at"]) < datetime.now(timezone.utc):
+            raise invalid
+        if invite["email"].strip().lower() != req.email.strip().lower():
+            raise invalid
+
+        claimed = await demo_store.mark_invite_accepted(
+            invite["id"], datetime.now(timezone.utc).isoformat(),
+        )
+        if not claimed:
+            # Lost the race with a simultaneous redemption of the same
+            # invitation. It is spent either way; do not create a second
+            # account from it.
+            raise invalid
+
+        org = await demo_store.fetch_organization(invite["organization_id"])
+        if org is None:
+            raise invalid
+        return org
+
+    if not req.organization_name or not req.organization_name.strip():
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "reason": "organization_name_required",
+                "message": "Enter a company name, or use an invitation link.",
+            },
+        )
+    existing = await demo_store.find_organization_by_name(req.organization_name)
+    if existing is not None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": "organization_exists",
+                "message": (
+                    "An organization with that name already exists. Ask someone "
+                    "there to invite you."
+                ),
+            },
+        )
+    return await demo_store.create_organization(req.organization_name)
+
+
 @app.post("/auth/signup")
 async def auth_signup(req: SignupRequest) -> dict:
-    """Creates the organization (first signup for that name) or joins an
-    existing one, then creates the HR user and signs them in immediately —
-    the portal never issues a "check your email" step because GoTrue's own
-    email flows aren't wired here yet."""
+    """Create an HR account and sign it in immediately — the portal has no
+    "check your email" step because GoTrue's own email flows aren't wired
+    here yet.
+
+    Which organization it lands in is decided entirely by
+    `_organization_for_signup`."""
     try:
-        org = await demo_store.find_organization_by_name(req.organization_name)
-        if org is None:
-            org = await demo_store.create_organization(req.organization_name)
-        await demo_store.find_or_create_hr_user(
-            req.email, req.password, org["id"], name=req.name,
-        )
+        org = await _organization_for_signup(req)
+
+        # An address that already has an account is refused outright rather
+        # than silently handed the existing user (which is what happened
+        # before: `find_or_create_hr_user` returned it without checking the
+        # password, then sign-in failed and the caller saw a 503, as though
+        # the service were broken). This does let someone learn an address is
+        # registered — the standard, accepted trade for a signup form that
+        # can tell you why it refused you.
+        if await demo_store.find_auth_user_by_email(req.email) is not None:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "reason": "email_registered",
+                    "message": "An account with that email already exists. Sign in instead.",
+                },
+            )
+
+        await demo_store.create_hr_user(req.email, req.password, org["id"], name=req.name)
         token = await demo_store.sign_in(req.email, req.password)
     except supabase_store.SupabaseError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -819,7 +1054,8 @@ async def auth_login(req: LoginRequest) -> dict:
     except supabase_store.SupabaseError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
-    organization_id = (token.get("user", {}).get("user_metadata") or {}).get("organization_id")
+    # Same claim, same reasoning as `_require_org` above.
+    organization_id = (token.get("user", {}).get("app_metadata") or {}).get("organization_id")
     if not organization_id:
         raise HTTPException(status_code=403, detail="account has no organization")
 
@@ -1149,7 +1385,13 @@ async def google_oauth_callback(code: str, state: str) -> Response:
     except supabase_store.SupabaseError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    portal_url = os.environ.get("PORTAL_URL", "")
+    # Same `os.environ.get(name, default)` trap as PORTAL_URL_DEFAULT in
+    # notifications/workflow.py: docker-compose.api.yml always sets the key
+    # (present-but-empty when the host .env doesn't define it), so the
+    # default never fired and this redirected to a bare "/settings?..." —
+    # relative to api.cognihire.online, which has no such route, so the
+    # OAuth flow 404'd on its last step. `or` catches empty, not just absent.
+    portal_url = os.environ.get("PORTAL_URL") or "http://localhost:3000"
     return RedirectResponse(f"{portal_url}/settings?google=connected")
 
 
@@ -1318,9 +1560,22 @@ async def seed_tester_account() -> dict:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@app.post("/face/analyze", response_model=FrameAnalysis)
+# One JPEG video frame at webcam resolution is a few hundred KB; 8MB is
+# generous headroom without leaving the door open to an attacker streaming
+# an unbounded body at an endpoint that (until Phase 1's default-deny) had
+# no auth and no other size control at all.
+_MAX_FRAME_BYTES = 8 * 1024 * 1024
+
+
+@app.post(
+    "/face/analyze",
+    response_model=FrameAnalysis,
+    dependencies=[Depends(rate_limit.limit("face-analyze", 20))],
+)
 async def analyze_frame(file: UploadFile = File(...)) -> FrameAnalysis:
-    raw = await file.read()
+    raw = await file.read(_MAX_FRAME_BYTES + 1)
+    if len(raw) > _MAX_FRAME_BYTES:
+        raise HTTPException(status_code=413, detail="frame is larger than 8MB")
 
     img = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
     if img is None:

@@ -81,6 +81,14 @@ class ModelReply:
     content: str | None
     provider: str  # "openai" | "ollama"
     error: str | None = None
+    # Which exact model answered, and at what temperature — persisted
+    # downstream (e.g. AnswerAnalysis) so a verdict is reproducible after the
+    # fact, not just attributable to "openai" in general. Always 0 today
+    # (both adapters hardcode it below); carried as a real field rather than
+    # assumed so a verdict's record doesn't silently go stale if that ever
+    # changes. None on a failed call — no model actually answered.
+    model: str | None = None
+    temperature: float | None = None
 
     @property
     def ok(self) -> bool:
@@ -124,7 +132,7 @@ async def _openai_chat_json(system: str, user: str, timeout: int) -> ModelReply:
 
     if not content or not content.strip():
         return ModelReply(None, "openai", "the hosted model returned no content")
-    return ModelReply(content, "openai")
+    return ModelReply(content, "openai", model=OPENAI_MODEL, temperature=0)
 
 
 async def _ollama_chat_json(system: str, user: str, timeout: int) -> ModelReply:
@@ -161,7 +169,7 @@ async def _ollama_chat_json(system: str, user: str, timeout: int) -> ModelReply:
 
     if not content or not content.strip():
         return ModelReply(None, "ollama", "the local model returned no content")
-    return ModelReply(content, "ollama")
+    return ModelReply(content, "ollama", model=OLLAMA_MODEL, temperature=0)
 
 
 async def chat_json(

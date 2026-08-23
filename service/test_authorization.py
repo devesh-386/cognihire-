@@ -54,6 +54,7 @@ class _FakeSupabase:
             "status": "in_progress", "role_title": "Backend Engineer",
             "question_plan": {"topics": []}, "coverage_state": {"completion_percent": 0},
             "outcomes": {}, "current_topic": None, "last_question": None,
+            "version": 0,
             **extra,
         })
 
@@ -156,7 +157,11 @@ def client(fake_supabase, monkeypatch):
     async def fake_resolve(token):
         if token == "bad-token":
             raise supabase_store.SupabaseError("invalid or expired session")
-        return {"user_metadata": {"organization_id": token.removeprefix("test-token-")}}
+        # app_metadata, mirroring what GoTrue returns for a real user since
+        # migration 0012 — the org id lives where the account holder cannot
+        # write it. A fake that kept answering `user_metadata` would let the
+        # bypass back in without a single test going red.
+        return {"app_metadata": {"organization_id": token.removeprefix("test-token-")}}
 
     monkeypatch.setattr(demo_store, "resolve_user_from_token", fake_resolve)
     return TestClient(main.app)
@@ -164,6 +169,55 @@ def client(fake_supabase, monkeypatch):
 
 def _auth(org: str) -> dict:
     return {"Authorization": f"Bearer test-token-{org}"}
+
+
+# --- where the caller's organization comes from ------------------------------
+#
+# The whole tenant boundary rests on one question: which JWT claim decides
+# which company you are in. It used to be `user_metadata`, which GoTrue lets
+# the account holder rewrite with its own token — so a recruiter could point
+# themselves at another company and BOTH enforcement layers (these routes and
+# the database's RLS policies, which read the same claim) would have agreed.
+# These two tests pin the answer on the backend side.
+
+
+def test_org_is_not_taken_from_user_writable_metadata(client, monkeypatch, fake_supabase):
+    """A token carrying an organization ONLY in user_metadata grants nothing.
+
+    This is the exact shape an attacker produces with
+    `supabase.auth.updateUser({data: {organization_id: '<victim>'}})`.
+    """
+    async def user_metadata_only(token):
+        return {"user_metadata": {"organization_id": "org-victim"}, "app_metadata": {}}
+
+    monkeypatch.setattr(demo_store, "resolve_user_from_token", user_metadata_only)
+    fake_supabase.seed_candidate("cand-victim", "org-victim")
+
+    resp = client.get("/candidates", headers={"Authorization": "Bearer anything"})
+    assert resp.status_code == 403, resp.text
+
+
+def test_user_metadata_cannot_override_the_real_org(client, monkeypatch, fake_supabase):
+    """When both claims are present, the service-role-only one wins.
+
+    A user who rewrites their own metadata keeps exactly the access their
+    real organization already gave them.
+    """
+    async def both_claims(token):
+        return {
+            "app_metadata": {"organization_id": "org-1"},      # what the admin API set
+            "user_metadata": {"organization_id": "org-2"},     # what the user forged
+        }
+
+    monkeypatch.setattr(demo_store, "resolve_user_from_token", both_claims)
+    fake_supabase.seed_candidate("cand-victim", "org-2")
+
+    resp = client.post(
+        "/interview-codes/generate",
+        json={"candidate_id": "cand-victim", "organization_id": "org-2", "role_title": "x"},
+        headers={"Authorization": "Bearer forged"},
+    )
+    assert resp.status_code == 404, resp.text
 
 
 # --- /interview-codes/generate ----------------------------------------------
@@ -273,6 +327,48 @@ def test_finish_with_wrong_code_is_rejected(client, fake_supabase):
         "session_id": "sess-1", "code": "WRONGCOD",
     })
     assert resp.status_code == 403
+
+
+def test_answer_with_a_revoked_code_is_rejected(client, fake_supabase):
+    # The gap this closes: revoking a code used to do nothing once it had
+    # already redeemed a session — ownership was the whole check, checked
+    # once, at redemption. HR revoking mid-interview (wrong candidate,
+    # suspected fraud) must actually stop that candidate's next request.
+    fake_supabase.seed_session("sess-1", "org-1", current_topic="t1", last_question="Q?")
+    fake_supabase.seed_code("code-1", "REALCODE", session_id="sess-1", status="revoked")
+
+    resp = client.post("/interview/answer", json={
+        "session_id": "sess-1", "answer_text": "hi", "code": "REALCODE",
+    })
+    assert resp.status_code == 403
+
+
+def test_answer_with_an_expired_code_is_rejected(client, fake_supabase):
+    fake_supabase.seed_session("sess-1", "org-1", current_topic="t1", last_question="Q?")
+    fake_supabase.seed_code(
+        "code-1", "REALCODE", session_id="sess-1",
+        expires_at="2000-01-01T00:00:00+00:00",
+    )
+
+    resp = client.post("/interview/answer", json={
+        "session_id": "sess-1", "answer_text": "hi", "code": "REALCODE",
+    })
+    assert resp.status_code == 403
+
+
+def test_answer_with_a_still_valid_code_is_not_blocked_by_the_new_checks(
+    client, fake_supabase,
+):
+    """A code that isn't revoked and hasn't expired must not be caught by
+    the checks the two tests above exist for — pins that this is a genuine
+    status/expiry check, not something that accidentally rejects everything."""
+    fake_supabase.seed_session("sess-1", "org-1", current_topic="t1", last_question="Q?")
+    fake_supabase.seed_code("code-1", "REALCODE", session_id="sess-1")
+
+    resp = client.post("/interview/answer", json={
+        "session_id": "sess-1", "answer_text": "hi", "code": "REALCODE",
+    })
+    assert resp.status_code != 403
 
 
 # --- /demo/seed and /demo/reset ---------------------------------------------

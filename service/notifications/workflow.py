@@ -22,7 +22,14 @@ PORTAL_URL_DEFAULT = "http://localhost:3000"
 
 
 def _portal_url() -> str:
-    return os.environ.get("PORTAL_URL", PORTAL_URL_DEFAULT)
+    # `os.environ.get(name, default)` only returns `default` when the key is
+    # ABSENT — and it is never absent here. docker-compose.api.yml sets
+    # `PORTAL_URL: ${PORTAL_URL:-}`, which is present-but-empty whenever the
+    # host .env doesn't define it, so the lookup returned "" and every
+    # invitation/reminder email a candidate received had `Start here: `
+    # followed by nothing and an `<a href="">`. `or` falls through on falsy,
+    # not just absent, which is what this needed.
+    return os.environ.get("PORTAL_URL") or PORTAL_URL_DEFAULT
 
 
 def _parse(value: str | None) -> datetime | None:

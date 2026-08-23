@@ -46,15 +46,20 @@ passed explicitly, every time, or it's silently wrong). Build with:
 flutter build windows --release --dart-define=FACE_SERVICE_URL=https://api.cognihire.online --dart-define=PORTAL_URL=https://cognihire.online
 ```
 
-## Local infrastructure (T-MVP)
+## Local infrastructure (T-MVP) — not what actually runs
 
-`docker-compose.yml` stands up the T-MVP datastore/gateway stack locally,
-matching the deployment topology in the Engineering Blueprint (Ch7 Part A §3,
-ED-68):
+`docker-compose.dev-infra-unused.yml` stands up the T-MVP datastore/gateway
+stack this repo was originally scaffolded against (Postgres+pgvector, Redis,
+MinIO, Caddy — Engineering Blueprint Ch7 Part A §3, ED-68). **The real
+backend does not use it**: it talks to a managed Supabase Postgres project
+(`service/pipeline/supabase_store.py`) and deploys via
+`docker-compose.api.yml` (see `.github/workflows/deploy.yml`). This file is
+kept only in case the self-hosted-Postgres path is revisited later — it is
+not required to run or develop against this repo today:
 
 ```bash
-docker compose up -d      # start the full stack
-docker compose down -v    # stop and remove volumes
+docker compose -f docker-compose.dev-infra-unused.yml up -d      # start the unused stack
+docker compose -f docker-compose.dev-infra-unused.yml down -v    # stop and remove volumes
 ```
 
 | Service | Purpose | Host port | Network |
@@ -69,5 +74,7 @@ The `evidence` and `disposition` networks are disjoint: **no service joins
 both**, so there is no route between the evidence-plane and disposition stores
 (the ED-14 boundary, enforced structurally). Passwords default to dev-only
 values; override via a gitignored `.env` (`POSTGRES_PASSWORD`,
-`POSTGRES_DISPOSITION_PASSWORD`, `MINIO_ROOT_PASSWORD`). CI smoke tests live in
-`.github/workflows/` (`compose-smoke`, `disposition-isolation`, `stack-smoke`).
+`POSTGRES_DISPOSITION_PASSWORD`, `MINIO_ROOT_PASSWORD`). This stack has no CI
+coverage — the `compose-smoke`/`disposition-isolation`/`stack-smoke`
+workflows that used to test it were removed along with it being unused;
+see this section's opening note.

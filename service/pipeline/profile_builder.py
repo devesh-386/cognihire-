@@ -123,6 +123,7 @@ async def process_candidate_resume(candidate_id: str) -> dict:
             ],
             "claim_extraction_kind": claims.kind,
             "degraded_reason": claims.degraded_reason,
+            "claims_truncated": claims.claims_truncated,
         },
     )
 

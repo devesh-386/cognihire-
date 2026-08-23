@@ -53,16 +53,29 @@ async def fetch_session(session_id: str) -> dict | None:
     return rows[0] if rows else None
 
 
-async def update_session(session_id: str, fields: dict) -> None:
+async def update_session(session_id: str, fields: dict, *, expected_version: int) -> bool:
+    """Compare-and-swap: writes `fields` (plus an incremented `version`) only
+    if the row's `version` still matches `expected_version` — the value the
+    caller read alongside everything it computed `fields` from. One PATCH is
+    one atomic Postgres UPDATE, so there is no read-then-write gap for a
+    second, concurrent `answer()` call on the same session to land in. Same
+    reasoning as `codes_store.claim_code`'s compare-and-swap; see migration
+    0015_interview_sessions_version.sql.
+
+    Returns True if this call won the race (the row matched and was
+    updated), False if it lost — the caller must not treat its `fields` as
+    applied; another writer already changed the row since it was read.
+    """
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         response = await client.patch(
             f"{SUPABASE_URL}/rest/v1/interview_sessions",
-            headers=_headers(),
-            params={"id": f"eq.{session_id}"},
-            json=fields,
+            headers={**_headers(), "Prefer": "return=representation"},
+            params={"id": f"eq.{session_id}", "version": f"eq.{expected_version}"},
+            json={**fields, "version": expected_version + 1},
         )
     if response.status_code not in (200, 204):
         raise SupabaseError(f"session update failed: HTTP {response.status_code} {response.text[:200]}")
+    return bool(response.json())
 
 
 async def append_event(event: dict) -> None:
@@ -106,24 +119,3 @@ async def list_sessions_for_org(organization_id: str, *, status: str | None = No
     if response.status_code != 200:
         raise SupabaseError(f"session list failed: HTTP {response.status_code}")
     return response.json()
-
-
-async def next_sequence(session_id: str) -> int:
-    """The next event sequence number for a session — count of events so far."""
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        response = await client.get(
-            f"{SUPABASE_URL}/rest/v1/interview_events",
-            headers={**_headers(), "Prefer": "count=exact"},
-            params={"session_id": f"eq.{session_id}", "select": "sequence", "limit": 1},
-        )
-    # PostgREST answers 206 Partial Content (not 200) whenever `limit` caps
-    # the result below what actually matched — which `limit=1` here always
-    # does once a session has more than one event. Never caught by the test
-    # suite's fake, which only ever returned 200; found live against real
-    # Supabase (Ticket 21 rollout) where every second answer in an interview
-    # failed with "event count failed: HTTP 206".
-    if response.status_code not in (200, 206):
-        raise SupabaseError(f"event count failed: HTTP {response.status_code}")
-    content_range = response.headers.get("content-range", "*/0")
-    total = content_range.split("/")[-1]
-    return int(total) if total.isdigit() else 0

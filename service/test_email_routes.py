@@ -76,8 +76,8 @@ class _FakeSupabase:
             if limit is not None:
                 matched = matched[: int(limit)]
             # PostgREST answers 206, not 200, when `limit` truncates the
-            # result below what matched — see session_store.next_sequence's
-            # real 206 bug this fake now models.
+            # result below what matched. Modeled here because a count read
+            # that only accepted 200 was a real live bug (since removed).
             status = 206 if limit is not None and len(matched) < total else 200
             return _FakeResponse(status, payload=matched, headers={"content-range": f"*/{total}"})
 
@@ -90,6 +90,17 @@ class _FakeSupabase:
                 if "id" not in row and table in self._next_id:
                     row["id"] = f"{table}-{self._next_id[table]}"
                     self._next_id[table] += 1
+                # Models migration 0011's BEFORE INSERT trigger: the
+                # service omits `sequence` and the database allocates it
+                # per session. Without this the fake would store events
+                # with no sequence at all and `order=sequence.asc` reads
+                # would silently stop reflecting real ordering.
+                if table == "interview_events" and row.get("sequence") is None:
+                    row["sequence"] = 1 + max(
+                        [r.get("sequence", 0) for r in self.tables[table]
+                         if r.get("session_id") == row.get("session_id")] or [0]
+                    )
+                row.setdefault("version", 0)
                 row.setdefault("session_id", None)
                 row.setdefault("attempts_used", 0)
                 row.setdefault("status", row.get("status", "active"))
@@ -160,7 +171,11 @@ def client(fake_supabase, monkeypatch):
     # token resolution itself is monkeypatched — any "Bearer test-token-org-1"
     # header resolves to organization_id "org-1", which is all these tests need.
     async def fake_resolve(token):
-        return {"user_metadata": {"organization_id": token.removeprefix("test-token-")}}
+        # app_metadata, mirroring what GoTrue returns for a real user since
+        # migration 0012 — the org id lives where the account holder cannot
+        # write it. A fake that kept answering `user_metadata` would let the
+        # bypass back in without a single test going red.
+        return {"app_metadata": {"organization_id": token.removeprefix("test-token-")}}
 
     monkeypatch.setattr(demo_store, "resolve_user_from_token", fake_resolve)
     return TestClient(main.app)
@@ -178,7 +193,10 @@ def test_generating_a_code_fires_an_invitation_email(fake_supabase, client):
     assert resp.status_code == 200, resp.text
     code_id = resp.json()["id"]
 
-    emails = client.get(f"/interview-codes/{code_id}/emails").json()["emails"]
+    # /interview-codes/{id}/emails now requires auth (Phase 1.3) — it used
+    # to leak candidate email addresses and send-attempt error text to any
+    # caller who could name a code_id.
+    emails = client.get(f"/interview-codes/{code_id}/emails", headers=_AUTH_ORG_1).json()["emails"]
     assert len(emails) == 1
     assert emails[0]["email_type"] == "invitation"
     # No EMAIL_PROVIDER configured in this sandbox — the honest degraded
@@ -200,7 +218,7 @@ def test_generating_a_code_for_a_candidate_with_no_email_skips_silently(fake_sup
     assert resp.status_code == 200, resp.text
     code_id = resp.json()["id"]
 
-    emails = client.get(f"/interview-codes/{code_id}/emails").json()["emails"]
+    emails = client.get(f"/interview-codes/{code_id}/emails", headers=_AUTH_ORG_1).json()["emails"]
     assert emails == []
 
 
@@ -211,9 +229,14 @@ def test_resend_invitation_creates_a_new_attempt(fake_supabase, client):
     }, headers=_AUTH_ORG_1)
     code_id = resp.json()["id"]
 
-    resend_resp = client.post("/interview-codes/resend-invitation", json={"code_id": code_id})
+    # /interview-codes/resend-invitation now requires auth (Phase 1.3) — it
+    # used to let anyone who could name a code_id make this service send a
+    # real email on demand, with no rate limit anywhere in the chain.
+    resend_resp = client.post(
+        "/interview-codes/resend-invitation", json={"code_id": code_id}, headers=_AUTH_ORG_1,
+    )
     assert resend_resp.status_code == 200, resend_resp.text
     assert resend_resp.json()["status"] == "failed"
 
-    emails = client.get(f"/interview-codes/{code_id}/emails").json()["emails"]
+    emails = client.get(f"/interview-codes/{code_id}/emails", headers=_AUTH_ORG_1).json()["emails"]
     assert len(emails) == 1, "resend reuses the same invitation row, does not duplicate it"

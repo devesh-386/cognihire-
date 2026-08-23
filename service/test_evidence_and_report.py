@@ -41,19 +41,20 @@ EVENTS = [
     _event(3, "answer", {"topic": "React dashboard", "answer_text": "I built it end to end."}),
     _event(4, "analysis", {
         "supported": True, "confidence": 0.9, "reason": "Concrete.",
-        "evidence_quote": "I built it end to end.",
+        "evidence_quote": "I built it end to end.", "kind": "hosted_llm",
     }),
     _event(5, "coverage_update", {"completion_percent": 50}),
     _event(6, "question", {"topic": "Team leadership", "question": "Tell me about leading the team."}),
     _event(7, "answer", {"topic": "Team leadership", "answer_text": "It went fine."}),
     _event(8, "analysis", {
         "supported": False, "confidence": 0.3, "reason": "Too vague.", "evidence_quote": None,
+        "kind": "hosted_llm",
     }),
     _event(9, "followup", {"topic": "Team leadership", "question": "Be more specific?"}),
     _event(10, "answer", {"topic": "Team leadership", "answer_text": "I ran daily standups."}),
     _event(11, "analysis", {
         "supported": True, "confidence": 0.8, "reason": "Concrete detail.",
-        "evidence_quote": "I ran daily standups.",
+        "evidence_quote": "I ran daily standups.", "kind": "hosted_llm",
     }),
 ]
 
@@ -139,6 +140,63 @@ def test_transparency_metrics_reflect_provenance_and_grounding():
     assert t.topics_with_direct_evidence == 2
     # Mean of React 0.9 and leadership's last attempt 0.8 = 0.85.
     assert t.mean_confidence == 0.85
+    assert t.topics_graded_by_heuristic == 0
+
+
+def test_heuristic_graded_topics_have_no_confidence_and_dont_pull_the_mean():
+    """§4.4: an unverified cosine-similarity score standing in for a real
+    model's confidence must never display as `confidence`, and must never
+    be averaged into `mean_confidence` alongside genuine model judgements —
+    that would let a degraded measurement quietly pull a real number
+    around, with nothing marking the difference to a reader."""
+    events = [
+        _event(1, "session_started", {"role_title": "Backend Engineer"}),
+        _event(2, "question", {"topic": "React dashboard", "question": "Tell me about the dashboard."}),
+        _event(3, "answer", {"topic": "React dashboard", "answer_text": "I built it end to end."}),
+        _event(4, "analysis", {
+            "supported": True, "confidence": 0.9, "reason": "Concrete.",
+            "evidence_quote": "I built it end to end.", "kind": "hosted_llm",
+        }),
+        _event(5, "coverage_update", {"completion_percent": 50}),
+        _event(6, "question", {"topic": "Team leadership", "question": "Tell me about leading the team."}),
+        _event(7, "answer", {"topic": "Team leadership", "answer_text": "I ran daily standups."}),
+        _event(8, "analysis", {
+            "supported": False, "confidence": 0.55, "reason": "the model was unavailable; this is an unverified similarity check",
+            "evidence_quote": None, "kind": "heuristic_rule",
+        }),
+    ]
+    links = build_links(PLAN, events)
+    coverage = CoverageState(completion_percent=100, is_complete=True)
+    report = build_report(PLAN, coverage, links, "Backend Engineer", "complete")
+
+    react_topic = next(t for t in report.topics if t.topic == "React dashboard")
+    leadership_topic = next(t for t in report.topics if t.topic == "Team leadership")
+
+    assert react_topic.confidence == 0.9
+    assert react_topic.heuristic_similarity is None
+
+    assert leadership_topic.confidence is None
+    assert leadership_topic.heuristic_similarity == 0.55
+
+    # Mean of ONLY the genuine model confidence (0.9) — the heuristic 0.55
+    # must not be folded in (a naive average of both would read 0.725).
+    assert report.transparency.mean_confidence == 0.9
+    assert report.transparency.topics_graded_by_heuristic == 1
+
+
+def test_transparency_metrics_surface_truncation():
+    """§4.5: capping claims/topics without disclosure lets a report read as
+    complete coverage of everything the candidate claimed when it wasn't."""
+    truncated_plan = QuestionPlan(
+        topics=list(PLAN.topics),
+        kind="hosted_llm",
+        claims_truncated=True,
+        topics_truncated=True,
+    )
+    report = build_report(truncated_plan, CoverageState(), [], "Backend Engineer", "in_progress")
+
+    assert report.transparency.claims_truncated is True
+    assert report.transparency.topics_truncated is True
 
 
 def test_transparency_metrics_flag_the_deterministic_fallback():

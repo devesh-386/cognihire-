@@ -17,3 +17,7 @@ onnxruntime>=1.18
 # service; needed to regenerate assets/ml/sufficiency_model.json.
 scikit-learn>=1.5
 pytest>=8.0
+
+# Encrypts Google OAuth tokens at rest (pipeline/google_oauth_store.py) —
+# see GOOGLE_TOKEN_ENCRYPTION_KEY in infra/README.md.
+cryptography>=42.0

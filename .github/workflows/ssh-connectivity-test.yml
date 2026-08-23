@@ -1,0 +1,41 @@
+name: SSH connectivity test (diagnostic, safe to delete)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Minimal SSH echo test
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+        with:
+          host: ${{ secrets.AZURE_VM_HOST }}
+          username: ${{ secrets.AZURE_VM_USER }}
+          key: ${{ secrets.AZURE_VM_SSH_KEY }}
+          debug: true
+          script_stop: false
+          envs: SMTP_HOST,SMTP_USERNAME,SMTP_PASSWORD
+          script: |
+            cd ~/CogniHire
+            echo "step 1: cd ok"
+            bash --version | head -1
+            echo "SMTP_HOST is: [$SMTP_HOST] (length ${#SMTP_HOST})"
+
+            set_env_var() {
+              local key="$1"
+              local value="$2"
+              if grep -q "^${key}=" .env 2>/dev/null; then
+                sed -i "s#^${key}=.*#${key}=${value}#" .env
+              else
+                echo "${key}=${value}" >> .env
+              fi
+            }
+            echo "step 2: function defined ok"
+
+            set_env_var SMTP_HOST "$SMTP_HOST"
+            echo "step 3: set_env_var SMTP_HOST returned $?"
