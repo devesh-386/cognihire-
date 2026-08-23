@@ -1,5 +1,18 @@
 # CogniHire — local infrastructure (T-MVP shape).
 #
+# NOT what actually runs in production and NOT needed to run this repo
+# today. The real backend talks to a managed Supabase Postgres project
+# (service/pipeline/supabase_store.py) and deploys via
+# `docker-compose.api.yml` (see deploy.yml) — this file's Postgres/Redis/
+# MinIO/Caddy stack was scaffolded ahead of an architecture the project
+# didn't end up building on. Renamed out of Docker's default
+# `docker-compose.yml` filename specifically so `docker compose up` with no
+# `-f` doesn't start four unused containers instead of doing nothing, or
+# — worse — get mistaken for the thing deploy.yml actually runs. Kept
+# rather than deleted in case the T-MVP self-hosted-Postgres path is
+# revisited; run it explicitly with `docker compose -f
+# docker-compose.dev-infra-unused.yml up -d` if you actually want it.
+#
 # Ticket CH-0.3.1: stands up the primary application datastore only —
 # Postgres with the pgvector extension enabled. Per Ch7 Part A §3.1/§3.2 of
 # the Engineering Blueprint, T-MVP's datastore shape is "1 managed Postgres

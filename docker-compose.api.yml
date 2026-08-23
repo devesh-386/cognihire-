@@ -35,6 +35,15 @@ services:
       # (/dev/seed-tester-account) fail closed unless something overrides it.
       ENVIRONMENT: ${ENVIRONMENT:-production}
 
+      # The commit this container was built from — set by deploy.yml
+      # (`GIT_SHA=$(git rev-parse HEAD)` exported before `build`/`up`), read
+      # by GET /health. What actually proves a deploy shipped the new code:
+      # `llm_provider` used to serve this purpose, but it's present in every
+      # build regardless of which commit it came from, so a build that
+      # silently failed to replace the old container still showed
+      # `llm_provider` and reported success having shipped nothing.
+      GIT_SHA: ${GIT_SHA:-}
+
       # AI provider
       LLM_PROVIDER: ${LLM_PROVIDER:-openai}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}

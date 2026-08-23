@@ -32,6 +32,20 @@ jobs:
     # actually passed; a failed or cancelled Tests run must not ship.
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     steps:
+      - name: Resolve the commit being deployed
+        # Independent of the VM's own `git rev-parse` inside the SSH
+        # script below — this runner's checkout is what both this step's
+        # output AND the final "Confirm the public endpoint" step need, and
+        # a value computed only inside the SSH script never leaves that
+        # step's shell.
+        uses: actions/checkout@v4
+        with:
+          ref: infra/foundations-epic0
+
+      - name: Record the commit SHA as a step output
+        id: resolve
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: SSH in and redeploy
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -61,7 +75,18 @@ jobs:
             git clean -fd
             git checkout -f infra/foundations-epic0
             git reset --hard origin/infra/foundations-epic0
-            echo "Deploying commit: $(git rev-parse --short HEAD)"
+
+            export GIT_SHA="${{ steps.resolve.outputs.sha }}"
+            echo "Deploying commit: $GIT_SHA"
+            # The VM's own HEAD must actually match what the runner resolved
+            # above — if it doesn't, `origin/infra/foundations-epic0` moved
+            # between this workflow starting and this line running, and the
+            # freshness check below would otherwise pass while checking for
+            # the wrong commit.
+            if [ "$(git rev-parse HEAD)" != "$GIT_SHA" ]; then
+              echo "FAILED: VM HEAD ($(git rev-parse HEAD)) does not match the resolved deploy commit ($GIT_SHA)."
+              exit 1
+            fi
 
             # -f docker-compose.api.yml: the root docker-compose.yml is the
             # local dev infra stack (Postgres/Redis/MinIO/Caddy) and contains
@@ -98,10 +123,12 @@ jobs:
 
             # Assert the running container is actually the NEW build. Without
             # this, a build that silently failed to replace the old container
-            # still answers /health and reports success. `llm_provider` only
-            # exists in the post-Ticket-20 health payload.
-            if ! grep -q "llm_provider" /tmp/health.json; then
-              echo "FAILED: /health has no llm_provider field — the old build is still running."
+            # still answers /health and reports success. `llm_provider` used
+            # to be this check, but it's present in every build regardless of
+            # which commit shipped it — checking for the exact commit just
+            # deployed is the only thing that actually proves freshness.
+            if ! grep -qE "\"git_sha\":[[:space:]]*\"$GIT_SHA\"" /tmp/health.json; then
+              echo "FAILED: /health is not reporting git_sha=$GIT_SHA — the old build is still running."
               docker compose -f docker-compose.api.yml logs --tail=50 api
               exit 1
             fi
@@ -110,7 +137,8 @@ jobs:
         run: |
           curl -fsS https://api.cognihire.online/health | tee health.json
           echo
-          grep -q "llm_provider" health.json || {
-            echo "Public endpoint is serving the old build."
+          GIT_SHA="${{ steps.resolve.outputs.sha }}"
+          grep -qE "\"git_sha\":[[:space:]]*\"$GIT_SHA\"" health.json || {
+            echo "Public endpoint is not reporting git_sha=$GIT_SHA — serving the old build (or a proxy/CDN cache)."
             exit 1
           }

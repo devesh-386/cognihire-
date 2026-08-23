@@ -218,6 +218,10 @@ def health() -> dict:
         # above. `bool("")` is False, so this reports the same "unset" a
         # genuinely absent value would, which is exactly the case that broke.
         "portal_url_set": bool(os.environ.get("PORTAL_URL")),
+        # The commit this running container was built from — see
+        # docker-compose.api.yml's GIT_SHA. None on a deploy that didn't set
+        # it (e.g. local dev), distinguishable from an empty string.
+        "git_sha": os.environ.get("GIT_SHA") or None,
     }
 
 

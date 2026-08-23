@@ -36,13 +36,24 @@ export function liveVoiceSupported() {
 // WebSocket never even attempted.
 
 /**
+ * @typedef {{ kind: 'question' | 'followup' | 'complete', topic?: string, question?: string }} LiveVoiceTurn
+ * @typedef {{ completion_percent: number }} LiveVoiceCoverage
+ */
+
+/**
  * Opens the live voice channel for one interview session.
+ *
+ * `onTurn`'s shape mirrors interview-flow.tsx's own `Turn`/`Coverage`
+ * types exactly (same wire payload — main.py's `/interview/answer` and this
+ * WebSocket's `turn` message carry the same turn/coverage JSON) — kept in
+ * sync by hand since this file can't import a type from the .tsx that
+ * imports it.
  *
  * @param {{
  *   sessionId: string,
  *   code: string,
  *   stream: MediaStream,
- *   onTurn?: (turn: object, coverage: object | null) => void,
+ *   onTurn?: (turn: LiveVoiceTurn, coverage: LiveVoiceCoverage | null) => void,
  *   onComplete?: () => void,
  *   onError?: (error: Error) => void,
  * }} options

@@ -83,3 +83,29 @@ def test_health_reports_portal_url_set_as_false_for_an_empty_string(monkeypatch)
             assert client.get("/health").json()["portal_url_set"] is False
     finally:
         importlib.reload(main)
+
+
+def test_health_reports_the_deployed_git_sha(monkeypatch):
+    """deploy.yml's freshness check reads this field to prove the running
+    container is actually the commit it just built — `llm_provider` used to
+    stand in for this, but it's identical across every build regardless of
+    which commit shipped it."""
+    monkeypatch.setenv("GIT_SHA", "abc123def456")
+    import main
+    importlib.reload(main)
+    try:
+        with TestClient(main.app) as client:
+            assert client.get("/health").json()["git_sha"] == "abc123def456"
+    finally:
+        importlib.reload(main)
+
+
+def test_health_reports_git_sha_as_none_when_unset(monkeypatch):
+    monkeypatch.delenv("GIT_SHA", raising=False)
+    import main
+    importlib.reload(main)
+    try:
+        with TestClient(main.app) as client:
+            assert client.get("/health").json()["git_sha"] is None
+    finally:
+        importlib.reload(main)

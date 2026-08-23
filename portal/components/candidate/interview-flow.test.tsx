@@ -28,7 +28,7 @@ vi.mock('next/navigation', () => ({
 }))
 
 const startInterview = vi.fn()
-const recordInterviewEvent = vi.fn(async () => ({ recorded: true }))
+const recordInterviewEvent = vi.fn(async (..._args: unknown[]) => ({ recorded: true }))
 
 vi.mock('@/lib/gateway', () => ({
   startInterview: (...args: unknown[]) => startInterview(...args),
