@@ -47,7 +47,14 @@ jobs:
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: SSH in and redeploy
-        uses: appleboy/ssh-action@v1.0.3
+        # Pinned to a commit SHA, not the v1.0.3 tag. A git tag is mutable:
+        # the maintainer can repoint it, and so can anyone who takes over
+        # that account. This step is handed AZURE_VM_SSH_KEY — root SSH
+        # access to the production VM — so "whatever v1.0.3 happens to mean
+        # on the day we deploy" is not a good enough answer for what code
+        # gets to read it. The trailing comment keeps the human-readable
+        # version visible; update both together.
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
         with:
           host: ${{ secrets.AZURE_VM_HOST }}
           username: ${{ secrets.AZURE_VM_USER }}
