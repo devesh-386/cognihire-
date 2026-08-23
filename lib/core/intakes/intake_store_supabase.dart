@@ -14,8 +14,11 @@ class SupabaseIntakeStore implements IntakeStore {
 
   final supabase.SupabaseClient _client;
 
+  // From appMetadata, not userMetadata — see
+  // invitation_store_supabase.dart's identical fix and
+  // supabase_auth_store.dart's principalFromUser for why (SEC-001).
   String? get _organizationId =>
-      _client.auth.currentUser?.userMetadata?['organization_id'] as String?;
+      _client.auth.currentUser?.appMetadata['organization_id'] as String?;
 
   @override
   Future<List<Intake>> listForRole(String roleId) async {

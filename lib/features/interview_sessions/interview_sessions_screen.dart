@@ -50,8 +50,14 @@ class InterviewSessionsScreenState extends State<InterviewSessionsScreen> {
   InterviewSessionListResult? _result;
   bool _loading = true;
 
-  String? get _organizationId => widget.client.auth.currentUser?.userMetadata?[
-      'organization_id'] as String?;
+  // From appMetadata, not userMetadata — see
+  // invitation_store_supabase.dart's identical fix and
+  // supabase_auth_store.dart's principalFromUser for why (SEC-001). Not
+  // exploitable here either way (the backend's GenerateCodeRequest has no
+  // organization_id field — the server always derives it from the bearer
+  // token), fixed for the same consistency reason as the other stores.
+  String? get _organizationId =>
+      widget.client.auth.currentUser?.appMetadata['organization_id'] as String?;
 
   @override
   void initState() {

@@ -27,8 +27,16 @@ class SupabaseInvitationStore implements InvitationStore {
 
   final supabase.SupabaseClient _client;
 
+  // From appMetadata, not userMetadata — see supabase_auth_store.dart's
+  // principalFromUser for why (SEC-001: userMetadata is writable by the
+  // signed-in account itself). This was previously read from userMetadata;
+  // RLS's `organization_id = auth_organization_id()` WITH CHECK already
+  // reads the real app_metadata server-side, so a stale/wrong userMetadata
+  // value here only ever produced a rejected write, never an actual
+  // cross-org write — but it's the same bug class as SEC-001 and left one
+  // path silently un-fixed.
   String? get _organizationId =>
-      _client.auth.currentUser?.userMetadata?['organization_id'] as String?;
+      _client.auth.currentUser?.appMetadata['organization_id'] as String?;
 
   @override
   Future<InvitationIndex> listInvitations() async {

@@ -38,6 +38,12 @@ def main() -> int:
     else:
         print("PASS: real lib/ tree is clean")
 
+    result = run(REPO_ROOT / "service")
+    if result.returncode != 0:
+        failures.append("FAIL: real service/ tree did not pass clean:\n" + result.stdout)
+    else:
+        print("PASS: real service/ tree is clean")
+
     # Point --root at a directory containing ONLY the clean fixture, so the
     # planted-violation subdir (a sibling) isn't swept in by rglob.
     clean_only_dir = FIXTURES  # rglob would also find planted_violation/*
@@ -54,11 +60,24 @@ def main() -> int:
     else:
         print("PASS: clean fixture (scoped scores + prose about the ban) passes")
 
+    if "clean_example.py" in result.stdout:
+        failures.append(
+            "FAIL: Python clean fixture (mean_confidence/completion_percent + "
+            "prose about the ban) was flagged:\n" + result.stdout
+        )
+    else:
+        print("PASS: Python clean fixture (mean_confidence/completion_percent) passes")
+
     result = run(FIXTURES / "planted_violation")
     if result.returncode == 0:
         failures.append("FAIL: planted violation was NOT caught")
+    elif "bad_example.py" not in result.stdout:
+        failures.append(
+            "FAIL: planted Python violation (overall_score/hire_decision) was NOT caught:\n"
+            + result.stdout
+        )
     else:
-        print("PASS: planted violation caught:")
+        print("PASS: planted violation caught (Dart + Python):")
         for line in result.stdout.splitlines():
             if "banned identifier" in line:
                 print(f"  {line.strip()}")
