@@ -1353,6 +1353,42 @@ async def google_status(
     }
 
 
+@app.post("/internal/google/access-token")
+async def internal_google_access_token(
+    organization_id: str, x_internal_secret: str | None = Header(default=None),
+) -> dict:
+    """Hands a live Google access token to the `intake-form-poller` Edge
+    Function, which used to read `access_token`/`refresh_token` straight out
+    of `google_oauth_connections`. Those columns are Fernet ciphertext now
+    (security/token_crypto.py), so that direct read broke: the function sent
+    ciphertext to Google as a refresh token and got HTTP 400 on every run,
+    while still returning 200 — a silent failure.
+
+    Deno has no access to the encryption key and should not: the key lives
+    with this service, so token handling belongs here too. This route is a
+    thin wrapper over the same `get_valid_access_token` every in-process
+    caller uses, so decrypt/refresh/re-encrypt stays in exactly one place.
+
+    Shared secret rather than a bearer token, matching
+    `/internal/candidates/{id}/auto-invite` — the caller is a scheduled job,
+    not a person."""
+    expected_secret = os.environ.get("INTERNAL_AUTOINVITE_SECRET", "")
+    if not expected_secret or not x_internal_secret or not secrets.compare_digest(
+        x_internal_secret, expected_secret
+    ):
+        raise HTTPException(status_code=401, detail="invalid or missing internal secret")
+    try:
+        access_token = await google_oauth.get_valid_access_token(organization_id)
+    except google_oauth.GoogleOAuthError as exc:
+        # Google rejected the refresh (revoked consent, expired refresh
+        # token). Distinct from "never connected" below so the poller's
+        # failure list says which one it is.
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"access_token": access_token}
+
+
 @app.get("/google/oauth/callback")
 async def google_oauth_callback(code: str, state: str) -> Response:
     """Hit by Google directly, not the portal — no bearer token available,
