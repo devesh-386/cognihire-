@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import secrets
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -1390,28 +1391,89 @@ async def intake_apply(intake_id: str, req: IntakeApplyRequest) -> dict:
 # ---------------------------------------------------------------------------
 
 
+# A signed state is a bearer credential for "attach a Google account to
+# this organization", and it used to be good forever. The nonce was
+# generated, signed, and then never looked at again — nothing recorded it,
+# so nothing could tell a first use from a thousandth. Combined with no
+# expiry, a state value recovered from browser history, a referrer header,
+# or a proxy log stayed valid indefinitely: replay it with your own consent
+# code and your Google account is now the one wired to that company's
+# hiring pipeline. That is exactly the account-linking CSRF `state` exists
+# to prevent.
+_STATE_TTL_SECONDS = 600
+
+# nonce -> the monotonic time it was consumed. In-process, for the same
+# reason security/rate_limit.py is: docker-compose.api.yml runs exactly one
+# container, and a dict is the smallest thing that actually makes a state
+# single-use without adding infrastructure this project doesn't otherwise
+# run. A restart forgets them, so a replay is still bounded by the TTL
+# above rather than by this — the two controls cover each other's gap, and
+# neither is sufficient alone.
+_consumed_state_nonces: dict[str, float] = {}
+
+
+def _sweep_consumed_nonces(now: float) -> None:
+    """Drop nonces past the point where the TTL check would reject them
+    anyway. Without this the dict only ever grows, one entry per OAuth
+    connect attempt, for the life of the process."""
+    for nonce in [n for n, at in _consumed_state_nonces.items() if now - at > _STATE_TTL_SECONDS]:
+        del _consumed_state_nonces[nonce]
+
+
 def _sign_state(organization_id: str) -> str:
     secret = os.environ.get("GOOGLE_OAUTH_STATE_SECRET", "")
     if not secret:
         raise HTTPException(status_code=503, detail="Google OAuth is not configured")
     nonce = secrets.token_urlsafe(16)
-    payload = f"{organization_id}:{nonce}"
+    # Issued-at is inside the signed payload, so it cannot be edited without
+    # invalidating the signature — a state that carried its own unsigned
+    # expiry would just be asking the attacker what the expiry should be.
+    issued_at = int(time.time())
+    payload = f"{organization_id}:{nonce}:{issued_at}"
     signature = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
     return f"{payload}:{signature}"
 
 
 def _verify_state(state: str) -> str:
-    """Returns the organization_id if the state is genuine, raises
-    otherwise — this is what stops a forged callback from attaching an
-    attacker's Google account to someone else's organization."""
+    """Returns the organization_id if the state is genuine, unexpired, and
+    not already spent. Raises otherwise — this is what stops a forged or
+    replayed callback from attaching an attacker's Google account to
+    someone else's organization.
+
+    Parsed from the right, not the left: the signature and issued-at are
+    fixed-shape fields at the end, so splitting that way means an
+    organization_id containing a colon can never shift the field boundaries
+    and change which bytes get signature-checked.
+    """
     secret = os.environ.get("GOOGLE_OAUTH_STATE_SECRET", "")
+    if not secret:
+        raise HTTPException(status_code=503, detail="Google OAuth is not configured")
+
+    payload, _, signature = state.rpartition(":")
+    rest, _, issued_at_raw = payload.rpartition(":")
+    organization_id, _, nonce = rest.rpartition(":")
+    if not signature or not issued_at_raw or not nonce or not organization_id:
+        raise HTTPException(status_code=400, detail="malformed state")
+
+    expected = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    # Signature first: everything below reads fields we have not yet proven
+    # were written by us.
+    if not secrets.compare_digest(signature, expected):
+        raise HTTPException(status_code=400, detail="invalid or expired state")
+
     try:
-        organization_id, nonce, signature = state.split(":", 2)
+        issued_at = int(issued_at_raw)
     except ValueError:
         raise HTTPException(status_code=400, detail="malformed state")
-    expected = hmac.new(secret.encode(), f"{organization_id}:{nonce}".encode(), hashlib.sha256).hexdigest()
-    if not secret or not secrets.compare_digest(signature, expected):
+    if time.time() - issued_at > _STATE_TTL_SECONDS:
         raise HTTPException(status_code=400, detail="invalid or expired state")
+
+    now = time.monotonic()
+    _sweep_consumed_nonces(now)
+    if nonce in _consumed_state_nonces:
+        raise HTTPException(status_code=400, detail="invalid or expired state")
+    _consumed_state_nonces[nonce] = now
+
     return organization_id
 
 
