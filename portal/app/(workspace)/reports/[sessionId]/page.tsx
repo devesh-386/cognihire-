@@ -1,5 +1,6 @@
 'use client'
 
+import { use } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Loader2, TriangleAlert } from 'lucide-react'
 import { WorkspaceBody, WorkspaceHeader } from '@/components/app/app-shell'
@@ -15,9 +16,12 @@ const OUTCOME_PILL: Record<string, { label: string; tone: PillTone }> = {
 export default function ReportDetailPage({
   params,
 }: {
-  params: { sessionId: string }
+  // Next 15: route params reach the component as a Promise, unwrapped with
+  // React's use() hook in a client component (the async/await form the
+  // sibling apply/[roleId] server component uses isn't available here).
+  params: Promise<{ sessionId: string }>
 }) {
-  const { sessionId } = params
+  const { sessionId } = use(params)
   const state = useWorkspaceQuery(() => getReport(sessionId), [sessionId])
 
   return (

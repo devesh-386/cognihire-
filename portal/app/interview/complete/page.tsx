@@ -14,12 +14,13 @@ const notes = [
   'The hiring decision is made by people at the company.',
 ]
 
-export default function InterviewCompletePage({
+export default async function InterviewCompletePage({
   searchParams,
 }: {
-  searchParams: { session?: string }
+  // Next 15: searchParams reaches a server component as a Promise.
+  searchParams: Promise<{ session?: string }>
 }) {
-  const sessionId = searchParams.session
+  const sessionId = (await searchParams).session
 
   return (
     <div className="max-w-xl">
