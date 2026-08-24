@@ -28,6 +28,13 @@ name: Deploy backend to Azure VM
 # Deliberately ONE branch, not both: two branches auto-deploying to a single
 # VM race each other, and whichever finishes last decides what is actually
 # running.
+#
+# The branch name appears FOUR times in this file: this trigger filter, the
+# runner's checkout `ref:`, and the VM's `git checkout -f` / `git reset
+# --hard origin/...`. They must all name the same branch. Changing only the
+# trigger makes the deploy fire on the right branch and then ship a
+# different one — and every freshness assertion below still passes, because
+# the runner and the VM would agree with each other about the wrong commit.
 on:
   workflow_run:
     workflows: ["Tests"]
@@ -51,7 +58,7 @@ jobs:
         # step's shell.
         uses: actions/checkout@v4
         with:
-          ref: infra/foundations-epic0
+          ref: main
 
       - name: Record the commit SHA as a step output
         id: resolve
@@ -84,13 +91,13 @@ jobs:
             # git clean leaves ignored files alone, so the secrets survive
             # every deploy. Do not add -x here.
             git clean -fd
-            git checkout -f infra/foundations-epic0
-            git reset --hard origin/infra/foundations-epic0
+            git checkout -f main
+            git reset --hard origin/main
 
             export GIT_SHA="${{ steps.resolve.outputs.sha }}"
             echo "Deploying commit: $GIT_SHA"
             # The VM's own HEAD must actually match what the runner resolved
-            # above — if it doesn't, `origin/infra/foundations-epic0` moved
+            # above — if it doesn't, `origin/main` moved
             # between this workflow starting and this line running, and the
             # freshness check below would otherwise pass while checking for
             # the wrong commit.
