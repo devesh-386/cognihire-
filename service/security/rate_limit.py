@@ -66,26 +66,38 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+def check(bucket: str, identity: str, max_requests: int) -> None:
+    """Consume one slot for `identity` in `bucket`, or raise 429.
+
+    Split out of `limit()` so a route can rate-limit on something the ASGI
+    scope doesn't know about — specifically the email address a login
+    attempt names, which only exists once the body has been parsed. IP is
+    the only identity available to a dependency; for credential-verification
+    routes it is not the only one that matters. See `/auth/login`.
+    """
+    global _calls_since_sweep
+    key = (bucket, identity)
+    now = time.monotonic()
+    window = _hits[key]
+    while window and now - window[0] > _WINDOW_SECONDS:
+        window.popleft()
+    if len(window) >= max_requests:
+        raise HTTPException(status_code=429, detail="too many requests — try again in a minute")
+    window.append(now)
+
+    _calls_since_sweep += 1
+    if _calls_since_sweep >= _SWEEP_EVERY_N_CALLS:
+        _calls_since_sweep = 0
+        _sweep_stale_keys(now)
+
+
 def limit(bucket: str, max_requests: int):
     """FastAPI dependency factory: `Depends(rate_limit.limit("extract-claims", 10))`
     allows `max_requests` calls per client IP per rolling minute for that
     bucket, independent of every other bucket."""
 
     async def _dependency(request: Request) -> None:
-        global _calls_since_sweep
-        key = (bucket, _client_ip(request))
-        now = time.monotonic()
-        window = _hits[key]
-        while window and now - window[0] > _WINDOW_SECONDS:
-            window.popleft()
-        if len(window) >= max_requests:
-            raise HTTPException(status_code=429, detail="too many requests — try again in a minute")
-        window.append(now)
-
-        _calls_since_sweep += 1
-        if _calls_since_sweep >= _SWEEP_EVERY_N_CALLS:
-            _calls_since_sweep = 0
-            _sweep_stale_keys(now)
+        check(bucket, _client_ip(request), max_requests)
 
     return _dependency
 

@@ -20,7 +20,10 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          # Matches service/Dockerfile's python:3.11-slim. CI ran 3.12 while
+          # production ran 3.11, so a failure that only appears on one of
+          # them was invisible here in exactly the direction that matters.
+          python-version: "3.11"
 
       # opencv/insightface's system deps — mirrors service/Dockerfile so
       # `import cv2` doesn't fail here the way it does without them.
@@ -30,9 +33,15 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 libxcb1
 
+      # Install from the lock, with hashes enforced, exactly as the image
+      # does. Installing floating requirements.txt here meant CI proved its
+      # results against whatever PyPI served that minute, while the deploy
+      # shipped the pinned set — green here was never evidence about the
+      # thing that actually runs. It also makes every push a real check
+      # that the lock resolves and its digests match on linux/cp311.
       - name: Install dependencies
         working-directory: service
-        run: pip install -r requirements.txt
+        run: pip install --require-hashes -r requirements.lock
 
       - name: pytest
         working-directory: service
@@ -43,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
 

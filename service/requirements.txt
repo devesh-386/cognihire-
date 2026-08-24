@@ -1,3 +1,13 @@
+# The floors a human chose. NOT what the image installs — see
+# requirements.lock, which is the resolved, hash-pinned answer generated
+# from this file and is what the Dockerfile actually consumes.
+#
+# Editing this file alone changes nothing about a deploy. Regenerate the
+# lock in the same commit (the exact command is in the Dockerfile, and it
+# targets linux/cp311 rather than your laptop — opencv and onnxruntime ship
+# platform-specific wheels, so a lock resolved on Windows or macOS produces
+# hashes the image can never match).
+
 fastapi>=0.115
 uvicorn[standard]>=0.30
 python-multipart>=0.0.9
