@@ -17,10 +17,28 @@ name: Deploy backend to Azure VM
 # support path filtering, and Tests already fires on every push, so gating
 # on Tests implicitly still means "something changed", just not scoped to
 # which files.
+#
+# `main` is the deploy branch (Phase 2.3 of the remediation plan). This
+# filter still said `infra/foundations-epic0` long after PRs started
+# merging into `main`, so a merge to `main` ran Tests, went green, and then
+# deployed nothing — while the deploy history still looked healthy, because
+# every commit that did deploy happened to sit on BOTH branches. PR #5 was
+# the first merge to land on `main` alone, and it silently never shipped.
+#
+# Deliberately ONE branch, not both: two branches auto-deploying to a single
+# VM race each other, and whichever finishes last decides what is actually
+# running.
+#
+# The branch name appears FOUR times in this file: this trigger filter, the
+# runner's checkout `ref:`, and the VM's `git checkout -f` / `git reset
+# --hard origin/...`. They must all name the same branch. Changing only the
+# trigger makes the deploy fire on the right branch and then ship a
+# different one — and every freshness assertion below still passes, because
+# the runner and the VM would agree with each other about the wrong commit.
 on:
   workflow_run:
     workflows: ["Tests"]
-    branches: [infra/foundations-epic0]
+    branches: [main]
     types: [completed]
   workflow_dispatch: {}
 
@@ -40,7 +58,7 @@ jobs:
         # step's shell.
         uses: actions/checkout@v4
         with:
-          ref: infra/foundations-epic0
+          ref: main
 
       - name: Record the commit SHA as a step output
         id: resolve
@@ -80,13 +98,13 @@ jobs:
             # git clean leaves ignored files alone, so the secrets survive
             # every deploy. Do not add -x here.
             git clean -fd
-            git checkout -f infra/foundations-epic0
-            git reset --hard origin/infra/foundations-epic0
+            git checkout -f main
+            git reset --hard origin/main
 
             export GIT_SHA="${{ steps.resolve.outputs.sha }}"
             echo "Deploying commit: $GIT_SHA"
             # The VM's own HEAD must actually match what the runner resolved
-            # above — if it doesn't, `origin/infra/foundations-epic0` moved
+            # above — if it doesn't, `origin/main` moved
             # between this workflow starting and this line running, and the
             # freshness check below would otherwise pass while checking for
             # the wrong commit.
