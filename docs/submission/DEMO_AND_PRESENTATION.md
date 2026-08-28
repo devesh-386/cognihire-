@@ -95,10 +95,10 @@ Deployment.
 | Face threshold | LFW, 3 200 pairs | FAR 0.030 / FRR 0.034 | Calibrated; matcher not yet wired |
 | Résumé fit | HuggingFace, 7 910 rows | AUC 0.6573 | **No — too weak** |
 
-**D. Outcomes** — 686 Dart + 412 Python tests; `flutter analyze` clean; CI green; security audit
+**D. Outcomes** — 689 Dart + 417 Python tests; `flutter analyze` clean; CI green; security audit
 10 findings (5 HIGH), 9 fixed + 1 mitigated; deployed to production.
 
-> ⚠️ Your Review 2 deck says "674 Dart and 268 Python." Update to **686 and 412**.
+> ⚠️ Your Review 2 deck says "674 Dart and 268 Python." Update to **689 and 417**.
 > It also says the threshold is "not yet calibrated, so no FAR/FRR is quoted" — **that is now
 > superseded.** This is your single biggest progress story; do not leave the old line in.
 
@@ -136,7 +136,7 @@ reference · testing and security documentation · demo video · deployed system
 | 6 | Interview | 1:30 | Code → device check → adaptive interview. Voice, with typed fallback. |
 | 7 | Report | 1:00 | Claim → Evidence → Verdict. Point at `notExamined`. |
 | 8 | **Calibration result** | **1:00** | **Strongest result — see below.** |
-| 9 | Security + testing | 0:30 | 10 findings, 9 fixed. 1 100 tests. Three invariant tests. |
+| 9 | Security + testing | 0:30 | 10 findings, 9 fixed. 1 112 tests. Three invariant tests. |
 | 10 | Limits and next | 0:30 | Name the four open items. |
 
 ### Segment 5 — the grounding gate (your strongest two minutes)
@@ -243,7 +243,7 @@ candidate portal, device check, claim audit, calibration table.
 | *"How do you stop cheating?"* | We don't claim to. We claim detection and documentation. No application can stop a second device, and saying otherwise would cost us the credibility the audit depends on. A bulk insert selects a *question*, never raises a *flag* — the candidate's answer is the evidence. |
 | *"What if the résumé contains a prompt injection?"* | It has no field to land in. Confidence, claim type, and verdict aren't model-settable, and the plan is built from grounded claims rather than raw résumé text. |
 | *"Your résumé-fit model is weak."* | Yes — AUC 0.657. That's why it isn't deployed. We report it because a project that only publishes successes gives you no evidence it evaluates honestly. |
-| *"How many tests?"* | 686 Dart, 412 Python, 2 portal. Three of them are invariant tests that fail the build on a design violation. |
+| *"How many tests?"* | 689 Dart, 417 Python, 6 portal. Three of them are invariant tests that fail the build on a design violation. |
 | *"Is it actually deployed?"* | Yes — Azure VM behind Coolify for the API, Vercel for the portal, Supabase ap-south-1. Deployment is gated on tests and asserts its own commit freshness twice. |
 | *"What would you do differently?"* | Calibrate before shipping a constant. The 0.50 threshold was reasoned and wrong by a factor of twelve, and only measurement revealed it. |
 
@@ -259,7 +259,7 @@ candidate portal, device check, claim audit, calibration table.
 | Email doesn't arrive | Pre-seeded candidate with a valid code. Never depend on live SMTP on stage. |
 | Webcam permission blocked | Device check screenshot in the deck. |
 | Someone asks to see code | Have `grounding.py`, `test_architecture_boundary.py`, and `calibration_report.json` open in tabs. |
-| Asked about a stale doc | "The current figures are 686 and 412; older documents are historical snapshots and `docs/submission/` is the current set." |
+| Asked about a stale doc | "The current figures are 689 Dart, 417 Python and 6 portal; older documents are historical snapshots and `docs/submission/` is the current set." |
 
 **The single highest-value action tonight: record the video the moment production is green.**
 Everything else on this list is a second line of defence.

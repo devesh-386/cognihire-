@@ -373,7 +373,7 @@ the running container cannot report success.
 | M14 | Security Guardrails | ✅ Implemented, externally audited |
 | M15 | Deployment / Infra | ✅ Implemented |
 
-**Test coverage:** 686 Dart tests, 412 Python tests, 2 portal tests. `flutter analyze` clean.
+**Test coverage:** 689 Dart tests, 417 Python tests, 6 portal tests. `flutter analyze` clean.
 CI green on `main`.
 
 ---

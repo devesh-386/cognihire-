@@ -35,8 +35,8 @@ Flutter-only architecture with no portal and no FastAPI backend. They are histor
 | Modules | **15** |
 | Security findings | **10** (5 HIGH, 5 MEDIUM) — 9 fixed, 1 mitigated |
 
-**Do not quote 69, 662, 674, 681, 683, 688, 734, or a 1 100 total (412 Python / 2 portal).**
-All are historical or, in the case of 412, simply wrong.
+**Do not quote 69, 662, 674, 681, 683, 686, 688, 734, a 1 100 total (412 Python / 2 portal),
+or a 1 109 total (686 Dart).** All are historical or, in the case of 412, simply wrong.
 
 ---
 

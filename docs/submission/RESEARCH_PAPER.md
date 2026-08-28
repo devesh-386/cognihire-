@@ -42,7 +42,7 @@ Labeled Faces in the Wild reduced the false rejection rate from 0.414 at a previ
 constant of 0.50 to 0.034 at a fitted threshold of 0.1266, at a false acceptance rate of 0.030. A
 résumé–role fit model trained on a public dataset reached AUC 0.6573 — a modest result that we
 report as the reason that model is **not** deployed. The system is implemented across four surfaces
-with 686 Dart, 412 Python, and 2 portal tests, and is deployed in production.
+with 689 Dart, 417 Python, and 6 portal tests, and is deployed in production.
 
 **Keywords:** interview automation, claim verification, evidence grounding, algorithmic
 accountability, face verification, threshold calibration, explainable AI, hiring technology
@@ -476,9 +476,9 @@ and negation traps across ~100,000 trials while admitting 100 % of verbatim clai
 
 | Suite | Tests | Result |
 |---|---|---|
-| Flutter / Dart | 686 | Pass (3 offline golden-image failures excluded in CI) |
-| Python / FastAPI | 412 | Pass |
-| Portal / Vitest | 2 | Pass |
+| Flutter / Dart | 689 | Pass (3 offline golden-image failures excluded in CI) |
+| Python / FastAPI | 417 | Pass |
+| Portal / Vitest | 6 | Pass |
 
 Beyond conventional testing, three **invariant tests** fail the build on architectural violation: the
 grounding import boundary, a planted composite-score field (vocabulary ban), and a planted
@@ -675,7 +675,7 @@ Research*, vol. 12, pp. 2825–2830, 2011.
 | API routes | 42 |
 | Database tables | 13, across 20 migrations |
 | Modules | 15 (see `docs/submission/MODULES.md`) |
-| Tests | 686 Dart + 412 Python + 2 portal |
+| Tests | 689 Dart + 417 Python + 6 portal |
 | Grounding gate trials | ~100,000 over 5,200 résumés |
 | Invariant tests | 3 (grounding boundary, score vocabulary ban, evidence↔disposition join) |
 | Security findings | 10 (5 HIGH, 5 MEDIUM) — 9 fixed, 1 mitigated |
