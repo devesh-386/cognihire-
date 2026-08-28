@@ -11,8 +11,8 @@
 
 `flutter analyze` reports no issues. CI is green on `main`.
 
-> Older documents in this repository quote 69, 662, 674, 681, 688, 734, or a 1 100 total with
-> 412 Python / 2 portal. Those are historical snapshots. **689 Dart, 417 Python and 6 portal
+> Older documents in this repository quote 69, 662, 674, 681, 686, 688, 734, a 1 100 total with
+> 412 Python / 2 portal, or a 1 109 total with 686 Dart. Those are historical snapshots. **689 Dart, 417 Python and 6 portal
 > are the current, verified figures.** The 412 in an earlier revision of this file was simply
 > wrong rather than a counting convention: 417 pass with zero skipped.
 
