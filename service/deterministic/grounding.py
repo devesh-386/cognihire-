@@ -49,8 +49,20 @@ _WHITESPACE = re.compile(r"\s+")
 # the whole sentence as one negation scope would reject the genuinely-true
 # Docker claim along with the correctly-rejected Kubernetes one — splitting
 # on "but" keeps each half's negation scoped to itself.
+#
+# The terminal run must be FOLLOWED BY whitespace or end-of-string to count as
+# a boundary. Without that, the `.` inside a period-bearing token — "Node.js",
+# "React.js", "asp.net", a version like "3.9" — was read as a sentence
+# terminal, splitting "...using JavaScript, Node.js." into "...Node" + "js."
+# and leaving a genuine one-clause claim spanning two clauses, so `locate`
+# could never find it and the claim was silently rejected. A real sentence
+# terminal is always followed by a space, newline, or the end of the text; the
+# `.` between two word characters of a token never is, so the lookahead keeps
+# dotted tokens whole while every actual sentence break still splits. A
+# trailing terminal at the very end of the document (end-of-string) still
+# counts, so claims copied verbatim WITH their closing period still ground.
 _CLAUSE_BOUNDARY = re.compile(
-    r"(?P<terminal>[.!?]+)"
+    r"(?P<terminal>[.!?]+(?=\s|$))"
     r"|(?P<separator>[;\n]+|,?\s+but\s+|,?\s+however\s*,?\s+|,?\s+although\s+)",
     re.IGNORECASE,
 )

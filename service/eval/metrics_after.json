@@ -1,0 +1,33 @@
+{
+  "corpus_size": 5200,
+  "gate": {
+    "genuine_claims_tested": 51761,
+    "verbatim_true_positive_rate_pct": 100.0,
+    "verbatim_false_rejections": 0,
+    "paraphrases_tested": 48149,
+    "paraphrase_rejection_rate_pct": 100.0,
+    "paraphrases_leaked_through": 0,
+    "negation_traps_tested": 51761,
+    "negation_trap_rejection_rate_pct": 100.0,
+    "negation_traps_leaked_through": 0
+  },
+  "fallback_extractor": {
+    "heuristic_lines_emitted": 41600,
+    "non_claim_lines_filtered_by_gate_pct": 11.84,
+    "note": "share of crude _heuristic output the gate refuses as non-assertions (contact/summary lines) - gate acting as a safety net over the fallback, not a defect"
+  },
+  "extraction_coverage_pct": {
+    "name": 100.0,
+    "email": 100.0,
+    "has_>=1_skill": 100.0,
+    "experience_section_found": 100.0,
+    "education_section_found": 100.0
+  },
+  "claims": {
+    "mean_per_resume": 8,
+    "median_per_resume": 8.0,
+    "max_cap": 8,
+    "truncated_at_cap_pct": 100.0
+  },
+  "sample_gate_false_rejections": []
+}
