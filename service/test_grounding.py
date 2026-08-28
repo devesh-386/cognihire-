@@ -69,6 +69,41 @@ def test_claim_with_trailing_period_matches_its_source_line():
     assert grounding.is_grounded("Led a team of 4 engineers.", resume)
 
 
+# --- dotted tokens (Node.js) must not manufacture a clause boundary -----------
+# The eval harness (service/eval/FINDINGS.md) found all 425 verbatim
+# false-rejections across 5,200 resumes were claims naming a period-bearing
+# token: the `.` inside "Node.js" was read as a sentence terminal, splitting
+# the claim across two clauses so `locate` could never find it.
+
+
+def test_dotted_token_claim_is_grounded():
+    resume = "- Developed strategic initiatives delivering $33M in revenue using JavaScript, Node.js."
+    claim = "Developed strategic initiatives delivering $33M in revenue using JavaScript, Node.js."
+    assert grounding.is_grounded(claim, resume)
+
+
+def test_various_dotted_tokens_are_grounded():
+    for tok in ("Node.js", "React.js", "asp.net", "Python 3.9"):
+        resume = f"- Built a service using {tok} in production."
+        assert grounding.is_grounded(f"Built a service using {tok} in production.", resume), tok
+
+
+def test_dotted_token_does_not_defeat_the_negation_gate():
+    """Keeping dotted tokens whole must not weaken negation scoping: a claim
+    that only appears inside a negated clause is still rejected, dotted token
+    and all."""
+    resume = "I have not worked with Node.js in production."
+    assert not grounding.is_grounded("worked with Node.js in production", resume)
+
+
+def test_real_sentence_boundary_still_splits_around_a_dotted_claim():
+    """A genuine sentence break (terminal + space) must still split, so a
+    negation in one sentence does not leak onto a dotted claim in the next."""
+    resume = "I have not used Kubernetes. I built the API with Node.js."
+    assert grounding.is_grounded("I built the API with Node.js.", resume)
+    assert not grounding.is_grounded("used Kubernetes", resume)
+
+
 def test_case_and_whitespace_are_ignored():
     resume = "LED   a Team of  4 Engineers."
     assert grounding.is_grounded("led a team of 4 engineers", resume)
