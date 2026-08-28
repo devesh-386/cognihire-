@@ -35,6 +35,15 @@ type Turn = {
 }
 type Coverage = { completion_percent: number }
 
+// How long a candidate may pause before the spoken answer is treated as
+// finished. Long enough to think mid-answer — 1.5s cuts people off between
+// clauses — short enough that it does not read as the app having hung.
+const AUTO_SUBMIT_SILENCE_MS = 3000
+// Below this a finalized transcript is recogniser noise rather than an
+// answer, so it must not be auto-submitted and spend one of the candidate's
+// attempts. Matches the floor live_interview.py applies to the same problem.
+const AUTO_SUBMIT_MIN_CHARS = 12
+
 export function InterviewFlow({ code }: { code?: string }) {
   const router = useRouter()
   const [deviceStatus, setDeviceStatus] = useState<DeviceStatus>('idle')
@@ -59,6 +68,14 @@ export function InterviewFlow({ code }: { code?: string }) {
   // candidate, who can do nothing with it; surfaced in the console so the
   // cause is recoverable after the fact.
   const [liveVoiceError, setLiveVoiceError] = useState<string | null>(null)
+  // Mirrors `answerText` for the silence timer below, which fires from a
+  // closure created when recognition started and would otherwise submit the
+  // empty string it captured then.
+  const answerTextRef = useRef('')
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Guards the one-in-flight rule across both submit paths: the timer and the
+  // button can otherwise fire together and spend two attempts on one answer.
+  const submitInFlightRef = useRef(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const recognitionRef = useRef<any>(null)
@@ -76,6 +93,10 @@ export function InterviewFlow({ code }: { code?: string }) {
       streamRef.current?.getTracks().forEach((track) => track.stop())
     }
   }, [])
+
+  useEffect(() => {
+    answerTextRef.current = answerText
+  }, [answerText])
 
   // Records tab/window/fullscreen visibility changes once a session exists.
   // Never a verdict — see service/session/events.py's EventType doc.
@@ -189,15 +210,32 @@ export function InterviewFlow({ code }: { code?: string }) {
     }
   }
 
+  function clearSilenceTimer() {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current)
+      silenceTimerRef.current = null
+    }
+  }
+
   async function handleAnswerSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!answerText.trim() || !sessionId) return
+    await submitCurrentAnswer()
+  }
+
+  // Both the Submit button and the end-of-speech timer land here, so the
+  // spoken and typed paths cannot diverge in what they send or how they
+  // handle failure.
+  async function submitCurrentAnswer() {
+    const text = answerTextRef.current.trim()
+    if (!text || !sessionId || submitInFlightRef.current) return
+    submitInFlightRef.current = true
+    clearSilenceTimer()
     recognitionRef.current?.stop()
     setSessionStatus('submitting')
     try {
       const result = await submitAnswer({
         sessionId,
-        answerText: answerText.trim(),
+        answerText: text,
         code,
       })
       setCoverage(result.coverage)
@@ -211,6 +249,8 @@ export function InterviewFlow({ code }: { code?: string }) {
     } catch (error: any) {
       setSessionStatus('error')
       setMessage(error?.message ?? 'Something went wrong.')
+    } finally {
+      submitInFlightRef.current = false
     }
   }
 
@@ -334,6 +374,9 @@ export function InterviewFlow({ code }: { code?: string }) {
   function toggleListening() {
     if (!voiceSupported) return
     if (listening) {
+      // Tapping the mic off is an explicit "I'm not done" — it must not leave
+      // a timer armed that submits three seconds later.
+      clearSilenceTimer()
       recognitionRef.current?.stop()
       return
     }
@@ -349,8 +392,29 @@ export function InterviewFlow({ code }: { code?: string }) {
         transcript += event.results[i][0].transcript
       }
       setAnswerText(transcript)
+      answerTextRef.current = transcript
+
+      // Speech has no equivalent of clicking "submit" — the candidate simply
+      // stops talking. Without this the mic said "Listening" forever and the
+      // answer was never sent unless the candidate noticed the button, which
+      // is not what "just answer the question" looks like to anyone.
+      //
+      // Armed only once there is enough text to be an answer rather than a
+      // stray "um" finalized by the recogniser, and re-armed on every result
+      // so a pause mid-sentence extends the window instead of cutting the
+      // candidate off. `_MIN` mirrors live_interview.py's own floor for the
+      // same reason: below it, a transcript is noise, not an answer.
+      clearSilenceTimer()
+      if (transcript.trim().length >= AUTO_SUBMIT_MIN_CHARS) {
+        silenceTimerRef.current = setTimeout(() => {
+          void submitCurrentAnswer()
+        }, AUTO_SUBMIT_SILENCE_MS)
+      }
     }
-    recognition.onerror = () => setListening(false)
+    recognition.onerror = () => {
+      clearSilenceTimer()
+      setListening(false)
+    }
     recognition.onend = () => setListening(false)
     recognitionRef.current = recognition
     recognition.start()
@@ -360,6 +424,7 @@ export function InterviewFlow({ code }: { code?: string }) {
   useEffect(() => {
     return () => {
       recognitionRef.current?.stop()
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
       window.speechSynthesis?.cancel()
     }
   }, [])
@@ -457,7 +522,9 @@ export function InterviewFlow({ code }: { code?: string }) {
             className="mt-6 flex items-center gap-2 text-xs text-muted-foreground"
             data-live-voice-error={liveVoiceError ?? undefined}
           >
-            {listening ? 'Listening — tap the mic to stop.' : 'Speak your answer, or type it below.'}
+            {listening
+              ? 'Listening — pause when you’re done and your answer sends itself.'
+              : 'Speak your answer, or type it below.'}
           </p>
         ) : (
           <p className="mt-6 text-xs text-muted-foreground">
