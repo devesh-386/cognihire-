@@ -15,6 +15,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../auth/gateway_headers.dart';
 import '../config.dart';
 
 class InterviewTopicReport {
@@ -99,7 +100,10 @@ class InterviewReportClient {
 
   Future<InterviewReport> fetch(String sessionId) async {
     final response = await _client
-        .get(Uri.parse('$baseUrl/interview/report/$sessionId'))
+        .get(
+          Uri.parse('$baseUrl/interview/report/$sessionId'),
+          headers: gatewayAuthHeaders(),
+        )
         .timeout(timeout);
 
     if (response.statusCode != 200) {

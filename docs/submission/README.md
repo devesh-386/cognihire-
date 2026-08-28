@@ -18,7 +18,7 @@ Flutter-only architecture with no portal and no FastAPI backend. They are histor
 | [`DATASET.md`](DATASET.md) | 📊 Dataset | All four data roles; three trained models with exact metrics |
 | [`SCHEMA.md`](SCHEMA.md) | 🗄️ Database | 13 tables, 20 migrations, security model |
 | [`API.md`](API.md) | 🔌 API | 42 routes with auth classes |
-| [`TESTING.md`](TESTING.md) | ✅ Testing | 1 109 tests, invariant tests, security audit |
+| [`TESTING.md`](TESTING.md) | ✅ Testing | 1 112 tests, invariant tests, security audit |
 | [`DEMO_AND_PRESENTATION.md`](DEMO_AND_PRESENTATION.md) | 🎥 Demo + 📊 Slides | Slide content, demo running order, recording checklist, hostile-question prep |
 
 ---
@@ -27,7 +27,7 @@ Flutter-only architecture with no portal and no FastAPI backend. They are histor
 
 | Fact | Value |
 |---|---|
-| Flutter / Dart tests | **686** passing (+3 preview goldens excluded in CI) |
+| Flutter / Dart tests | **689** passing (+3 preview goldens excluded in CI) |
 | Python tests | **417** passing |
 | Portal tests | **6** passing |
 | API routes | **42** |
@@ -69,7 +69,7 @@ discounts everything else you said.
 
 ## Two corrections to your Review 2 deck
 
-1. **Test counts** — the deck says "674 Dart and 268 Python." Current: **686 and 417**.
+1. **Test counts** — the deck says "674 Dart and 268 Python." Current: **689 and 417**.
 2. **Illinois legislation** — the deck attributes the 2026-01-01 date to the *AI Video Interview
    Act*. That Act (820 ILCS 42) took effect **2020-01-01**. It is **HB 3773**, amending the Illinois
    Human Rights Act, that takes effect **2026-01-01**.

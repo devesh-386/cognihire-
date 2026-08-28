@@ -8,6 +8,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../auth/gateway_headers.dart';
 import '../config.dart';
 
 class EmailDeliveryStatus {
@@ -53,7 +54,10 @@ class EmailStatusClient {
 
   Future<List<EmailDeliveryStatus>> listForCode(String codeId) async {
     final response = await _client
-        .get(Uri.parse('$baseUrl/interview-codes/$codeId/emails'))
+        .get(
+          Uri.parse('$baseUrl/interview-codes/$codeId/emails'),
+          headers: gatewayAuthHeaders(),
+        )
         .timeout(timeout);
     if (response.statusCode != 200) {
       throw StateError(
@@ -73,7 +77,9 @@ class EmailStatusClient {
     final response = await _client
         .post(
           Uri.parse('$baseUrl/interview-codes/resend-invitation'),
-          headers: const {'Content-Type': 'application/json'},
+          headers: gatewayAuthHeaders(
+            extra: const {'Content-Type': 'application/json'},
+          ),
           body: jsonEncode({'code_id': codeId}),
         )
         .timeout(timeout);
