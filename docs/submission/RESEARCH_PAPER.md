@@ -1,6 +1,7 @@
 # CogniHire: Verified-Claim Interview Intelligence — Auditing Résumé Claims Instead of Scoring Candidates
 
-**Author:** Devesh S V
+**Author:** Devesh S V — RA2411003011620
+**Guide:** Aswathy
 **Department of Computer Science and Engineering**
 **Minor Project — Final Review, August 2026**
 
