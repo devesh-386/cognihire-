@@ -11,8 +11,8 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
-import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
+import '../auth/gateway_headers.dart';
 import '../config.dart';
 
 /// A candidate's uploaded résumé, or the absence of one — see
@@ -40,12 +40,9 @@ class CandidateResumeClient {
   /// `service/main.py`). Null is not an error here: most candidates in an
   /// early pipeline stage simply have not uploaded one yet.
   Future<CandidateResume?> fetch(String candidateId) async {
-    final session = supabase.Supabase.instance.client.auth.currentSession;
     final response = await _client.get(
       Uri.parse('$baseUrl/candidates/$candidateId/resume'),
-      headers: {
-        if (session != null) 'Authorization': 'Bearer ${session.accessToken}',
-      },
+      headers: gatewayAuthHeaders(),
     ).timeout(timeout);
 
     if (response.statusCode == 404) return null;
