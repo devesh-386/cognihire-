@@ -5,14 +5,16 @@
 | Suite | Files | Tests | Result |
 |---|---|---|---|
 | Flutter / Dart | 63 | **686** | Pass (+3 excluded, see §4) |
-| Python / FastAPI | 36 | **412** | Pass |
-| Portal / Vitest | 1 | 2 | Pass |
-| **Total** | **100** | **1 100** | |
+| Python / FastAPI | 36 | **417** | Pass |
+| Portal / Vitest | 1 | 6 | Pass |
+| **Total** | **100** | **1 109** | |
 
 `flutter analyze` reports no issues. CI is green on `main`.
 
-> Older documents in this repository quote 69, 662, 674, 681, 688, or 734 tests. Those are
-> historical snapshots. **686 Dart and 412 Python are the current, verified figures.**
+> Older documents in this repository quote 69, 662, 674, 681, 688, 734, or a 1 100 total with
+> 412 Python / 2 portal. Those are historical snapshots. **686 Dart, 417 Python and 6 portal
+> are the current, verified figures.** The 412 in an earlier revision of this file was simply
+> wrong rather than a counting convention: 417 pass with zero skipped.
 
 ---
 
