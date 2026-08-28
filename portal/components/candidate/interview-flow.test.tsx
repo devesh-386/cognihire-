@@ -28,11 +28,12 @@ vi.mock('next/navigation', () => ({
 }))
 
 const startInterview = vi.fn()
+const submitAnswer = vi.fn()
 const recordInterviewEvent = vi.fn(async (..._args: unknown[]) => ({ recorded: true }))
 
 vi.mock('@/lib/gateway', () => ({
   startInterview: (...args: unknown[]) => startInterview(...args),
-  submitAnswer: vi.fn(),
+  submitAnswer: (...args: unknown[]) => submitAnswer(...args),
   analyzeFace: vi.fn(async () => ({ face_detected: true })),
   recordInterviewEvent: (...args: unknown[]) => recordInterviewEvent(...args),
 }))
@@ -43,8 +44,12 @@ vi.mock('@/lib/gateway', () => ({
 let resolveConnect: (handle: { stop: () => void }) => void
 const stop = vi.fn()
 
+// Flipped per-test: the spoken-fallback suite needs the real-time channel to
+// report unavailable so the Web Speech path is the one under test.
+let liveVoiceSupportedResult = true
+
 vi.mock('@/lib/live-voice-client', () => ({
-  liveVoiceSupported: () => true,
+  liveVoiceSupported: () => liveVoiceSupportedResult,
   startLiveVoice: vi.fn(
     () => new Promise((resolve) => {
       resolveConnect = resolve
@@ -99,5 +104,162 @@ describe('InterviewFlow live voice', () => {
     await reachTheFirstQuestion()
     expect(screen.getByRole('button', { name: /submit answer/i })).toBeDefined()
     expect(screen.getByPlaceholderText(/type your answer/i)).toBeDefined()
+  })
+})
+
+/**
+ * End-of-speech submission.
+ *
+ * The Web Speech fallback used to transcribe into the textarea and then wait
+ * for a click on "Submit answer". Speech has no equivalent of clicking
+ * submit — a candidate simply stops talking — so in a real interview the mic
+ * read "Listening" indefinitely and answers were never sent. Observed in a
+ * live session before this was added.
+ */
+class FakeRecognition {
+  continuous = false
+  interimResults = false
+  lang = ''
+  onresult: ((event: unknown) => void) | null = null
+  onerror: (() => void) | null = null
+  onend: (() => void) | null = null
+  stopped = false
+  static latest: FakeRecognition | null = null
+
+  constructor() {
+    FakeRecognition.latest = this
+  }
+  start() {}
+  stop() {
+    this.stopped = true
+  }
+}
+
+function speak(text: string) {
+  FakeRecognition.latest?.onresult?.({ results: [[{ transcript: text }]] })
+}
+
+describe('InterviewFlow spoken answers', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    liveVoiceSupportedResult = false
+    FakeRecognition.latest = null
+    Object.defineProperty(window, 'SpeechRecognition', {
+      value: FakeRecognition,
+      configurable: true,
+      writable: true,
+    })
+    // Turning recognition on also turns on the question-reading TTS path,
+    // which jsdom has no constructor for.
+    Object.defineProperty(window, 'SpeechSynthesisUtterance', {
+      value: class {
+        constructor(public text: string) {}
+      },
+      configurable: true,
+      writable: true,
+    })
+    startInterview.mockResolvedValue({
+      session_id: 'session-1',
+      coverage: { completion_percent: 0 },
+      turn: { kind: 'question', topic: 'React', question: 'Tell me about a project.' },
+    })
+    submitAnswer.mockResolvedValue({
+      coverage: { completion_percent: 50 },
+      turn: { kind: 'question', topic: 'SQL', question: 'And databases?' },
+    })
+  })
+
+  async function startTalking() {
+    await reachTheFirstQuestion()
+    await act(async () => {
+      screen.getByRole('button', { name: /start voice input/i }).click()
+    })
+  }
+
+  it('sends the answer once the candidate stops speaking', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      await startTalking()
+      await act(async () => {
+        speak('I built a claim extraction pipeline on top of FastAPI and Postgres.')
+      })
+      expect(submitAnswer).not.toHaveBeenCalled()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000)
+      })
+      await waitFor(() => expect(submitAnswer).toHaveBeenCalledTimes(1))
+      expect(submitAnswer.mock.calls[0][0]).toMatchObject({
+        sessionId: 'session-1',
+        answerText: 'I built a claim extraction pipeline on top of FastAPI and Postgres.',
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('extends the pause instead of cutting the candidate off mid-answer', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      await startTalking()
+      await act(async () => {
+        speak('I built a claim extraction pipeline')
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000)
+      })
+      // Still mid-sentence: a pause shorter than the window must not send.
+      expect(submitAnswer).not.toHaveBeenCalled()
+
+      await act(async () => {
+        speak('I built a claim extraction pipeline on top of FastAPI and Postgres.')
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000)
+      })
+      expect(submitAnswer).not.toHaveBeenCalled()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000)
+      })
+      await waitFor(() => expect(submitAnswer).toHaveBeenCalledTimes(1))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not send recogniser noise as an answer', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      await startTalking()
+      await act(async () => {
+        speak('um')
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6000)
+      })
+      expect(submitAnswer).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('cancels a pending send when the candidate taps the mic off', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      await startTalking()
+      await act(async () => {
+        speak('I built a claim extraction pipeline on top of FastAPI.')
+      })
+      await act(async () => {
+        screen.getByRole('button', { name: /stop voice input/i }).click()
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6000)
+      })
+      expect(submitAnswer).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
