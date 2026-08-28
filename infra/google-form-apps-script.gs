@@ -39,8 +39,49 @@ const TIME_ALIASES = ["preferred interview time", "preferred time", "interview t
 // form splits them into two questions instead of one.
 const DAY_ALIASES = ["preferred interview day", "preferred date", "interview day"];
 
+// The timezone the candidate answers the form in. Every "preferred interview
+// time" answer is interpreted as a wall-clock time in THIS zone and converted
+// to UTC explicitly below.
+//
+// Why this is pinned rather than inherited: `new Date("August 13, 2026 11:45")`
+// resolves against the Apps Script PROJECT's timezone (File > Project
+// Settings), which is a per-script setting nobody on this project has
+// verified, defaults to the creating account's locale, and is silently
+// changeable in the UI. If it is not Asia/Kolkata, every interview lands in
+// the database shifted by the difference — the candidate says 11:45 and gets a
+// 06:15 slot — and nothing downstream can detect it, because a valid-looking
+// timestamp is indistinguishable from a correct one. Pinning the offset here
+// makes the conversion deterministic regardless of that setting.
+//
+// A fixed +05:30 is safe: India has never observed daylight saving, so there
+// is no transition to get wrong. Change IST_OFFSET_MINUTES only if this
+// deployment stops serving IST candidates.
+const IST_OFFSET_MINUTES = 330;
+
 function _normalize(title) {
   return (title || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/**
+ * Reads the year/month/day/hour/minute the responder actually chose — as
+ * rendered in the script's own timezone, which is how Apps Script hands back
+ * both a Date-question value and a parsed string — and re-anchors those exact
+ * wall-clock numbers to IST, returning a real UTC instant.
+ *
+ * `local` is only ever used as a carrier of the five field values; its own
+ * timezone is deliberately discarded rather than trusted.
+ */
+function _toUtcFromIst(local) {
+  const utcMillis = Date.UTC(
+    local.getFullYear(),
+    local.getMonth(),
+    local.getDate(),
+    local.getHours(),
+    local.getMinutes(),
+    0,
+    0,
+  );
+  return new Date(utcMillis - IST_OFFSET_MINUTES * 60 * 1000);
 }
 
 function _findResponse(byNormalizedTitle, aliases) {
@@ -145,7 +186,9 @@ function onFormSubmit(e) {
     name: name,
     email: email,
     roleTitle: roleTitle,
-    preferredTimeIso: preferredDate.toISOString(),
+    // Re-anchored to IST (see _toUtcFromIst) rather than relying on the Apps
+    // Script project's timezone setting to have been correct.
+    preferredTimeIso: _toUtcFromIst(preferredDate).toISOString(),
   };
 
   const resumeResponse = _findResponse(byNormalizedTitle, RESUME_ALIASES);
