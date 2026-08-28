@@ -34,7 +34,28 @@ const EMAIL_ALIASES = ["email", "email address"];
 const ROLE_ALIASES = ["which role are you applying for?", "role"];
 const RESUME_ALIASES = ["resume", "résumé", "cv"];
 // A single combined date+time question.
-const TIME_ALIASES = ["preferred interview time", "preferred time", "interview time"];
+const TIME_ALIASES = [
+  "preferred interview time", "preferred time", "interview time",
+  // The titles the Forms API generates (forms.py) for an auto-created intake.
+  "preferred interview date & time", "preferred interview date and time",
+];
+
+// An auto-created intake asks for a shareable LINK rather than an upload:
+// Google's Forms API cannot create file-upload questions at all. The webhook
+// fetches public Drive links itself (fetchDriveResume in intake-webhook), so
+// the link is forwarded as `resumeLink` and the bytes are never handled here.
+const RESUME_LINK_ALIASES = [
+  "resume link (google drive, dropbox, or other shareable link)",
+  "resume link", "résumé link", "cv link",
+];
+// Optional demographics the webhook stores on the candidate row. Absent on a
+// hand-built form; present on every auto-created one. Missing values are
+// simply omitted — none of these gates the pipeline.
+const PHONE_ALIASES = ["phone number", "phone"];
+const LINKEDIN_ALIASES = [
+  "linkedin or portfolio url", "linkedin url", "linkedin", "portfolio url",
+];
+const EXPERIENCE_ALIASES = ["years of experience", "experience"];
 // A separate date-only question, combined with TIME_ALIASES's answer if the
 // form splits them into two questions instead of one.
 const DAY_ALIASES = ["preferred interview day", "preferred date", "interview day"];
@@ -145,9 +166,18 @@ function onFormSubmit(e) {
 
   const name = nameResponse ? nameResponse.getResponse() : null;
   const email = emailResponse ? emailResponse.getResponse() : null;
-  const roleTitle = roleResponse ? roleResponse.getResponse() : null;
   const timeAnswer = timeResponse ? timeResponse.getResponse() : null;
   const dayAnswer = dayResponse ? dayResponse.getResponse() : null;
+
+  // An auto-created intake form carries no role question — one form IS one
+  // role, and the webhook resolves `role_id` from the intake matched on
+  // formId, never from this string. But it still rejects an empty roleTitle,
+  // so fall back to the form's own title, which names the role by
+  // construction ("… — Backend Engineer — August 2026 Intake"). On a
+  // hand-built form the explicit answer still wins.
+  const roleTitle = roleResponse
+    ? roleResponse.getResponse()
+    : FormApp.getActiveForm().getTitle();
 
   if (!name || !email || !roleTitle || !timeAnswer) {
     const missing = [];
@@ -191,6 +221,13 @@ function onFormSubmit(e) {
     preferredTimeIso: _toUtcFromIst(preferredDate).toISOString(),
   };
 
+  const phoneResponse = _findResponse(byNormalizedTitle, PHONE_ALIASES);
+  const linkedinResponse = _findResponse(byNormalizedTitle, LINKEDIN_ALIASES);
+  const experienceResponse = _findResponse(byNormalizedTitle, EXPERIENCE_ALIASES);
+  if (phoneResponse) payload.phone = phoneResponse.getResponse();
+  if (linkedinResponse) payload.linkedinUrl = linkedinResponse.getResponse();
+  if (experienceResponse) payload.yearsExperience = experienceResponse.getResponse();
+
   const resumeResponse = _findResponse(byNormalizedTitle, RESUME_ALIASES);
   if (resumeResponse) {
     const fileIds = resumeResponse.getResponse();
@@ -199,6 +236,17 @@ function onFormSubmit(e) {
       const file = DriveApp.getFileById(fileIds[0]);
       payload.resumeFilename = file.getName();
       payload.resumeBase64 = Utilities.base64Encode(file.getBlob().getBytes());
+    }
+  }
+
+  // Checked second so an actual upload, where a form offers both, wins over a
+  // link: uploaded bytes are already in hand, whereas a link is only usable if
+  // it happens to be a public Drive URL.
+  if (!payload.resumeBase64) {
+    const resumeLinkResponse = _findResponse(byNormalizedTitle, RESUME_LINK_ALIASES);
+    if (resumeLinkResponse) {
+      const link = resumeLinkResponse.getResponse();
+      if (link) payload.resumeLink = link;
     }
   }
 
