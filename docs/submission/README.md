@@ -18,7 +18,7 @@ Flutter-only architecture with no portal and no FastAPI backend. They are histor
 | [`DATASET.md`](DATASET.md) | 📊 Dataset | All four data roles; three trained models with exact metrics |
 | [`SCHEMA.md`](SCHEMA.md) | 🗄️ Database | 13 tables, 20 migrations, security model |
 | [`API.md`](API.md) | 🔌 API | 42 routes with auth classes |
-| [`TESTING.md`](TESTING.md) | ✅ Testing | 1 100 tests, invariant tests, security audit |
+| [`TESTING.md`](TESTING.md) | ✅ Testing | 1 109 tests, invariant tests, security audit |
 | [`DEMO_AND_PRESENTATION.md`](DEMO_AND_PRESENTATION.md) | 🎥 Demo + 📊 Slides | Slide content, demo running order, recording checklist, hostile-question prep |
 
 ---
@@ -28,14 +28,15 @@ Flutter-only architecture with no portal and no FastAPI backend. They are histor
 | Fact | Value |
 |---|---|
 | Flutter / Dart tests | **686** passing (+3 preview goldens excluded in CI) |
-| Python tests | **412** passing |
-| Portal tests | **2** passing |
+| Python tests | **417** passing |
+| Portal tests | **6** passing |
 | API routes | **42** |
 | Database tables | **13**, across 20 migrations |
 | Modules | **15** |
 | Security findings | **10** (5 HIGH, 5 MEDIUM) — 9 fixed, 1 mitigated |
 
-**Do not quote 69, 662, 674, 681, 683, 688, or 734 tests.** All are historical.
+**Do not quote 69, 662, 674, 681, 683, 688, 734, or a 1 100 total (412 Python / 2 portal).**
+All are historical or, in the case of 412, simply wrong.
 
 ---
 
@@ -68,7 +69,7 @@ discounts everything else you said.
 
 ## Two corrections to your Review 2 deck
 
-1. **Test counts** — the deck says "674 Dart and 268 Python." Current: **686 and 412**.
+1. **Test counts** — the deck says "674 Dart and 268 Python." Current: **686 and 417**.
 2. **Illinois legislation** — the deck attributes the 2026-01-01 date to the *AI Video Interview
    Act*. That Act (820 ILCS 42) took effect **2020-01-01**. It is **HB 3773**, amending the Illinois
    Human Rights Act, that takes effect **2026-01-01**.
