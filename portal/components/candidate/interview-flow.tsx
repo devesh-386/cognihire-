@@ -484,46 +484,20 @@ export function InterviewFlow({ code }: { code?: string }) {
 
   if (sessionStatus === 'asking' || sessionStatus === 'submitting') {
     const submitting = sessionStatus === 'submitting'
-    // On the live channel the question is SPOKEN, and printing it too turns
-    // a conversation into a reading comprehension test: the candidate reads
-    // ahead, answers the text, and stops listening — which is exactly what
-    // made the live interview feel less conversational than the typed
-    // fallback that has an honest reason to show it.
-    //
-    // The topic label stays. It orients the candidate without handing them
-    // the wording, and it is the only thing on screen that says which part
-    // of their résumé is being explored.
-    const showsQuestionText = liveVoice !== 'live'
+    // The question stays on screen on every channel, live voice included.
+    // Hiding it while the AI spoke it was tried and reverted: a candidate
+    // who mishears a question with no way to re-read it is worse off than
+    // one who can read ahead, and accessibility runs the same way — audio
+    // alone is the weaker of the two, not the stronger.
     return (
       <div>
         <p className="label-mono text-muted-foreground">
           {turn?.kind === 'followup' ? 'Follow-up' : 'Question'}
           {turn?.topic ? ` · ${turn.topic}` : null}
         </p>
-        {showsQuestionText ? (
-          <h1 className="mt-5 text-3xl leading-[1.1] font-medium tracking-[-0.03em] sm:text-4xl">
-            {turn?.question}
-          </h1>
-        ) : (
-          // What the candidate said, in place of the question — the screen
-          // is about them while they speak. Before the first utterance
-          // there is nothing to echo, so it holds the space rather than
-          // letting the layout jump when the first transcript lands.
-          <div className="mt-5 min-h-[4.5rem]">
-            {spokenTranscript ? (
-              <p
-                data-spoken-transcript
-                className="text-2xl leading-snug font-medium tracking-[-0.02em] sm:text-3xl"
-              >
-                {spokenTranscript}
-              </p>
-            ) : (
-              <p className="text-2xl leading-snug font-medium tracking-[-0.02em] text-muted-foreground sm:text-3xl">
-                Listening…
-              </p>
-            )}
-          </div>
-        )}
+        <h1 className="mt-5 text-3xl leading-[1.1] font-medium tracking-[-0.03em] sm:text-4xl">
+          {turn?.question}
+        </h1>
 
         {coverage ? (
           <div className="mt-8">
@@ -540,13 +514,33 @@ export function InterviewFlow({ code }: { code?: string }) {
         ) : null}
 
         {liveVoice === 'live' ? (
-          <p className="mt-6 flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="relative flex size-2">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-75" />
-              <span className="relative inline-flex size-2 rounded-full bg-primary" />
-            </span>
-            Just talk — the interview is listening. You can interrupt at any time.
-          </p>
+          <>
+            <p className="mt-6 flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="relative flex size-2">
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-75" />
+                <span className="relative inline-flex size-2 rounded-full bg-primary" />
+              </span>
+              Just talk — the interview is listening. You can interrupt at any time.
+            </p>
+            {/* What the server heard, below the question rather than in
+                place of it. On the typed channel the candidate watches
+                their answer land in the textarea; on live voice nothing
+                confirmed they had been heard at all, so a misheard answer
+                looked exactly like a correctly heard one until the report.
+                Rendered only once they have spoken, so an empty box never
+                sits under an unanswered question. */}
+            {spokenTranscript ? (
+              <div className="mt-4 border-l-2 border-border pl-4">
+                <p className="label-mono text-muted-foreground">You said</p>
+                <p
+                  data-spoken-transcript
+                  className="mt-1.5 text-sm leading-relaxed"
+                >
+                  {spokenTranscript}
+                </p>
+              </div>
+            ) : null}
+          </>
         ) : liveVoice === 'connecting' ? (
           <p className="mt-6 flex items-center gap-2 text-xs text-muted-foreground">
             <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
