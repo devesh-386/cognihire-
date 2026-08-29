@@ -847,14 +847,41 @@ async def interview_finish(req: InterviewFinishRequest) -> dict:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+def intake_application_url(role: dict) -> str | None:
+    """The Google Form this role actually collects applications through, or
+    None if it has none.
+
+    A form is created per intake by POST /intakes/{id}/google-form and its
+    responder URL stored on that intake (`application_url`). Offering it
+    here is what makes the auto-generated form the front door: a candidate
+    browsing open roles lands on the same form the Apps Script trigger and
+    the intake poller already feed into, so every applicant enters through
+    one pipeline instead of the portal quietly opening a second one.
+
+    Only an **active** intake's form is offered. A closed intake's form
+    still exists and Google will still accept responses on it, so linking
+    to it would collect applications for a campaign that is over — and
+    those responses would be attributed to the closed intake by
+    intake-webhook's formId match, which is worse than not collecting them.
+
+    Nullable rather than a filter: a role with no active intake (or an
+    active one whose form was never generated) still belongs in the list,
+    and falls back to the portal's own apply page."""
+    for intake in role.get("intakes") or []:
+        if intake.get("status") == "active" and intake.get("application_url"):
+            return intake["application_url"]
+    return None
+
+
 @app.get(
     "/roles/open",
     dependencies=[Depends(rate_limit.limit("roles-open", 30))],
 )
 async def roles_open() -> dict:
     """Public: lets a candidate with no link yet browse open roles and pick
-    one to apply to. Same minimal shape as apply-info — title and org name,
-    never required_skills or notes — since this is reachable by anyone."""
+    one to apply to. Same minimal shape as apply-info — title, org name and
+    the role's application URL, never required_skills or notes — since this
+    is reachable by anyone."""
     try:
         roles = await demo_store.list_open_roles()
     except supabase_store.SupabaseError as exc:
@@ -865,6 +892,7 @@ async def roles_open() -> dict:
                 "id": role["id"],
                 "title": role["title"],
                 "organization_name": (role.get("organizations") or {}).get("name", ""),
+                "application_url": intake_application_url(role),
             }
             for role in roles
         ]
