@@ -68,6 +68,9 @@ export function InterviewFlow({ code }: { code?: string }) {
   // candidate, who can do nothing with it; surfaced in the console so the
   // cause is recoverable after the fact.
   const [liveVoiceError, setLiveVoiceError] = useState<string | null>(null)
+  // The last thing the server heard the candidate say, echoed back on
+  // screen during live voice. Null until they have spoken once.
+  const [spokenTranscript, setSpokenTranscript] = useState<string | null>(null)
   // Mirrors `answerText` for the silence timer below, which fires from a
   // closure created when recognition started and would otherwise submit the
   // empty string it captured then.
@@ -321,10 +324,15 @@ export function InterviewFlow({ code }: { code?: string }) {
       onTurn: (nextTurn, nextCoverage) => {
         setTurn(nextTurn)
         if (nextCoverage) setCoverage(nextCoverage)
+        // Drop the previous answer's echo: a new question means that
+        // answer is spent, and leaving it up reads as though the candidate
+        // said it in response to the question now being asked.
+        setSpokenTranscript(null)
         // The live channel speaks the question itself — stop the Web
         // Speech TTS effect below from saying it a second time.
         spokenQuestionRef.current = nextTurn.question ?? null
       },
+      onTranscript: (text: string) => setSpokenTranscript(text),
       onComplete: () => router.push(`/interview/complete?session=${sessionId}`),
       onError: (error) => {
         if (!cancelled) reportLiveVoiceFailure(error?.message ?? 'the live voice connection failed')
@@ -476,15 +484,46 @@ export function InterviewFlow({ code }: { code?: string }) {
 
   if (sessionStatus === 'asking' || sessionStatus === 'submitting') {
     const submitting = sessionStatus === 'submitting'
+    // On the live channel the question is SPOKEN, and printing it too turns
+    // a conversation into a reading comprehension test: the candidate reads
+    // ahead, answers the text, and stops listening — which is exactly what
+    // made the live interview feel less conversational than the typed
+    // fallback that has an honest reason to show it.
+    //
+    // The topic label stays. It orients the candidate without handing them
+    // the wording, and it is the only thing on screen that says which part
+    // of their résumé is being explored.
+    const showsQuestionText = liveVoice !== 'live'
     return (
       <div>
         <p className="label-mono text-muted-foreground">
           {turn?.kind === 'followup' ? 'Follow-up' : 'Question'}
           {turn?.topic ? ` · ${turn.topic}` : null}
         </p>
-        <h1 className="mt-5 text-3xl leading-[1.1] font-medium tracking-[-0.03em] sm:text-4xl">
-          {turn?.question}
-        </h1>
+        {showsQuestionText ? (
+          <h1 className="mt-5 text-3xl leading-[1.1] font-medium tracking-[-0.03em] sm:text-4xl">
+            {turn?.question}
+          </h1>
+        ) : (
+          // What the candidate said, in place of the question — the screen
+          // is about them while they speak. Before the first utterance
+          // there is nothing to echo, so it holds the space rather than
+          // letting the layout jump when the first transcript lands.
+          <div className="mt-5 min-h-[4.5rem]">
+            {spokenTranscript ? (
+              <p
+                data-spoken-transcript
+                className="text-2xl leading-snug font-medium tracking-[-0.02em] sm:text-3xl"
+              >
+                {spokenTranscript}
+              </p>
+            ) : (
+              <p className="text-2xl leading-snug font-medium tracking-[-0.02em] text-muted-foreground sm:text-3xl">
+                Listening…
+              </p>
+            )}
+          </div>
+        )}
 
         {coverage ? (
           <div className="mt-8">

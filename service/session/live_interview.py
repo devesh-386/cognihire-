@@ -304,6 +304,36 @@ class LiveOrchestrator:
         else:
             await self.candidate_ws.send_text(json.dumps({"type": "interview_complete"}))
 
+    async def _echo_candidate_transcript(self, text: str) -> None:
+        """Send the candidate their own words back, for display only.
+
+        In the typed path a candidate watches their answer appear in the
+        textarea as they speak it. In live voice they saw nothing at all:
+        no way to tell "it heard me and I said that" from "it misheard me"
+        until the report, by which point the interview is over. Speaking
+        into a screen that never acknowledges you is also what made the
+        live channel feel less like a conversation than the typed fallback,
+        despite being the more capable of the two.
+
+        Display only — grading is unchanged and still runs off the same
+        transcript in `_on_candidate_utterance`, which applies its own
+        clarification and attempt-spending rules. Nothing here can affect
+        what reaches the report.
+
+        Noise is filtered with the same threshold the state machine uses,
+        so a stray sound finalized into one character never flashes on
+        screen as though the candidate said it. A clarification request
+        ("sorry, could you repeat that?") IS echoed, deliberately: the
+        candidate really said it, and seeing it is how they know the system
+        heard them ask rather than ignored them.
+        """
+        stripped = text.strip()
+        if len(stripped) < _MIN_SUBSTANTIVE_UTTERANCE_CHARS:
+            return
+        await self.candidate_ws.send_text(json.dumps({
+            "type": "candidate_transcript", "text": stripped,
+        }))
+
     async def _on_speech_started(self) -> None:
         """Barge-in: cancel whatever OpenAI is speaking, tell the browser
         to flush already-buffered audio (audio already sent can't be
@@ -345,6 +375,7 @@ class LiveOrchestrator:
         elif event_type == "conversation.item.input_audio_transcription.completed":
             transcript = (event.get("transcript") or "").strip()
             if transcript:
+                await self._echo_candidate_transcript(transcript)
                 await self._on_candidate_utterance(transcript)
 
         elif event_type == "error":
