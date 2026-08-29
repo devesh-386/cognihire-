@@ -44,6 +44,14 @@ vi.mock('@/lib/gateway', () => ({
 let resolveConnect: (handle: { stop: () => void }) => void
 const stop = vi.fn()
 
+// The options the component handed to `startLiveVoice`, so a test can drive
+// the server-pushed callbacks (`onTranscript`, `onTurn`) the same way the
+// real WebSocket would.
+let liveVoiceOptions: {
+  onTranscript?: (text: string) => void
+  onTurn?: (turn: unknown, coverage: unknown) => void
+} = {}
+
 // Flipped per-test: the spoken-fallback suite needs the real-time channel to
 // report unavailable so the Web Speech path is the one under test.
 let liveVoiceSupportedResult = true
@@ -51,7 +59,8 @@ let liveVoiceSupportedResult = true
 vi.mock('@/lib/live-voice-client', () => ({
   liveVoiceSupported: () => liveVoiceSupportedResult,
   startLiveVoice: vi.fn(
-    () => new Promise((resolve) => {
+    (options: typeof liveVoiceOptions) => new Promise((resolve) => {
+      liveVoiceOptions = options
       resolveConnect = resolve
     }),
   ),
@@ -138,6 +147,89 @@ class FakeRecognition {
 function speak(text: string) {
   FakeRecognition.latest?.onresult?.({ results: [[{ transcript: text }]] })
 }
+
+describe('InterviewFlow live voice — what the candidate sees', () => {
+  // The question used to be printed as a heading even while the AI was
+  // speaking it. A candidate reads ahead, answers the text, and stops
+  // listening — which is what made the live channel feel less like a
+  // conversation than the typed fallback. And nothing they said ever
+  // appeared, so a misheard answer looked exactly like a heard one until
+  // the report.
+  beforeEach(() => {
+    vi.clearAllMocks()
+    liveVoiceSupportedResult = true
+    liveVoiceOptions = {}
+    startInterview.mockResolvedValue({
+      session_id: 'session-1',
+      coverage: { completion_percent: 0 },
+      turn: { kind: 'question', topic: 'React', question: 'Tell me about a project.' },
+    })
+  })
+
+  async function goLive() {
+    await reachTheFirstQuestion()
+    await act(async () => {
+      resolveConnect({ stop })
+    })
+    await waitFor(() => {
+      expect(screen.getByText(/just talk — the interview is listening/i)).toBeDefined()
+    })
+  }
+
+  it('does not print the question while the channel is speaking it', async () => {
+    await goLive()
+
+    expect(screen.queryByText('Tell me about a project.')).toBeNull()
+  })
+
+  it('still shows the topic, which orients without giving the wording', async () => {
+    await goLive()
+
+    expect(screen.getByText(/React/)).toBeDefined()
+  })
+
+  it('echoes back what the candidate said', async () => {
+    await goLive()
+
+    await act(async () => {
+      liveVoiceOptions.onTranscript?.('We ran Kubernetes across three regions.')
+    })
+
+    expect(screen.getByText('We ran Kubernetes across three regions.')).toBeDefined()
+  })
+
+  it('clears the previous answer when the next question arrives', async () => {
+    // Otherwise the last answer sits under the new question, reading as
+    // though the candidate said it in response to the question being asked
+    // now.
+    await goLive()
+
+    await act(async () => {
+      liveVoiceOptions.onTranscript?.('We ran Kubernetes across three regions.')
+    })
+    expect(screen.getByText('We ran Kubernetes across three regions.')).toBeDefined()
+
+    await act(async () => {
+      liveVoiceOptions.onTurn?.(
+        { kind: 'followup', topic: 'React', question: 'Which part did you own?' },
+        { completion_percent: 20 },
+      )
+    })
+
+    expect(screen.queryByText('We ran Kubernetes across three regions.')).toBeNull()
+  })
+
+  it('keeps printing the question when the live channel is not in use', async () => {
+    // The typed path has an honest reason to show it: nothing is speaking.
+    liveVoiceSupportedResult = false
+
+    await reachTheFirstQuestion()
+
+    await waitFor(() => {
+      expect(screen.getByText('Tell me about a project.')).toBeDefined()
+    })
+  })
+})
 
 describe('InterviewFlow spoken answers', () => {
   beforeEach(() => {

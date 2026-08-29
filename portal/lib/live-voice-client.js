@@ -54,12 +54,15 @@ export function liveVoiceSupported() {
  *   code: string,
  *   stream: MediaStream,
  *   onTurn?: (turn: LiveVoiceTurn, coverage: LiveVoiceCoverage | null) => void,
+ *   onTranscript?: (text: string) => void,
  *   onComplete?: () => void,
  *   onError?: (error: Error) => void,
  * }} options
  * @returns {Promise<{ stop: () => void }>}
  */
-export async function startLiveVoice({ sessionId, code, stream, onTurn, onComplete, onError }) {
+export async function startLiveVoice({
+  sessionId, code, stream, onTurn, onTranscript, onComplete, onError,
+}) {
   const wsUrl =
     GATEWAY_URL.replace(/^http/, "ws") + `/interview/live/${encodeURIComponent(sessionId)}`;
 
@@ -131,6 +134,10 @@ export async function startLiveVoice({ sessionId, code, stream, onTurn, onComple
       }
       if (payload.type === "flush_playback") flushPlayback();
       else if (payload.type === "turn") onTurn?.(payload.turn, payload.coverage ?? null);
+      // What the server heard the candidate say. Display only — the same
+      // text is already graded server-side, so dropping it here costs the
+      // candidate their on-screen echo and nothing else.
+      else if (payload.type === "candidate_transcript") onTranscript?.(payload.text);
       else if (payload.type === "interview_complete") onComplete?.();
       return;
     }
