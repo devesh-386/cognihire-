@@ -1677,6 +1677,33 @@ async def create_google_form_for_intake(
 
     try:
         access_token = await google_oauth.get_valid_access_token(organization_id)
+    except google_oauth.GoogleOAuthError as exc:
+        # Google refused the refresh: consent revoked, or — far more likely
+        # here — the refresh token expired. This app is deliberately kept in
+        # Google's "Testing" publishing status to skip verification review
+        # (infra/README.md's Google setup step 2), and Google expires a
+        # Testing-mode app's refresh tokens after seven days. So a working
+        # connection goes dead on its own, with nothing logged and no
+        # warning, exactly one week after it was made.
+        #
+        # 409 and not 502: 502 reads as "upstream is having a moment, retry
+        # later", and retrying this never succeeds. The remedy is the same
+        # browser consent flow as a first-time connection, which is why this
+        # deliberately lands on the same status as "never connected" — a
+        # human has to go and reconnect either way.
+        #
+        # Uncaught, this escaped as a bare 500, which says "the server is
+        # broken" about a condition that is neither the server's fault nor
+        # fixable by anyone reading a stack trace. The sibling route
+        # POST /internal/google/access-token already caught it; this one
+        # never did.
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "this organization's Google connection is no longer valid — "
+                "reconnect the Google account, then create the form again"
+            ),
+        ) from exc
     except supabase_store.SupabaseError:
         raise HTTPException(
             status_code=409, detail="connect this organization's Google account first",
