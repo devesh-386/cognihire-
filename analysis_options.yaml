@@ -9,6 +9,17 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+analyzer:
+  exclude:
+    # Candidate-side Flutter code was moved here on 2026-08-11 when the
+    # candidate surface became web-only (git mv, so history is intact). Its
+    # imports point at files that moved with it, so the analyzer reports 404
+    # errors for code that is deliberately dead and is not built, tested or
+    # shipped. Without this exclusion `flutter analyze` fails on a fresh clone
+    # while `flutter analyze lib test` passes — and the documentation claims
+    # the analyzer is clean, which a reader checks by running the bare command.
+    - archive/**
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`

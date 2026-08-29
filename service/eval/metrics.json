@@ -1,0 +1,49 @@
+{
+  "corpus_size": 5200,
+  "gate": {
+    "genuine_claims_tested": 51761,
+    "verbatim_true_positive_rate_pct": 99.18,
+    "verbatim_false_rejections": 425,
+    "paraphrases_tested": 48149,
+    "paraphrase_rejection_rate_pct": 100.0,
+    "paraphrases_leaked_through": 0,
+    "negation_traps_tested": 51761,
+    "negation_trap_rejection_rate_pct": 100.0,
+    "negation_traps_leaked_through": 0
+  },
+  "fallback_extractor": {
+    "heuristic_lines_emitted": 41600,
+    "non_claim_lines_filtered_by_gate_pct": 25.05,
+    "note": "share of crude _heuristic output the gate refuses as non-assertions (contact/summary lines) — gate acting as a safety net over the fallback, not a defect"
+  },
+  "extraction_coverage_pct": {
+    "name": 100.0,
+    "email": 100.0,
+    "has_>=1_skill": 100.0,
+    "experience_section_found": 100.0,
+    "education_section_found": 100.0
+  },
+  "claims": {
+    "mean_per_resume": 8,
+    "median_per_resume": 8.0,
+    "max_cap": 8,
+    "truncated_at_cap_pct": 100.0
+  },
+  "sample_gate_false_rejections": [
+    "Developed cross-functional initiatives delivering 179+ campaigns per month using Node.js, Rust.",
+    "Optimized high-impact initiatives delivering 21% improvement in conversion using Node.js, Docker.",
+    "Implemented strategic initiatives delivering $33M in revenue using JavaScript, Node.js.",
+    "Improved key initiatives delivering 40% improvement in conversion using CI/CD, Node.js.",
+    "Delivered high-impact initiatives delivering 33% improvement in performance using Node.js, React.",
+    "Reduced high-impact initiatives delivering 54% improvement in efficiency using Microservices, Node.js.",
+    "Developed high-impact initiatives delivering 74% improvement in throughput using Microservices, Node.js.",
+    "Implemented high-impact initiatives delivering a team of 8 designers using Java, Node.js.",
+    "Optimized cross-functional initiatives delivering 141+ campaigns per month using Java, Node.js.",
+    "Architected key initiatives delivering 59% improvement in efficiency using Microservices, Node.js.",
+    "Managed cross-functional initiatives delivering $11M in revenue using Node.js, Redis.",
+    "Built high-impact initiatives delivering a team of 2 engineers using Rust, Node.js.",
+    "Managed strategic initiatives delivering $4M in revenue using Redis, Node.js.",
+    "Drove cross-functional initiatives delivering a team of 15 analysts using Node.js, CI/CD.",
+    "Streamlined cross-functional initiatives delivering $27M in cost savings using Node.js, Python."
+  ]
+}

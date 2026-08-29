@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import secrets
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -82,9 +83,45 @@ def _refuse_to_boot_misconfigured_in_production() -> None:
         )
 
 
+def _warn_if_origins_unrestricted_in_production() -> None:
+    """ALLOWED_ORIGINS defaults to "*" in docker-compose.api.yml — the file
+    whose own header says it is the production stack — so forgetting to set
+    it in the VM's .env leaves production wide open by default rather than
+    by decision.
+
+    Two things go slack when it is "*". CORS accepts any origin, which is
+    the milder half: this service authenticates with bearer tokens held in
+    the portal's localStorage, and no cross-origin page can read those, so
+    a permissive CORS policy does not by itself hand anyone a session. The
+    sharper half is the WebSocket upgrade at `/interview/live/{session_id}`,
+    which CORSMiddleware does not cover and which therefore does its own
+    Origin check by hand — and that check is written as
+    `_allowed_origins == "*" or origin in ...`, so "*" turns it off
+    entirely. What still stands behind it is the interview code, which the
+    socket demands as its first message.
+
+    A warning rather than a refusal, unlike PORTAL_URL above. That one
+    silently broke every candidate's invitation link, so failing the boot
+    was strictly better than starting. This one degrades a defence in depth
+    while the actual credential checks keep working, and a service that
+    refuses to start over it would take the whole hiring pipeline down to
+    fix a hardening gap. It is reported by GET /health as `allowed_origins`
+    too, so it is visible without reading logs."""
+    if os.environ.get("ENVIRONMENT", "development") != "production":
+        return
+    if _allowed_origins.strip() != "*":
+        return
+    logger.warning(
+        "ALLOWED_ORIGINS is '*' in production. CORS will accept any origin and the "
+        "WebSocket Origin check on /interview/live is disabled. Set ALLOWED_ORIGINS "
+        "to the portal's and HR app's real origins (comma-separated) in the VM's .env."
+    )
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     _refuse_to_boot_misconfigured_in_production()
+    _warn_if_origins_unrestricted_in_production()
     yield
 
 
@@ -632,11 +669,34 @@ async def send_due_reminders(x_internal_secret: str | None = Header(default=None
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@app.post("/interview/start")
+@app.post(
+    "/interview/start",
+    dependencies=[Depends(rate_limit.limit("interview-start", 10))],
+)
 async def interview_start(req: InterviewStartRequest) -> dict:
     """Redeem a code and either resume its in-progress session or open a new
     one. The candidate portal never sends an id it wasn't handed by a human
-    — only the code."""
+    — only the code.
+
+    This is the interview code's verification endpoint, and the code is the
+    candidate's whole credential (see `InterviewAnswerRequest.code`) — which
+    makes this the candidate-side equivalent of `/auth/login`, and it had no
+    limiter either. Worse, the reply distinguishes a code that doesn't exist
+    (404, via `_CODE_ERROR_STATUS`) from one that does but can't be redeemed
+    right now (409), so an unlimited caller gets a clean live/dead oracle to
+    guess against.
+
+    A code is 8 characters over a 31-symbol alphabet
+    (`interview_codes._ALPHABET`), so the space is ~8.5e11 and guessing was
+    never going to be fast — but "the search space is large" is not a rate
+    limit, and it stops being the only thing standing in the way the moment
+    the alphabet or length is ever shortened. 10/minute leaves a legitimate
+    candidate (who types one code, once, and retries a couple of times if
+    they fat-finger it) untouched.
+
+    The oracle itself stays: telling a candidate "that code has expired"
+    rather than "that code was not recognized" is worth more to the honest
+    user than it costs against a now-capped attacker."""
     try:
         return await interview_codes.start_with_code(req.code)
     except interview_codes.CodeError as exc:
@@ -650,10 +710,18 @@ async def interview_start(req: InterviewStartRequest) -> dict:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@app.post("/interview/answer")
+@app.post(
+    "/interview/answer",
+    dependencies=[Depends(rate_limit.limit("interview-answer", 30))],
+)
 async def interview_answer(req: InterviewAnswerRequest) -> dict:
     """Record the candidate's answer to the current question and return the
-    next turn — a follow-up, the next topic's question, or completion."""
+    next turn — a follow-up, the next topic's question, or completion.
+
+    Public and code-authenticated like the rest of the interview flow, and
+    every call behind it is an LLM turn — the same "expensive, reachable
+    without a bearer token" shape `/extract-claims` is limited for. 30/min
+    is far above the ~1 answer/minute a real interview produces."""
     await _require_code_owns_session(req.code, req.session_id)
     try:
         return await interview_session.answer(req.session_id, req.answer_text)
@@ -703,7 +771,15 @@ async def interview_live(websocket: WebSocket, session_id: str) -> None:
         pass
 
 
-@app.post("/interview/event")
+@app.post(
+    "/interview/event",
+    # Deliberately the loosest of the four: tab_hidden/tab_visible and
+    # window_blur/window_focus fire in pairs on every alt-tab, and a nervous
+    # candidate glancing at another window generates real bursts. 120/min is
+    # high enough not to drop honest telemetry (dropping it would corrupt
+    # the very signal HR reads) while still bounding a flood.
+    dependencies=[Depends(rate_limit.limit("interview-event", 120))],
+)
 async def interview_event(req: InterviewEventRequest) -> dict:
     """Record one client-observed signal (face verification result, tab/
     window/fullscreen/connection change) against a session. Same code+session
@@ -753,7 +829,10 @@ async def interview_report(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@app.post("/interview/finish")
+@app.post(
+    "/interview/finish",
+    dependencies=[Depends(rate_limit.limit("interview-finish", 10))],
+)
 async def interview_finish(req: InterviewFinishRequest) -> dict:
     """Abandon a session early (candidate disconnected, timed out, etc).
     A session that runs its plan to completion finishes itself — this is
@@ -768,14 +847,41 @@ async def interview_finish(req: InterviewFinishRequest) -> dict:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+def intake_application_url(role: dict) -> str | None:
+    """The Google Form this role actually collects applications through, or
+    None if it has none.
+
+    A form is created per intake by POST /intakes/{id}/google-form and its
+    responder URL stored on that intake (`application_url`). Offering it
+    here is what makes the auto-generated form the front door: a candidate
+    browsing open roles lands on the same form the Apps Script trigger and
+    the intake poller already feed into, so every applicant enters through
+    one pipeline instead of the portal quietly opening a second one.
+
+    Only an **active** intake's form is offered. A closed intake's form
+    still exists and Google will still accept responses on it, so linking
+    to it would collect applications for a campaign that is over — and
+    those responses would be attributed to the closed intake by
+    intake-webhook's formId match, which is worse than not collecting them.
+
+    Nullable rather than a filter: a role with no active intake (or an
+    active one whose form was never generated) still belongs in the list,
+    and falls back to the portal's own apply page."""
+    for intake in role.get("intakes") or []:
+        if intake.get("status") == "active" and intake.get("application_url"):
+            return intake["application_url"]
+    return None
+
+
 @app.get(
     "/roles/open",
     dependencies=[Depends(rate_limit.limit("roles-open", 30))],
 )
 async def roles_open() -> dict:
     """Public: lets a candidate with no link yet browse open roles and pick
-    one to apply to. Same minimal shape as apply-info — title and org name,
-    never required_skills or notes — since this is reachable by anyone."""
+    one to apply to. Same minimal shape as apply-info — title, org name and
+    the role's application URL, never required_skills or notes — since this
+    is reachable by anyone."""
     try:
         roles = await demo_store.list_open_roles()
     except supabase_store.SupabaseError as exc:
@@ -786,6 +892,7 @@ async def roles_open() -> dict:
                 "id": role["id"],
                 "title": role["title"],
                 "organization_name": (role.get("organizations") or {}).get("name", ""),
+                "application_url": intake_application_url(role),
             }
             for role in roles
         ]
@@ -1052,8 +1159,38 @@ async def auth_signup(req: SignupRequest) -> dict:
     }
 
 
-@app.post("/auth/login")
+@app.post(
+    "/auth/login",
+    dependencies=[Depends(rate_limit.limit("auth-login-ip", 20))],
+)
 async def auth_login(req: LoginRequest) -> dict:
+    """Sign in an HR user.
+
+    Rate-limited on TWO identities, because either one alone leaves the
+    other attack open. This is the only route in the file that verifies a
+    password, and it was the only public route with no limiter at all —
+    every other one (`/extract-claims`, `/candidates/apply`, `/face/analyze`
+    …) already had one, so this was an omission, not a decision.
+
+    Per-IP (the dependency above) stops one host spraying a password list.
+    It does nothing about a distributed attempt against one account, so the
+    per-email bucket below caps attempts on a single address regardless of
+    where they come from. Neither is a defence against a botnet spread
+    across both axes; that needs an edge layer, same caveat
+    `security/rate_limit.py`'s own docstring already carries.
+
+    The email bucket is consumed BEFORE `sign_in` is called, so a wrong
+    password costs the attacker a slot exactly like a right one does — a
+    limiter that only counted successes would not be a limiter. The cost to
+    a real user is that fat-fingering their password five times in a minute
+    makes them wait for the rest of it.
+
+    `/auth/signup` already tells a caller whether an address is registered
+    (409 `email_registered`, a trade its own docstring accepts). That makes
+    recruiter emails harvestable, which is precisely what turns an unlimited
+    login route into a practical account takeover — the enumeration is only
+    cheap because this cap now exists to blunt what follows it."""
+    rate_limit.check("auth-login-email", req.email.strip().lower(), 5)
     try:
         token = await demo_store.sign_in(req.email, req.password)
     except supabase_store.SupabaseError as exc:
@@ -1089,6 +1226,33 @@ async def list_candidates(authorization: str | None = Header(default=None)) -> d
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+def _safe_download_filename(resume_path: str) -> str:
+    """The last path segment of `resume_path`, reduced to characters that
+    cannot break out of the quoted `filename="..."` in a Content-Disposition
+    header.
+
+    That segment is not ours. It is whatever the candidate's browser called
+    the file at upload time, carried through `infra/apply-webhook` (and the
+    Google Form intake path) into the storage key and back out here. A
+    filename containing a double quote closes the quoted string early and
+    lets the rest be read as further header parameters; a CR or LF is a
+    header-splitting attempt. Starlette rejects the most blatant of those,
+    but "the framework probably catches it" is not the check — this is.
+
+    Everything outside [A-Za-z0-9._-] becomes an underscore, leading dots
+    are dropped so the result can't be a hidden/relative name, and the
+    length is capped. An empty or fully-stripped name falls back to a
+    constant rather than emitting `filename=""`.
+
+    The upload side validates this too (see `infra/apply-webhook`), so this
+    is the second of two independent checks, not the only one — résumés
+    predating that validation are already in the bucket."""
+    segment = resume_path.rsplit("/", 1)[-1]
+    cleaned = "".join(c if (c.isalnum() and c.isascii()) or c in "._-" else "_" for c in segment)
+    cleaned = cleaned.lstrip(".")[:120]
+    return cleaned or "resume.pdf"
+
+
 @app.get("/candidates/{candidate_id}/resume")
 async def get_candidate_resume(
     candidate_id: str, authorization: str | None = Header(default=None),
@@ -1121,11 +1285,10 @@ async def get_candidate_resume(
     except supabase_store.SupabaseError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    filename = resume_path.rsplit("/", 1)[-1]
     return Response(
         content=content,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        headers={"Content-Disposition": f'inline; filename="{_safe_download_filename(resume_path)}"'},
     )
 
 
@@ -1292,28 +1455,89 @@ async def intake_apply(intake_id: str, req: IntakeApplyRequest) -> dict:
 # ---------------------------------------------------------------------------
 
 
+# A signed state is a bearer credential for "attach a Google account to
+# this organization", and it used to be good forever. The nonce was
+# generated, signed, and then never looked at again — nothing recorded it,
+# so nothing could tell a first use from a thousandth. Combined with no
+# expiry, a state value recovered from browser history, a referrer header,
+# or a proxy log stayed valid indefinitely: replay it with your own consent
+# code and your Google account is now the one wired to that company's
+# hiring pipeline. That is exactly the account-linking CSRF `state` exists
+# to prevent.
+_STATE_TTL_SECONDS = 600
+
+# nonce -> the monotonic time it was consumed. In-process, for the same
+# reason security/rate_limit.py is: docker-compose.api.yml runs exactly one
+# container, and a dict is the smallest thing that actually makes a state
+# single-use without adding infrastructure this project doesn't otherwise
+# run. A restart forgets them, so a replay is still bounded by the TTL
+# above rather than by this — the two controls cover each other's gap, and
+# neither is sufficient alone.
+_consumed_state_nonces: dict[str, float] = {}
+
+
+def _sweep_consumed_nonces(now: float) -> None:
+    """Drop nonces past the point where the TTL check would reject them
+    anyway. Without this the dict only ever grows, one entry per OAuth
+    connect attempt, for the life of the process."""
+    for nonce in [n for n, at in _consumed_state_nonces.items() if now - at > _STATE_TTL_SECONDS]:
+        del _consumed_state_nonces[nonce]
+
+
 def _sign_state(organization_id: str) -> str:
     secret = os.environ.get("GOOGLE_OAUTH_STATE_SECRET", "")
     if not secret:
         raise HTTPException(status_code=503, detail="Google OAuth is not configured")
     nonce = secrets.token_urlsafe(16)
-    payload = f"{organization_id}:{nonce}"
+    # Issued-at is inside the signed payload, so it cannot be edited without
+    # invalidating the signature — a state that carried its own unsigned
+    # expiry would just be asking the attacker what the expiry should be.
+    issued_at = int(time.time())
+    payload = f"{organization_id}:{nonce}:{issued_at}"
     signature = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
     return f"{payload}:{signature}"
 
 
 def _verify_state(state: str) -> str:
-    """Returns the organization_id if the state is genuine, raises
-    otherwise — this is what stops a forged callback from attaching an
-    attacker's Google account to someone else's organization."""
+    """Returns the organization_id if the state is genuine, unexpired, and
+    not already spent. Raises otherwise — this is what stops a forged or
+    replayed callback from attaching an attacker's Google account to
+    someone else's organization.
+
+    Parsed from the right, not the left: the signature and issued-at are
+    fixed-shape fields at the end, so splitting that way means an
+    organization_id containing a colon can never shift the field boundaries
+    and change which bytes get signature-checked.
+    """
     secret = os.environ.get("GOOGLE_OAUTH_STATE_SECRET", "")
+    if not secret:
+        raise HTTPException(status_code=503, detail="Google OAuth is not configured")
+
+    payload, _, signature = state.rpartition(":")
+    rest, _, issued_at_raw = payload.rpartition(":")
+    organization_id, _, nonce = rest.rpartition(":")
+    if not signature or not issued_at_raw or not nonce or not organization_id:
+        raise HTTPException(status_code=400, detail="malformed state")
+
+    expected = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    # Signature first: everything below reads fields we have not yet proven
+    # were written by us.
+    if not secrets.compare_digest(signature, expected):
+        raise HTTPException(status_code=400, detail="invalid or expired state")
+
     try:
-        organization_id, nonce, signature = state.split(":", 2)
+        issued_at = int(issued_at_raw)
     except ValueError:
         raise HTTPException(status_code=400, detail="malformed state")
-    expected = hmac.new(secret.encode(), f"{organization_id}:{nonce}".encode(), hashlib.sha256).hexdigest()
-    if not secret or not secrets.compare_digest(signature, expected):
+    if time.time() - issued_at > _STATE_TTL_SECONDS:
         raise HTTPException(status_code=400, detail="invalid or expired state")
+
+    now = time.monotonic()
+    _sweep_consumed_nonces(now)
+    if nonce in _consumed_state_nonces:
+        raise HTTPException(status_code=400, detail="invalid or expired state")
+    _consumed_state_nonces[nonce] = now
+
     return organization_id
 
 
@@ -1351,6 +1575,42 @@ async def google_status(
         "connected": connection is not None,
         "google_account_email": connection["google_account_email"] if connection else None,
     }
+
+
+@app.post("/internal/google/access-token")
+async def internal_google_access_token(
+    organization_id: str, x_internal_secret: str | None = Header(default=None),
+) -> dict:
+    """Hands a live Google access token to the `intake-form-poller` Edge
+    Function, which used to read `access_token`/`refresh_token` straight out
+    of `google_oauth_connections`. Those columns are Fernet ciphertext now
+    (security/token_crypto.py), so that direct read broke: the function sent
+    ciphertext to Google as a refresh token and got HTTP 400 on every run,
+    while still returning 200 — a silent failure.
+
+    Deno has no access to the encryption key and should not: the key lives
+    with this service, so token handling belongs here too. This route is a
+    thin wrapper over the same `get_valid_access_token` every in-process
+    caller uses, so decrypt/refresh/re-encrypt stays in exactly one place.
+
+    Shared secret rather than a bearer token, matching
+    `/internal/candidates/{id}/auto-invite` — the caller is a scheduled job,
+    not a person."""
+    expected_secret = os.environ.get("INTERNAL_AUTOINVITE_SECRET", "")
+    if not expected_secret or not x_internal_secret or not secrets.compare_digest(
+        x_internal_secret, expected_secret
+    ):
+        raise HTTPException(status_code=401, detail="invalid or missing internal secret")
+    try:
+        access_token = await google_oauth.get_valid_access_token(organization_id)
+    except google_oauth.GoogleOAuthError as exc:
+        # Google rejected the refresh (revoked consent, expired refresh
+        # token). Distinct from "never connected" below so the poller's
+        # failure list says which one it is.
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except supabase_store.SupabaseError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"access_token": access_token}
 
 
 @app.get("/google/oauth/callback")

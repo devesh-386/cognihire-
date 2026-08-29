@@ -3,7 +3,7 @@ import { OpenRolesList } from '@/components/candidate/open-roles-list'
 
 export const metadata: Metadata = {
   title: 'Apply — CogniHire',
-  description: 'Browse open roles and apply directly — résumé upload, no external form.',
+  description: 'Browse open roles and apply — each role opens its own application form.',
 }
 
 export default function ApplyGatePage() {
@@ -14,8 +14,8 @@ export default function ApplyGatePage() {
         Open roles
       </h1>
       <p className="mt-4 max-w-lg text-sm leading-relaxed text-muted-foreground">
-        Pick a role to apply — you&apos;ll upload your résumé directly here. Your
-        interview code arrives by email once it&apos;s ready.
+        Pick a role to open its application form. Your interview code arrives
+        by email once your résumé has been processed.
       </p>
       <OpenRolesList className="mt-8 max-w-lg" />
     </div>

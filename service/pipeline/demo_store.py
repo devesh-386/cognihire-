@@ -311,12 +311,23 @@ async def list_roles(organization_id: str) -> list[dict]:
 
 async def list_open_roles() -> list[dict]:
     """Public: every role across every organization, with just enough to
-    render a "browse open roles" list and link into `/apply/{role_id}`.
+    render a "browse open roles" list and send the candidate to wherever
+    that role actually collects applications.
     There is no closed/open status column yet — every role that exists is
     open — so this is the full table, org name embedded via PostgREST's
-    resource embedding rather than a second round trip per role."""
+    resource embedding rather than a second round trip per role.
+
+    `intakes` is embedded the same way (the reverse of intakes.role_id) so
+    the caller can offer the role's auto-generated Google Form. Only
+    `status` and `application_url` are selected: `google_form_id` and the
+    intake's own name are internal, and this route is unauthenticated.
+    Filtering to active intakes happens in the caller rather than as a
+    PostgREST embedded filter, because an embedded filter that matches
+    nothing yields an empty array and a role with no active intake still
+    has to appear in this list — it just falls back to the portal's own
+    apply page."""
     return await _get_many("roles", {
-        "select": "id,title,created_at,organizations(name)",
+        "select": "id,title,created_at,organizations(name),intakes(status,application_url)",
         "order": "created_at.desc",
     })
 

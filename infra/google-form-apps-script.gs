@@ -34,13 +34,75 @@ const EMAIL_ALIASES = ["email", "email address"];
 const ROLE_ALIASES = ["which role are you applying for?", "role"];
 const RESUME_ALIASES = ["resume", "résumé", "cv"];
 // A single combined date+time question.
-const TIME_ALIASES = ["preferred interview time", "preferred time", "interview time"];
+const TIME_ALIASES = [
+  "preferred interview time", "preferred time", "interview time",
+  // The titles the Forms API generates (forms.py) for an auto-created intake.
+  "preferred interview date & time", "preferred interview date and time",
+];
+
+// An auto-created intake asks for a shareable LINK rather than an upload:
+// Google's Forms API cannot create file-upload questions at all. The webhook
+// fetches public Drive links itself (fetchDriveResume in intake-webhook), so
+// the link is forwarded as `resumeLink` and the bytes are never handled here.
+const RESUME_LINK_ALIASES = [
+  "resume link (google drive, dropbox, or other shareable link)",
+  "resume link", "résumé link", "cv link",
+];
+// Optional demographics the webhook stores on the candidate row. Absent on a
+// hand-built form; present on every auto-created one. Missing values are
+// simply omitted — none of these gates the pipeline.
+const PHONE_ALIASES = ["phone number", "phone"];
+const LINKEDIN_ALIASES = [
+  "linkedin or portfolio url", "linkedin url", "linkedin", "portfolio url",
+];
+const EXPERIENCE_ALIASES = ["years of experience", "experience"];
 // A separate date-only question, combined with TIME_ALIASES's answer if the
 // form splits them into two questions instead of one.
 const DAY_ALIASES = ["preferred interview day", "preferred date", "interview day"];
 
+// The timezone the candidate answers the form in. Every "preferred interview
+// time" answer is interpreted as a wall-clock time in THIS zone and converted
+// to UTC explicitly below.
+//
+// Why this is pinned rather than inherited: `new Date("August 13, 2026 11:45")`
+// resolves against the Apps Script PROJECT's timezone (File > Project
+// Settings), which is a per-script setting nobody on this project has
+// verified, defaults to the creating account's locale, and is silently
+// changeable in the UI. If it is not Asia/Kolkata, every interview lands in
+// the database shifted by the difference — the candidate says 11:45 and gets a
+// 06:15 slot — and nothing downstream can detect it, because a valid-looking
+// timestamp is indistinguishable from a correct one. Pinning the offset here
+// makes the conversion deterministic regardless of that setting.
+//
+// A fixed +05:30 is safe: India has never observed daylight saving, so there
+// is no transition to get wrong. Change IST_OFFSET_MINUTES only if this
+// deployment stops serving IST candidates.
+const IST_OFFSET_MINUTES = 330;
+
 function _normalize(title) {
   return (title || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/**
+ * Reads the year/month/day/hour/minute the responder actually chose — as
+ * rendered in the script's own timezone, which is how Apps Script hands back
+ * both a Date-question value and a parsed string — and re-anchors those exact
+ * wall-clock numbers to IST, returning a real UTC instant.
+ *
+ * `local` is only ever used as a carrier of the five field values; its own
+ * timezone is deliberately discarded rather than trusted.
+ */
+function _toUtcFromIst(local) {
+  const utcMillis = Date.UTC(
+    local.getFullYear(),
+    local.getMonth(),
+    local.getDate(),
+    local.getHours(),
+    local.getMinutes(),
+    0,
+    0,
+  );
+  return new Date(utcMillis - IST_OFFSET_MINUTES * 60 * 1000);
 }
 
 function _findResponse(byNormalizedTitle, aliases) {
@@ -104,9 +166,18 @@ function onFormSubmit(e) {
 
   const name = nameResponse ? nameResponse.getResponse() : null;
   const email = emailResponse ? emailResponse.getResponse() : null;
-  const roleTitle = roleResponse ? roleResponse.getResponse() : null;
   const timeAnswer = timeResponse ? timeResponse.getResponse() : null;
   const dayAnswer = dayResponse ? dayResponse.getResponse() : null;
+
+  // An auto-created intake form carries no role question — one form IS one
+  // role, and the webhook resolves `role_id` from the intake matched on
+  // formId, never from this string. But it still rejects an empty roleTitle,
+  // so fall back to the form's own title, which names the role by
+  // construction ("… — Backend Engineer — August 2026 Intake"). On a
+  // hand-built form the explicit answer still wins.
+  const roleTitle = roleResponse
+    ? roleResponse.getResponse()
+    : FormApp.getActiveForm().getTitle();
 
   if (!name || !email || !roleTitle || !timeAnswer) {
     const missing = [];
@@ -145,8 +216,17 @@ function onFormSubmit(e) {
     name: name,
     email: email,
     roleTitle: roleTitle,
-    preferredTimeIso: preferredDate.toISOString(),
+    // Re-anchored to IST (see _toUtcFromIst) rather than relying on the Apps
+    // Script project's timezone setting to have been correct.
+    preferredTimeIso: _toUtcFromIst(preferredDate).toISOString(),
   };
+
+  const phoneResponse = _findResponse(byNormalizedTitle, PHONE_ALIASES);
+  const linkedinResponse = _findResponse(byNormalizedTitle, LINKEDIN_ALIASES);
+  const experienceResponse = _findResponse(byNormalizedTitle, EXPERIENCE_ALIASES);
+  if (phoneResponse) payload.phone = phoneResponse.getResponse();
+  if (linkedinResponse) payload.linkedinUrl = linkedinResponse.getResponse();
+  if (experienceResponse) payload.yearsExperience = experienceResponse.getResponse();
 
   const resumeResponse = _findResponse(byNormalizedTitle, RESUME_ALIASES);
   if (resumeResponse) {
@@ -156,6 +236,17 @@ function onFormSubmit(e) {
       const file = DriveApp.getFileById(fileIds[0]);
       payload.resumeFilename = file.getName();
       payload.resumeBase64 = Utilities.base64Encode(file.getBlob().getBytes());
+    }
+  }
+
+  // Checked second so an actual upload, where a form offers both, wins over a
+  // link: uploaded bytes are already in hand, whereas a link is only usable if
+  // it happens to be a public Drive URL.
+  if (!payload.resumeBase64) {
+    const resumeLinkResponse = _findResponse(byNormalizedTitle, RESUME_LINK_ALIASES);
+    if (resumeLinkResponse) {
+      const link = resumeLinkResponse.getResponse();
+      if (link) payload.resumeLink = link;
     }
   }
 

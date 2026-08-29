@@ -16,7 +16,7 @@ import pytest
 from notifications import delivery, workflow
 from notifications import store as email_store
 from notifications.provider import EmailSendResult
-from notifications.templates import invitation_email
+from notifications.templates import invitation_email, reminder_email
 from pipeline import supabase_store
 
 
@@ -346,3 +346,63 @@ def test_invitation_and_reminder_include_the_candidates_organization_name(
     assert "Meridian Health" not in sent_messages[1].text_body
     # A degraded org lookup must never stop the reminder from sending.
     assert sent_messages[1].text_body
+
+
+# --- the emailed interview link and the time the candidate reads -------------
+# Two production defects found in the 2026-08-28 pipeline audit:
+#   1. The email linked to the portal ROOT, so "click the link" still required
+#      hand-typing the code that was printed directly above it.
+#   2. `_format_when` rendered via `astimezone()` — the SERVER's zone. The VM
+#      runs UTC, so a candidate who asked for 11:45 IST was told "6:15 AM UTC".
+
+
+def test_invitation_link_is_a_deep_link_carrying_the_code():
+    message = invitation_email(
+        candidate_name="Asha", candidate_email="asha@example.com",
+        role_title="Backend Engineer", scheduled_at=None, available_minutes=20,
+        code="ABCD1234", portal_url="https://cognihire.online",
+    )
+    expected = "https://cognihire.online/interview?code=ABCD1234"
+    assert expected in message.text_body
+    assert f'href="{expected}"' in message.html_body
+
+
+def test_reminder_link_is_a_deep_link_carrying_the_code():
+    message = reminder_email(
+        candidate_name="Asha", candidate_email="asha@example.com",
+        role_title="Backend Engineer", minutes_before=30,
+        code="ABCD1234", portal_url="https://cognihire.online",
+    )
+    assert "https://cognihire.online/interview?code=ABCD1234" in message.text_body
+
+
+def test_deep_link_does_not_double_the_slash_on_a_trailing_slash_portal_url():
+    message = invitation_email(
+        candidate_name="Asha", candidate_email="asha@example.com",
+        role_title="Backend Engineer", scheduled_at=None, available_minutes=20,
+        code="ABCD1234", portal_url="https://cognihire.online/",
+    )
+    assert "https://cognihire.online/interview?code=ABCD1234" in message.text_body
+    assert "online//interview" not in message.text_body
+
+
+def test_scheduled_time_is_rendered_in_ist_not_the_server_timezone():
+    """06:15 UTC is 11:45 IST. Rendering the server's zone here is what would
+    have sent a candidate to the wrong half of the day."""
+    scheduled = datetime(2026, 8, 13, 6, 15, tzinfo=timezone.utc)
+    message = invitation_email(
+        candidate_name="Asha", candidate_email="asha@example.com",
+        role_title="Backend Engineer", scheduled_at=scheduled, available_minutes=20,
+        code="ABCD1234", portal_url="https://cognihire.online",
+    )
+    assert "11:45 AM IST" in message.text_body
+    assert "August" in message.text_body and "2026" in message.text_body
+
+
+def test_a_time_with_no_scheduled_slot_still_renders_without_a_timezone():
+    message = invitation_email(
+        candidate_name="Asha", candidate_email="asha@example.com",
+        role_title="Backend Engineer", scheduled_at=None, available_minutes=20,
+        code="ABCD1234", portal_url="https://cognihire.online",
+    )
+    assert "at your convenience" in message.text_body

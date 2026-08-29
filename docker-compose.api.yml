@@ -109,8 +109,24 @@ services:
       ACS_ENDPOINT: ${ACS_ENDPOINT:-}
       ACS_ACCESS_KEY: ${ACS_ACCESS_KEY:-}
 
-      # Browser origins allowed to call this API. "*" is fine until the
-      # portal and HR app have real deployed origins.
+      # Browser origins allowed to call this API, comma-separated.
+      #
+      # The "*" default is a leftover from before the portal and HR app had
+      # real deployed origins. They do now, so it should be set in this
+      # box's .env — it is left permissive here only because tightening the
+      # default would fail the next deploy of a box that hasn't set it yet,
+      # and this is the production stack.
+      #
+      # "*" costs two things. CORS accepts any origin (mild: auth is a
+      # bearer token in the portal's localStorage, which no cross-origin
+      # page can read). And the hand-rolled Origin check on the
+      # /interview/live WebSocket — which CORSMiddleware does not cover —
+      # is written as `_allowed_origins == "*" or ...`, so "*" disables it;
+      # the interview code required as the socket's first message is what
+      # still stands behind it.
+      #
+      # The service logs a startup WARNING while this is "*" in production
+      # and reports it as `allowed_origins` from GET /health.
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
     volumes:
       # InsightFace downloads ~300MB of models on first run. Persisting them

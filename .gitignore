@@ -80,3 +80,4 @@ audit_store/
 # Golden-test debug output — regenerated on every failed run of
 # test/preview, never an input to anything.
 test/preview/failures/
+.gstack/

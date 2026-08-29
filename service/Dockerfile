@@ -17,8 +17,34 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+# Install from the LOCK, not requirements.txt.
+#
+# requirements.txt is 16 `>=` floors with no upper bound and no hashes, and
+# deploy.yml rebuilds this image on every push to the deploy branch. That
+# meant every deploy re-resolved the whole tree to whatever was newest on
+# PyPI that minute — a compromised release of insightface, onnxruntime,
+# pytesseract, or any of the 40-odd transitives underneath them would land
+# in a container holding the Supabase service-role key, with no diff for
+# anyone to review and no way to tell afterwards which versions had actually
+# shipped.
+#
+# requirements.txt stays as the statement of intent (the floors a human
+# chose); requirements.lock is the resolved, hash-pinned answer, and is what
+# the build consumes. --require-hashes makes pip refuse the install outright
+# if any package resolves to a file whose digest isn't in the lock, so a
+# tampered or substituted artifact fails the build instead of shipping.
+#
+# Regenerate after editing requirements.txt (from the repo root, targeting
+# THIS image's platform rather than the developer's laptop — the wheels for
+# opencv/onnxruntime are platform-specific, so resolving on macOS or Windows
+# produces hashes this build can never match):
+#
+#   uv pip compile service/requirements.txt --generate-hashes \
+#     --python-version 3.11 --python-platform x86_64-unknown-linux-gnu \
+#     --output-file service/requirements.lock
+COPY requirements.txt requirements.lock ./
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 
 COPY . .
 

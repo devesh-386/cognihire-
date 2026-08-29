@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: SSH in, update .env, recreate the api container
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
         env:
           # `envs:` below only forwards variables that already exist in this
           # step's own environment — it does not read `secrets.*` itself.

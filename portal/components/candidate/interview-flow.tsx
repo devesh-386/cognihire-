@@ -35,6 +35,15 @@ type Turn = {
 }
 type Coverage = { completion_percent: number }
 
+// How long a candidate may pause before the spoken answer is treated as
+// finished. Long enough to think mid-answer — 1.5s cuts people off between
+// clauses — short enough that it does not read as the app having hung.
+const AUTO_SUBMIT_SILENCE_MS = 3000
+// Below this a finalized transcript is recogniser noise rather than an
+// answer, so it must not be auto-submitted and spend one of the candidate's
+// attempts. Matches the floor live_interview.py applies to the same problem.
+const AUTO_SUBMIT_MIN_CHARS = 12
+
 export function InterviewFlow({ code }: { code?: string }) {
   const router = useRouter()
   const [deviceStatus, setDeviceStatus] = useState<DeviceStatus>('idle')
@@ -50,6 +59,23 @@ export function InterviewFlow({ code }: { code?: string }) {
   // 'unavailable' means we tried and it didn't work — the candidate falls
   // back to the Web Speech API / typed path, which never stops working.
   const [liveVoice, setLiveVoice] = useState<'off' | 'connecting' | 'live' | 'unavailable'>('off')
+  // WHY the live channel gave up, kept rather than discarded. Every failure
+  // path here used to swallow its error and set 'unavailable', so a candidate
+  // silently sat through the click-to-talk fallback and nobody — candidate,
+  // recruiter, or engineer — could tell whether the real-time channel had
+  // never been attempted, been blocked by the browser, or been dropped by the
+  // relay. Observed in a real session before this was added. Not shown to the
+  // candidate, who can do nothing with it; surfaced in the console so the
+  // cause is recoverable after the fact.
+  const [liveVoiceError, setLiveVoiceError] = useState<string | null>(null)
+  // Mirrors `answerText` for the silence timer below, which fires from a
+  // closure created when recognition started and would otherwise submit the
+  // empty string it captured then.
+  const answerTextRef = useRef('')
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Guards the one-in-flight rule across both submit paths: the timer and the
+  // button can otherwise fire together and spend two attempts on one answer.
+  const submitInFlightRef = useRef(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const recognitionRef = useRef<any>(null)
@@ -67,6 +93,10 @@ export function InterviewFlow({ code }: { code?: string }) {
       streamRef.current?.getTracks().forEach((track) => track.stop())
     }
   }, [])
+
+  useEffect(() => {
+    answerTextRef.current = answerText
+  }, [answerText])
 
   // Records tab/window/fullscreen visibility changes once a session exists.
   // Never a verdict — see service/session/events.py's EventType doc.
@@ -180,15 +210,32 @@ export function InterviewFlow({ code }: { code?: string }) {
     }
   }
 
+  function clearSilenceTimer() {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current)
+      silenceTimerRef.current = null
+    }
+  }
+
   async function handleAnswerSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!answerText.trim() || !sessionId) return
+    await submitCurrentAnswer()
+  }
+
+  // Both the Submit button and the end-of-speech timer land here, so the
+  // spoken and typed paths cannot diverge in what they send or how they
+  // handle failure.
+  async function submitCurrentAnswer() {
+    const text = answerTextRef.current.trim()
+    if (!text || !sessionId || submitInFlightRef.current) return
+    submitInFlightRef.current = true
+    clearSilenceTimer()
     recognitionRef.current?.stop()
     setSessionStatus('submitting')
     try {
       const result = await submitAnswer({
         sessionId,
-        answerText: answerText.trim(),
+        answerText: text,
         code,
       })
       setCoverage(result.coverage)
@@ -202,6 +249,8 @@ export function InterviewFlow({ code }: { code?: string }) {
     } catch (error: any) {
       setSessionStatus('error')
       setMessage(error?.message ?? 'Something went wrong.')
+    } finally {
+      submitInFlightRef.current = false
     }
   }
 
@@ -242,8 +291,24 @@ export function InterviewFlow({ code }: { code?: string }) {
   // dependency list itself now: nothing this effect sets appears in it.
   useEffect(() => {
     if (!sessionId || sessionStatus !== 'asking') return
-    if (!liveVoiceSupported() || !streamRef.current) {
+
+    // Declared inside the effect so it needs no dependency entry — every
+    // caller is within this effect.
+    function reportLiveVoiceFailure(detail: string) {
       setLiveVoice('unavailable')
+      setLiveVoiceError(detail)
+      // eslint-disable-next-line no-console -- the only durable record of why
+      // the real-time channel degraded; there is no event type for it and the
+      // candidate is not the right audience for the reason.
+      console.warn(`[cognihire] live voice unavailable — ${detail}`)
+    }
+
+    if (!liveVoiceSupported() || !streamRef.current) {
+      reportLiveVoiceFailure(
+        !streamRef.current
+          ? 'no microphone stream was captured during the device check'
+          : 'this browser is missing WebSocket, AudioContext, AudioWorkletNode, or getUserMedia',
+      )
       return
     }
 
@@ -261,8 +326,8 @@ export function InterviewFlow({ code }: { code?: string }) {
         spokenQuestionRef.current = nextTurn.question ?? null
       },
       onComplete: () => router.push(`/interview/complete?session=${sessionId}`),
-      onError: () => {
-        if (!cancelled) setLiveVoice('unavailable')
+      onError: (error) => {
+        if (!cancelled) reportLiveVoiceFailure(error?.message ?? 'the live voice connection failed')
       },
     })
       .then((handle) => {
@@ -273,8 +338,15 @@ export function InterviewFlow({ code }: { code?: string }) {
         liveVoiceRef.current = handle
         setLiveVoice('live')
       })
-      .catch(() => {
-        if (!cancelled) setLiveVoice('unavailable')
+      .catch((error: unknown) => {
+        // The name matters as much as the message: NotSupportedError from
+        // `new AudioContext({sampleRate: 24000})` (hardware that won't run at
+        // 24 kHz) and a blocked `addModule` fetch both surface here, and they
+        // are different bugs with different fixes.
+        if (cancelled) return
+        const detail =
+          error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+        reportLiveVoiceFailure(detail)
       })
 
     return () => {
@@ -302,6 +374,9 @@ export function InterviewFlow({ code }: { code?: string }) {
   function toggleListening() {
     if (!voiceSupported) return
     if (listening) {
+      // Tapping the mic off is an explicit "I'm not done" — it must not leave
+      // a timer armed that submits three seconds later.
+      clearSilenceTimer()
       recognitionRef.current?.stop()
       return
     }
@@ -317,8 +392,29 @@ export function InterviewFlow({ code }: { code?: string }) {
         transcript += event.results[i][0].transcript
       }
       setAnswerText(transcript)
+      answerTextRef.current = transcript
+
+      // Speech has no equivalent of clicking "submit" — the candidate simply
+      // stops talking. Without this the mic said "Listening" forever and the
+      // answer was never sent unless the candidate noticed the button, which
+      // is not what "just answer the question" looks like to anyone.
+      //
+      // Armed only once there is enough text to be an answer rather than a
+      // stray "um" finalized by the recogniser, and re-armed on every result
+      // so a pause mid-sentence extends the window instead of cutting the
+      // candidate off. `_MIN` mirrors live_interview.py's own floor for the
+      // same reason: below it, a transcript is noise, not an answer.
+      clearSilenceTimer()
+      if (transcript.trim().length >= AUTO_SUBMIT_MIN_CHARS) {
+        silenceTimerRef.current = setTimeout(() => {
+          void submitCurrentAnswer()
+        }, AUTO_SUBMIT_SILENCE_MS)
+      }
     }
-    recognition.onerror = () => setListening(false)
+    recognition.onerror = () => {
+      clearSilenceTimer()
+      setListening(false)
+    }
     recognition.onend = () => setListening(false)
     recognitionRef.current = recognition
     recognition.start()
@@ -328,6 +424,7 @@ export function InterviewFlow({ code }: { code?: string }) {
   useEffect(() => {
     return () => {
       recognitionRef.current?.stop()
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
       window.speechSynthesis?.cancel()
     }
   }, [])
@@ -417,8 +514,17 @@ export function InterviewFlow({ code }: { code?: string }) {
             Connecting the live conversation…
           </p>
         ) : voiceSupported ? (
-          <p className="mt-6 flex items-center gap-2 text-xs text-muted-foreground">
-            {listening ? 'Listening — tap the mic to stop.' : 'Speak your answer, or type it below.'}
+          // `data-live-voice-error` carries why the real-time channel degraded
+          // so it can be read straight off the DOM in devtools during a
+          // support call, without putting a diagnostic in front of a candidate
+          // mid-interview. Absent entirely when the channel never failed.
+          <p
+            className="mt-6 flex items-center gap-2 text-xs text-muted-foreground"
+            data-live-voice-error={liveVoiceError ?? undefined}
+          >
+            {listening
+              ? 'Listening — pause when you’re done and your answer sends itself.'
+              : 'Speak your answer, or type it below.'}
           </p>
         ) : (
           <p className="mt-6 text-xs text-muted-foreground">
