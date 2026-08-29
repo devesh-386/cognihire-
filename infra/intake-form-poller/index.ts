@@ -50,17 +50,47 @@ Deno.serve(async (req: Request) => {
   // this function cannot read those columns and should not try.
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const webhookSecret = Deno.env.get("INTAKE_WEBHOOK_SECRET");
-  const apiBaseUrl = Deno.env.get("API_BASE_URL");
-  const internalSecret = Deno.env.get("INTERNAL_AUTOINVITE_SECRET");
-  if (!webhookSecret || !apiBaseUrl || !internalSecret) {
+  const client = createClient(supabaseUrl, serviceRoleKey);
+
+  // The API's base URL and internal secret already live in `app_config`,
+  // where the candidate_ready_for_interview trigger reads them to call this
+  // very API (migration 0000_baseline.sql's trigger_auto_invite sends
+  // `internal_pipeline_secret` as X-Internal-Secret to
+  // /internal/candidates/{id}/auto-invite — the same secret and header
+  // /internal/google/access-token checks). Reading them here means one
+  // configured value serves both callers instead of the same secret being
+  // kept in two places that can disagree.
+  //
+  // Env still wins where it is set, so the documented Edge Function secrets
+  // keep working and a deployment can still override per environment.
+  async function fromConfig(key: string): Promise<string | null> {
+    const { data } = await client
+      .from("app_config").select("value").eq("key", key).maybeSingle();
+    // A deliberately empty value means "not configured yet" — migration
+    // 0006 seeds internal_pipeline_secret as '' precisely so the trigger
+    // no-ops until an operator fills it in. Same reading here.
+    const value = ((data?.value ?? "") as string).trim();
+    return value === "" ? null : value;
+  }
+
+  const webhookSecret = Deno.env.get("INTAKE_WEBHOOK_SECRET") || null;
+  const apiBaseUrl = Deno.env.get("API_BASE_URL") || await fromConfig("ai_gateway_url");
+  const internalSecret =
+    Deno.env.get("INTERNAL_AUTOINVITE_SECRET") || await fromConfig("internal_pipeline_secret");
+  // Named individually rather than as one slash-separated blob: the blob
+  // version cost a live debugging round trip working out which of the three
+  // was actually missing.
+  const missing = [
+    ["INTAKE_WEBHOOK_SECRET", webhookSecret],
+    ["API_BASE_URL (or app_config.ai_gateway_url)", apiBaseUrl],
+    ["INTERNAL_AUTOINVITE_SECRET (or app_config.internal_pipeline_secret)", internalSecret],
+  ].filter(([, value]) => !value).map(([name]) => name);
+  if (missing.length) {
     return new Response(
-      JSON.stringify({ error: "INTAKE_WEBHOOK_SECRET/API_BASE_URL/INTERNAL_AUTOINVITE_SECRET not configured" }),
+      JSON.stringify({ error: `not configured: ${missing.join(", ")}` }),
       { status: 500, headers: { "Content-Type": "application/json" } },
     );
   }
-
-  const client = createClient(supabaseUrl, serviceRoleKey);
 
   const { data: intakes, error: intakesError } = await client
     .from("intakes")
