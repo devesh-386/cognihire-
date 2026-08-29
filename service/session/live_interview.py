@@ -48,6 +48,13 @@ OPENAI_REALTIME_URL = "wss://api.openai.com/v1/realtime?model=gpt-realtime-2"
 # have no question text to speak — see _speak_turn.
 _SPEAKABLE_KINDS = {"question", "followup"}
 
+# Which model transcribes the candidate's speech (see `configure_session`).
+# Overridable by environment so a model id the API stops accepting can be
+# changed on the host without a redeploy — a wrong id here rejects the whole
+# session.update, and this relay has already been broken once by a
+# transcription setting nobody could see was missing.
+_TRANSCRIPTION_MODEL = os.environ.get("OPENAI_TRANSCRIBE_MODEL", "whisper-1")
+
 # A finalized OpenAI transcript used to become an `interview_session.answer()`
 # call unconditionally — there was no notion of "that wasn't actually an
 # answer." The text-typing path has an explicit submit button; a candidate
@@ -306,6 +313,31 @@ class LiveOrchestrator:
                 "audio": {
                     "input": {
                         "format": {"type": "audio/pcm", "rate": 24000},
+                        # Without this the Realtime API never transcribes the
+                        # candidate at all, and
+                        # `conversation.item.input_audio_transcription.completed`
+                        # — the single event this entire relay is built on —
+                        # is never emitted. The handler for it was written;
+                        # the config that makes it fire never was.
+                        #
+                        # The consequence was not a missing feature, it was a
+                        # silent dead end: the AI asked its first question,
+                        # the candidate answered, and `_on_candidate_utterance`
+                        # never ran, so `interview_session.answer()` was never
+                        # called. No answer was graded, no topic advanced, no
+                        # event was written. The interview looked alive and
+                        # went nowhere, which is exactly how it was reported —
+                        # "the responses were all good, but it was not like a
+                        # conversation."
+                        #
+                        # Sent in THIS session.update rather than a follow-up
+                        # one on purpose. A second update carrying only
+                        # `audio.input.transcription` risks replacing the whole
+                        # `audio.input` object and taking `turn_detection` with
+                        # it — and losing `create_response: false` would let
+                        # OpenAI answer the candidate in its own words, which
+                        # is the one thing this relay exists to prevent.
+                        "transcription": {"model": _TRANSCRIPTION_MODEL},
                         "turn_detection": {
                             "type": "server_vad",
                             "create_response": False,
