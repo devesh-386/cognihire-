@@ -149,12 +149,14 @@ function speak(text: string) {
 }
 
 describe('InterviewFlow live voice — what the candidate sees', () => {
-  // The question used to be printed as a heading even while the AI was
-  // speaking it. A candidate reads ahead, answers the text, and stops
-  // listening — which is what made the live channel feel less like a
-  // conversation than the typed fallback. And nothing they said ever
-  // appeared, so a misheard answer looked exactly like a heard one until
-  // the report.
+  // Nothing the candidate said ever appeared on the live channel, so a
+  // misheard answer looked exactly like a correctly heard one until the
+  // report — by which point the interview is over.
+  //
+  // Hiding the question while the AI spoke it was tried and reverted: a
+  // candidate who mishears a question with no way to re-read it is worse
+  // off than one who can read ahead, and the same goes for anyone relying
+  // on the text rather than the audio.
   beforeEach(() => {
     vi.clearAllMocks()
     liveVoiceSupportedResult = true
@@ -176,13 +178,16 @@ describe('InterviewFlow live voice — what the candidate sees', () => {
     })
   }
 
-  it('does not print the question while the channel is speaking it', async () => {
+  it('keeps the question on screen while the channel speaks it', async () => {
+    // Deliberate: hiding it was tried and reverted. A candidate who
+    // mishears with no way to re-read is worse off than one who reads
+    // ahead.
     await goLive()
 
-    expect(screen.queryByText('Tell me about a project.')).toBeNull()
+    expect(screen.getByText('Tell me about a project.')).toBeDefined()
   })
 
-  it('still shows the topic, which orients without giving the wording', async () => {
+  it('shows the topic alongside it', async () => {
     await goLive()
 
     expect(screen.getByText(/React/)).toBeDefined()
@@ -219,8 +224,7 @@ describe('InterviewFlow live voice — what the candidate sees', () => {
     expect(screen.queryByText('We ran Kubernetes across three regions.')).toBeNull()
   })
 
-  it('keeps printing the question when the live channel is not in use', async () => {
-    // The typed path has an honest reason to show it: nothing is speaking.
+  it('prints the question on the typed channel too', async () => {
     liveVoiceSupportedResult = false
 
     await reachTheFirstQuestion()
@@ -228,6 +232,14 @@ describe('InterviewFlow live voice — what the candidate sees', () => {
     await waitFor(() => {
       expect(screen.getByText('Tell me about a project.')).toBeDefined()
     })
+  })
+
+  it('shows no echo block until the candidate has actually spoken', async () => {
+    // An empty "You said" sitting under an unanswered question reads as
+    // though the system lost what they told it.
+    await goLive()
+
+    expect(screen.queryByText(/you said/i)).toBeNull()
   })
 })
 
