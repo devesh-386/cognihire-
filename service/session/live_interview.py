@@ -82,6 +82,93 @@ _LOOKS_LIKE_CLARIFICATION_MAX_CHARS = 60
 # being graded as a substantive answer.
 _MIN_SUBSTANTIVE_UTTERANCE_CHARS = 2
 
+# The same problem `_CLARIFICATION_PHRASES` solves, for the other thing
+# candidates say that isn't an answer: hello.
+#
+# "Hi, this is Devesh here" was being handed to `interview_session.answer()`
+# like any other utterance — analysed against a technical claim by a full
+# LLM call, judged unsupported because a greeting supports nothing, and
+# charged one of `_MAX_ATTEMPTS_PER_TOPIC`. A candidate who opens politely
+# lost an attempt on a topic before being asked about it once, and the
+# recruiter's report carried an "unsupported" verdict earned by saying
+# hello.
+#
+# It is also the slowest possible way to not answer: that LLM analysis sits
+# between the candidate finishing their sentence and hearing anything back,
+# so the first thing a greeting gets is several seconds of silence.
+#
+# Same conservative shape as the clarification gate — a short, unambiguous
+# opener, matched against the WHOLE utterance and length-capped, so a real
+# answer that happens to begin "Hi, so the way I approached the migration
+# was..." is never caught by it.
+_GREETING_PHRASES = (
+    "hi", "hii", "hey", "hello", "helo", "yo",
+    "good morning", "good afternoon", "good evening", "greetings",
+    "this is", "my name is", "i am", "i'm", "im ",
+    "nice to meet you", "how are you",
+)
+# A greeting is short. Long enough for "Good morning, my name is Devesh S V
+# and I'm here for the backend role"; short enough that a substantive answer
+# opening with a pleasantry falls through to real grading.
+_LOOKS_LIKE_GREETING_MAX_CHARS = 90
+
+# What a person says while they are still listening to you.
+#
+# The candidate finishes a sentence and then hears nothing, because
+# `interview_session.answer()` runs a full LLM analysis before there is a
+# next question to speak. Several seconds of dead air after every answer is
+# what makes this feel like dictation into a form rather than a
+# conversation. These go out the instant the transcript lands, so the pause
+# is filled while the real work happens behind it.
+#
+# Deliberately empty of judgement. "Mm-hmm" says *I heard you*; "great
+# answer" would say *I rated you*, which is a disposition, expressed to the
+# candidate, mid-interview — the one thing ED-14 and ED-46 exist to keep
+# out of this system. A warmer noise is not worth becoming an AI that
+# grades people to their face.
+#
+# Rotated rather than random so the same answer twice does not get the same
+# noise twice, and so tests can assert on the sequence.
+_BACKCHANNELS = ("Mm-hmm.", "I see.", "Right.", "Okay.", "Got it.")
+
+# Carries the conversation into the next question instead of jumping
+# straight to it. Same rule as above: acknowledges, never appraises.
+_QUESTION_BRIDGES = ("Thanks.", "Understood.", "Okay.", "Right.")
+
+# How long to wait for a backchannel to finish before speaking the next
+# question. The Realtime API rejects a second `response.create` while one
+# is active, and a backchannel is under a second of audio against an
+# analysis measured in seconds, so this should never be reached — it exists
+# so a wedged response cannot silently strand the interview instead of
+# asking the next question slightly early.
+_SPEECH_SETTLE_TIMEOUT_SECONDS = 5.0
+
+
+def _is_greeting(text: str) -> bool:
+    """True for a short opener that is social, not substantive.
+
+    Anchored at the start rather than searched anywhere in the utterance:
+    "hi" appears inside "architecture" and "this is" inside "this is how we
+    sharded it", and either would silently stop a real answer from being
+    graded — a far worse failure than missing a greeting.
+    """
+    stripped = text.strip()
+    if len(stripped) > _LOOKS_LIKE_GREETING_MAX_CHARS:
+        return False
+    lowered = stripped.lower().lstrip("“\"'")
+    return any(lowered.startswith(phrase) for phrase in _GREETING_PHRASES)
+
+
+def _first_name(full_name: str | None) -> str | None:
+    """The candidate's own name, as they gave it on the application form —
+    never anything the model produced. Title-cased because intake stores
+    whatever was typed ("devesh s v") and a greeting should not read as
+    though it were shouted or mumbled."""
+    if not full_name:
+        return None
+    first = full_name.strip().split()
+    return first[0].title() if first else None
+
 
 def _is_clarification_request(text: str) -> bool:
     stripped = text.strip()
@@ -146,6 +233,15 @@ async def authorize(code: str, session_id: str) -> None:
         raise LiveSessionError("this interview code has expired")
 
 
+def _finished_event() -> asyncio.Event:
+    """An Event that starts SET — "not currently speaking" is the initial
+    truth, and a cleared Event would make the first question wait out the
+    settle timeout before being asked."""
+    event = asyncio.Event()
+    event.set()
+    return event
+
+
 @dataclass
 class _State:
     """Mutable state for one live session's lifetime — grouped so
@@ -154,6 +250,14 @@ class _State:
     active_response_id: str | None = None
     speaking: bool = False
     pending_item_ids: set[str] = field(default_factory=set)
+    # Set whenever nothing is being spoken, so a caller can wait for the
+    # channel to go quiet before starting the next response rather than
+    # polling `speaking`. Starts set: at connect time nothing is speaking.
+    speech_finished: asyncio.Event = field(default_factory=_finished_event)
+    # One rotation counter per phrase list. Sharing a single counter across
+    # both made the bridge depend on how many backchannels had been spoken,
+    # which is neither meaningful nor predictable.
+    filler_indices: dict[int, int] = field(default_factory=dict)
 
 
 class LiveOrchestrator:
@@ -296,13 +400,108 @@ class LiveOrchestrator:
             await self.speak_current_turn()
             return
 
+        # Greeted, not answered. Handled before `answer()` so it costs no
+        # LLM call and no attempt — which is also what makes it fast: the
+        # candidate hears their name back immediately instead of waiting
+        # out an analysis of a sentence that was never an answer.
+        if _is_greeting(stripped):
+            await self._greet_back()
+            return
+
+        # Said before the analysis, not after — that is the whole point.
+        # `answer()` runs an LLM call, and until this existed the candidate
+        # got several seconds of silence at the end of every answer.
+        await self._backchannel()
+
         result = await interview_session.answer(self.session_id, text)
         turn = result["turn"]
         if turn["kind"] in _SPEAKABLE_KINDS and turn.get("question"):
             await self._announce_turn(turn, result.get("coverage"))
-            await self.speak(turn["question"])
+            # One response at a time: the Realtime API rejects a second
+            # `response.create` while the backchannel is still playing.
+            await self._wait_until_quiet()
+            await self.speak(f"{self._next_filler(_QUESTION_BRIDGES)} {turn['question']}")
         else:
+            await self._wait_until_quiet()
             await self.candidate_ws.send_text(json.dumps({"type": "interview_complete"}))
+
+    def _next_filler(self, phrases: tuple[str, ...]) -> str:
+        """Rotates through `phrases` so the same answer twice never draws
+        the same noise twice — which is what makes canned acknowledgement
+        sound canned.
+
+        Counters are per phrase list, keyed by identity: a backchannel
+        spoken between two questions must not shift which bridge comes
+        next.
+        """
+        key = id(phrases)
+        index = self._state.filler_indices.get(key, 0)
+        self._state.filler_indices[key] = index + 1
+        return phrases[index % len(phrases)]
+
+    async def _backchannel(self) -> None:
+        """The "mm-hmm" a listener gives while still thinking.
+
+        Scripted and spoken through `speak` like everything else, so the
+        model still authors nothing. It acknowledges being heard and says
+        nothing about quality: an interviewer that tells a candidate their
+        answer was good has expressed a disposition to them mid-interview,
+        which is exactly what this system promises it does not do.
+
+        Best-effort. If the channel cannot take it the interview must carry
+        on regardless — a missing "mm-hmm" is a worse-feeling interview, a
+        raised exception here would be no interview at all.
+        """
+        try:
+            await self.speak(self._next_filler(_BACKCHANNELS))
+        except Exception:  # noqa: BLE001 - deliberately never fatal
+            logger.warning("backchannel failed", exc_info=True)
+
+    async def _wait_until_quiet(self) -> None:
+        """Blocks until nothing is being spoken, or the settle timeout.
+
+        On timeout it returns anyway rather than raising: asking the next
+        question a moment early is a far smaller failure than an interview
+        that stops asking questions.
+        """
+        try:
+            await asyncio.wait_for(
+                self._state.speech_finished.wait(),
+                timeout=_SPEECH_SETTLE_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("speech did not settle within the timeout; continuing")
+
+    async def _greet_back(self) -> None:
+        """Answer a greeting with a greeting, then ask the pending question
+        again so the interview picks up where it was.
+
+        The wording is ours and the name is the candidate's own, read from
+        the record intake created. Nothing here is model-authored: OpenAI
+        performs TTS on this exact string via `speak`, the same muzzled
+        path every question goes through. Letting the model improvise a
+        reply would be the one place in this system where it speaks for
+        itself, and a warmer hello is not worth that.
+
+        A failure to read the name is not a failure to greet — the
+        candidate said hello and deserves an answer either way, so the
+        nameless form is used rather than falling through to grading a
+        greeting.
+        """
+        name = None
+        try:
+            row = await session_store.fetch_session(self.session_id)
+            if row and row.get("candidate_id"):
+                candidate = await supabase_store.fetch_candidate(row["candidate_id"])
+                name = _first_name((candidate or {}).get("name"))
+        except supabase_store.SupabaseError:
+            logger.warning("greeting: could not read candidate name", exc_info=True)
+
+        greeting = (
+            f"Hi {name}, nice to meet you." if name else "Hi, nice to meet you."
+        )
+        await self.speak(greeting)
+        await self.speak_current_turn()
 
     async def _echo_candidate_transcript(self, text: str) -> None:
         """Send the candidate their own words back, for display only.
@@ -346,6 +545,10 @@ class LiveOrchestrator:
         await self._send_openai({"type": "response.cancel"})
         self._state.active_response_id = None
         self._state.speaking = False
+        # Releases anyone waiting on the channel going quiet. Without this,
+        # a candidate talking over a backchannel would strand the next
+        # question until the settle timeout expired.
+        self._state.speech_finished.set()
         await self.candidate_ws.send_text(json.dumps({"type": "flush_playback"}))
 
     async def _handle_openai_event(self, event: dict) -> None:
@@ -354,6 +557,7 @@ class LiveOrchestrator:
         if event_type == "response.created":
             self._state.active_response_id = event.get("response", {}).get("id")
             self._state.speaking = True
+            self._state.speech_finished.clear()
 
         elif event_type == "response.output_audio.delta":
             response_id = event.get("response_id")
@@ -368,6 +572,7 @@ class LiveOrchestrator:
             if event.get("response_id", self._state.active_response_id) == self._state.active_response_id:
                 self._state.speaking = False
                 self._state.active_response_id = None
+                self._state.speech_finished.set()
 
         elif event_type == "input_audio_buffer.speech_started":
             await self._on_speech_started()
