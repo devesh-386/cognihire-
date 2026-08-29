@@ -183,7 +183,15 @@ def test_candidate_utterance_calls_answer_and_speaks_next_question(monkeypatch):
 
     assert calls == [("sess-1", "I've used Redis for caching in production.")]
     assert openai_ws.sent[-1]["type"] == "response.create"
-    assert openai_ws.sent[-1]["response"]["input"][0]["content"][0]["text"] == "Tell me about caching."
+    # Two responses now, not one: an immediate backchannel while `answer()`
+    # runs its LLM analysis, then the next question carried in on a bridge
+    # phrase. The question text itself is unchanged and still comes from
+    # the state machine — the bridge is a scripted prefix, not a rewrite.
+    spoken = [
+        msg["response"]["input"][0]["content"][0]["text"]
+        for msg in openai_ws.sent if msg["type"] == "response.create"
+    ]
+    assert spoken == ["Mm-hmm.", "Thanks. Tell me about caching."]
 
 
 def test_candidate_utterance_announces_turn_to_the_ui(monkeypatch):
@@ -233,7 +241,16 @@ def test_candidate_utterance_on_completion_notifies_candidate_not_openai(monkeyp
 
     run(orch._on_candidate_utterance("That's everything I know."))
 
-    assert openai_ws.sent == []  # no further speech requested from OpenAI
+    # The backchannel is unavoidable here and correct: it goes out the
+    # moment the candidate stops speaking, before `answer()` has run and
+    # therefore before anyone knows this was the last answer. What still
+    # must not happen is a further QUESTION — completion is signalled to the
+    # browser, never spoken at OpenAI.
+    spoken = [
+        msg["response"]["input"][0]["content"][0]["text"]
+        for msg in openai_ws.sent if msg["type"] == "response.create"
+    ]
+    assert spoken == ["Mm-hmm."]
     assert candidate_ws.sent_text[-1] == {"type": "interview_complete"}
 
 
