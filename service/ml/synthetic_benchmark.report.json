@@ -1,0 +1,462 @@
+{
+  "task": "SYNTHETIC benchmark - planted logistic signal + interaction + quadratic",
+  "isSynthetic": true,
+  "notRealWorldPerformance": true,
+  "purpose": "methodology validation for the multi-algorithm comparison; contrast case for the real resume_fit benchmark where models plateau",
+  "rows": 3000,
+  "groups": 40,
+  "positiveRate": 0.451,
+  "bayesOptimalAccuracy": 0.9246666666666666,
+  "generativeProcess": {
+    "informativeWeights": {
+      "x1": 1.8,
+      "x2": -1.6,
+      "x3": 1.4,
+      "x4": -1.2,
+      "x5": 1.0,
+      "x6": -0.9,
+      "x7": 0.8,
+      "x8": -0.7
+    },
+    "interaction": {
+      "terms": [
+        "x1",
+        "x3"
+      ],
+      "weight": 1.2
+    },
+    "quadratic": {
+      "term": "x5",
+      "weight": 1.1
+    },
+    "noiseFeatures": [
+      "x9",
+      "x10",
+      "x11",
+      "x12"
+    ],
+    "bias": -0.15,
+    "flipRate": 0.07
+  },
+  "protocol": {
+    "cv": "GroupKFold(n_splits=10) grouped by synthetic candidate",
+    "tuning": "none - fixed modest hyper-parameters",
+    "scaleSensitiveModels": [
+      "gaussian_nb",
+      "knn",
+      "logistic_regression",
+      "mlp",
+      "svm_rbf"
+    ]
+  },
+  "models": {
+    "logistic_regression": {
+      "auc": {
+        "mean": 0.9133997890981711,
+        "std": 0.01322539908324311
+      },
+      "accuracy": {
+        "mean": 0.8636666666666667,
+        "std": 0.014019827229875381
+      },
+      "f1": {
+        "mean": 0.847444212540655,
+        "std": 0.015065547118002105
+      },
+      "brier": {
+        "mean": 0.11139747050852356,
+        "std": 0.008281525760119517
+      },
+      "log_loss": {
+        "mean": 0.3917314904940842,
+        "std": 0.033237805446592
+      },
+      "ece": {
+        "mean": 0.07584817894686158,
+        "std": 0.011048280789741528
+      },
+      "fit_s": {
+        "mean": 0.0034894700045697393,
+        "std": 0.0006559453493867039
+      },
+      "predict_us_per_row": {
+        "mean": 0.6374666700139641,
+        "std": 0.18743037276992547
+      },
+      "size_kb": {
+        "mean": 0.9365234375,
+        "std": 0.0
+      }
+    },
+    "gaussian_nb": {
+      "auc": {
+        "mean": 0.9158667241982886,
+        "std": 0.013338768940228852
+      },
+      "accuracy": {
+        "mean": 0.8763333333333332,
+        "std": 0.010268614533832904
+      },
+      "f1": {
+        "mean": 0.8585379131436962,
+        "std": 0.010047186487708788
+      },
+      "brier": {
+        "mean": 0.1269213576597634,
+        "std": 0.007823774276493823
+      },
+      "log_loss": {
+        "mean": 0.4206466882789205,
+        "std": 0.02159043577306625
+      },
+      "ece": {
+        "mean": 0.14851290240862616,
+        "std": 0.008329429826805365
+      },
+      "fit_s": {
+        "mean": 0.0010339099913835525,
+        "std": 0.0001884415964870896
+      },
+      "predict_us_per_row": {
+        "mean": 0.9069333706671993,
+        "std": 0.33973091068182376
+      },
+      "size_kb": {
+        "mean": 1.1318359375,
+        "std": 0.0
+      }
+    },
+    "knn": {
+      "auc": {
+        "mean": 0.9001287574271327,
+        "std": 0.013228724710141714
+      },
+      "accuracy": {
+        "mean": 0.8356666666666666,
+        "std": 0.012476644848141942
+      },
+      "f1": {
+        "mean": 0.806230995569733,
+        "std": 0.013182179729874392
+      },
+      "brier": {
+        "mean": 0.138245604045556,
+        "std": 0.007655562820420819
+      },
+      "log_loss": {
+        "mean": 0.4593011764540213,
+        "std": 0.06436165240989239
+      },
+      "ece": {
+        "mean": 0.12226881646123111,
+        "std": 0.014243112513733615
+      },
+      "fit_s": {
+        "mean": 0.002171699999598786,
+        "std": 5.7311058825016704e-05
+      },
+      "predict_us_per_row": {
+        "mean": 36.20083331285666,
+        "std": 1.3005810293542799
+      },
+      "size_kb": {
+        "mean": 577.615234375,
+        "std": 0.0
+      }
+    },
+    "svm_rbf": {
+      "auc": {
+        "mean": 0.9144217063295651,
+        "std": 0.01270522022623025
+      },
+      "accuracy": {
+        "mean": 0.8686666666666667,
+        "std": 0.017009801096230764
+      },
+      "f1": {
+        "mean": 0.8520421490611408,
+        "std": 0.01632454276246148
+      },
+      "brier": {
+        "mean": 0.10964459622114778,
+        "std": 0.008742554378855353
+      },
+      "log_loss": {
+        "mean": 0.3803370964282342,
+        "std": 0.0296058649176647
+      },
+      "ece": {
+        "mean": 0.0740927768163471,
+        "std": 0.011215862308488351
+      },
+      "fit_s": {
+        "mean": 0.39674940999830144,
+        "std": 0.014531152882926014
+      },
+      "predict_us_per_row": {
+        "mean": 50.09263336736088,
+        "std": 7.389794486835713
+      },
+      "size_kb": {
+        "mean": 135.37109375,
+        "std": 1.6537606587430511
+      }
+    },
+    "random_forest": {
+      "auc": {
+        "mean": 0.9115456920118292,
+        "std": 0.013895806399159204
+      },
+      "accuracy": {
+        "mean": 0.8493333333333333,
+        "std": 0.017178798302300166
+      },
+      "f1": {
+        "mean": 0.8276383778396251,
+        "std": 0.019094593862906184
+      },
+      "brier": {
+        "mean": 0.1297041282887775,
+        "std": 0.007440770491291725
+      },
+      "log_loss": {
+        "mean": 0.4241739892360529,
+        "std": 0.019419984024565146
+      },
+      "ece": {
+        "mean": 0.12580761505234223,
+        "std": 0.017909123800554958
+      },
+      "fit_s": {
+        "mean": 0.5225485499948264,
+        "std": 0.03312338180232031
+      },
+      "predict_us_per_row": {
+        "mean": 242.88466663953537,
+        "std": 56.66777583722533
+      },
+      "size_kb": {
+        "mean": 14946.3525390625,
+        "std": 61.676451090676615
+      }
+    },
+    "extra_trees": {
+      "auc": {
+        "mean": 0.9162577277791708,
+        "std": 0.013582813444578106
+      },
+      "accuracy": {
+        "mean": 0.8643333333333333,
+        "std": 0.013169830843425611
+      },
+      "f1": {
+        "mean": 0.8439564991276226,
+        "std": 0.012233711451076358
+      },
+      "brier": {
+        "mean": 0.135230006063156,
+        "std": 0.007057233548150829
+      },
+      "log_loss": {
+        "mean": 0.44098080348121005,
+        "std": 0.017233916318253287
+      },
+      "ece": {
+        "mean": 0.16007534649903485,
+        "std": 0.012995728281610573
+      },
+      "fit_s": {
+        "mean": 0.3608689099957701,
+        "std": 0.022044702320828457
+      },
+      "predict_us_per_row": {
+        "mean": 233.21066666782522,
+        "std": 25.157637889154
+      },
+      "size_kb": {
+        "mean": 45124.3056640625,
+        "std": 152.02173017471054
+      }
+    },
+    "gradient_boosting": {
+      "auc": {
+        "mean": 0.9137952683571168,
+        "std": 0.013524507642233593
+      },
+      "accuracy": {
+        "mean": 0.859,
+        "std": 0.013908430696683365
+      },
+      "f1": {
+        "mean": 0.8415508263257448,
+        "std": 0.013123979931965641
+      },
+      "brier": {
+        "mean": 0.11320562674450747,
+        "std": 0.008636808445251786
+      },
+      "log_loss": {
+        "mean": 0.3849642358353243,
+        "std": 0.02891624937882348
+      },
+      "ece": {
+        "mean": 0.07614401866906881,
+        "std": 0.010808066025946701
+      },
+      "fit_s": {
+        "mean": 1.6107422700035385,
+        "std": 0.027657770333862516
+      },
+      "predict_us_per_row": {
+        "mean": 2.753033360932022,
+        "std": 0.4176461070286559
+      },
+      "size_kb": {
+        "mean": 392.941015625,
+        "std": 1.031846418441233
+      }
+    },
+    "hist_gradient_boosting": {
+      "auc": {
+        "mean": 0.9043867829947828,
+        "std": 0.01270299606077912
+      },
+      "accuracy": {
+        "mean": 0.842,
+        "std": 0.014391355429948603
+      },
+      "f1": {
+        "mean": 0.8220217855894255,
+        "std": 0.017724964769110636
+      },
+      "brier": {
+        "mean": 0.1179342238539713,
+        "std": 0.008598714617127506
+      },
+      "log_loss": {
+        "mean": 0.4030536836674378,
+        "std": 0.03196419301590413
+      },
+      "ece": {
+        "mean": 0.05761773713047136,
+        "std": 0.009945416893559413
+      },
+      "fit_s": {
+        "mean": 0.42310419999412263,
+        "std": 0.44262071817897003
+      },
+      "predict_us_per_row": {
+        "mean": 15.577900048810989,
+        "std": 1.2306465746201478
+      },
+      "size_kb": {
+        "mean": 649.978125,
+        "std": 4.644717261308808
+      }
+    },
+    "mlp": {
+      "auc": {
+        "mean": 0.9202370769841439,
+        "std": 0.013171210575406997
+      },
+      "accuracy": {
+        "mean": 0.8776666666666667,
+        "std": 0.016802777548171405
+      },
+      "f1": {
+        "mean": 0.8621497741583676,
+        "std": 0.014970350139693223
+      },
+      "brier": {
+        "mean": 0.10244644157102285,
+        "std": 0.009874380175181552
+      },
+      "log_loss": {
+        "mean": 0.36424307443236037,
+        "std": 0.03543238235355546
+      },
+      "ece": {
+        "mean": 0.06481508732567517,
+        "std": 0.013801688750251898
+      },
+      "fit_s": {
+        "mean": 0.1772168500116095,
+        "std": 0.04020654195326495
+      },
+      "predict_us_per_row": {
+        "mean": 0.6556667309875289,
+        "std": 0.18400893121786618
+      },
+      "size_kb": {
+        "mean": 77.6310546875,
+        "std": 0.24739657003728027
+      }
+    }
+  },
+  "rankingByMeanAccuracy": [
+    "mlp",
+    "gaussian_nb",
+    "svm_rbf",
+    "extra_trees",
+    "logistic_regression",
+    "gradient_boosting",
+    "random_forest",
+    "hist_gradient_boosting",
+    "knn"
+  ],
+  "best": "mlp",
+  "significance": {
+    "friedman_chi2": 55.421768707483,
+    "friedman_p": 3.6552623897288297e-09,
+    "pairwise_vs_best": {
+      "logistic_regression": {
+        "wilcoxon_raw_p": 0.01953125,
+        "holm_adjusted_p": 0.078125,
+        "best_minus_this_mean_accuracy": 0.014000000000000012,
+        "significant_at_0.05": false
+      },
+      "gaussian_nb": {
+        "wilcoxon_raw_p": 0.7578125,
+        "holm_adjusted_p": 0.7578125,
+        "best_minus_this_mean_accuracy": 0.0013333333333335196,
+        "significant_at_0.05": false
+      },
+      "knn": {
+        "wilcoxon_raw_p": 0.001953125,
+        "holm_adjusted_p": 0.015625,
+        "best_minus_this_mean_accuracy": 0.04200000000000015,
+        "significant_at_0.05": true
+      },
+      "svm_rbf": {
+        "wilcoxon_raw_p": 0.3125,
+        "holm_adjusted_p": 0.625,
+        "best_minus_this_mean_accuracy": 0.009000000000000008,
+        "significant_at_0.05": false
+      },
+      "random_forest": {
+        "wilcoxon_raw_p": 0.005859375,
+        "holm_adjusted_p": 0.03515625,
+        "best_minus_this_mean_accuracy": 0.028333333333333433,
+        "significant_at_0.05": true
+      },
+      "extra_trees": {
+        "wilcoxon_raw_p": 0.0234375,
+        "holm_adjusted_p": 0.078125,
+        "best_minus_this_mean_accuracy": 0.01333333333333342,
+        "significant_at_0.05": false
+      },
+      "gradient_boosting": {
+        "wilcoxon_raw_p": 0.005859375,
+        "holm_adjusted_p": 0.03515625,
+        "best_minus_this_mean_accuracy": 0.01866666666666672,
+        "significant_at_0.05": true
+      },
+      "hist_gradient_boosting": {
+        "wilcoxon_raw_p": 0.001953125,
+        "holm_adjusted_p": 0.015625,
+        "best_minus_this_mean_accuracy": 0.035666666666666735,
+        "significant_at_0.05": true
+      }
+    }
+  }
+}

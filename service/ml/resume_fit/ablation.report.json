@@ -1,0 +1,310 @@
+{
+  "question": "Is the performance ceiling the algorithm, the features, or the labels?",
+  "protocol": {
+    "cv": "GroupKFold(n_splits=10) grouped by job_description_text - identical folds across every representation",
+    "rows": 7910,
+    "jobDescriptions": 351,
+    "resumes": 643,
+    "positiveRate": 0.5
+  },
+  "baselines": {
+    "R0_naive_fixed_cosine_threshold": {
+      "accuracy_mean": 0.5130200507208461,
+      "accuracy_std": 0.027751429698974053
+    },
+    "resume_identity_lookup": {
+      "accuracy_mean": 0.6093370776681462,
+      "accuracy_std": 0.028070349396487622,
+      "coverage_mean": 0.9948168465528721,
+      "note": "memorise each resume's majority label on the training folds; uses NO features and NEVER sees the job description"
+    }
+  },
+  "representations": {
+    "R1_cosine_1": {
+      "logistic_regression": {
+        "auc": {
+          "mean": 0.6593968553416845,
+          "std": 0.01851176303165988
+        },
+        "accuracy": {
+          "mean": 0.6126395401146159,
+          "std": 0.022930610523706735
+        },
+        "fit_s": {
+          "mean": 0.003359079995425418
+        }
+      },
+      "random_forest": {
+        "auc": {
+          "mean": 0.6338221784661667,
+          "std": 0.01350952383330978
+        },
+        "accuracy": {
+          "mean": 0.5950721165308933,
+          "std": 0.019030602078909727
+        },
+        "fit_s": {
+          "mean": 0.4555637400015257
+        }
+      },
+      "mlp": {
+        "auc": {
+          "mean": 0.6593968553416845,
+          "std": 0.01851176303165988
+        },
+        "accuracy": {
+          "mean": 0.6161816002848824,
+          "std": 0.021351588501656447
+        },
+        "fit_s": {
+          "mean": 0.1654531899956055
+        }
+      }
+    },
+    "R3_resume_only_768": {
+      "logistic_regression": {
+        "auc": {
+          "mean": 0.6575472843109978,
+          "std": 0.037433031540887354
+        },
+        "accuracy": {
+          "mean": 0.6065786261210256,
+          "std": 0.025474429955921918
+        },
+        "fit_s": {
+          "mean": 1.0574631099996623
+        }
+      },
+      "random_forest": {
+        "auc": {
+          "mean": 0.6603175328331815,
+          "std": 0.037479606471423885
+        },
+        "accuracy": {
+          "mean": 0.6126473754330257,
+          "std": 0.027375950911573667
+        },
+        "fit_s": {
+          "mean": 0.929887590004364
+        }
+      },
+      "mlp": {
+        "auc": {
+          "mean": 0.6482480671132038,
+          "std": 0.03537105156552009
+        },
+        "accuracy": {
+          "mean": 0.5986137067194534,
+          "std": 0.029153773836678998
+        },
+        "fit_s": {
+          "mean": 1.5598537099838723
+        }
+      }
+    },
+    "R4_jd_only_768": {
+      "logistic_regression": {
+        "auc": {
+          "mean": 0.5200815274522494,
+          "std": 0.03630521638341614
+        },
+        "accuracy": {
+          "mean": 0.5141655335379431,
+          "std": 0.04522586075662213
+        },
+        "fit_s": {
+          "mean": 0.5158984099922236
+        }
+      },
+      "random_forest": {
+        "auc": {
+          "mean": 0.5412857547779579,
+          "std": 0.03990382433628353
+        },
+        "accuracy": {
+          "mean": 0.5079638161771018,
+          "std": 0.02470687372354721
+        },
+        "fit_s": {
+          "mean": 0.9405329199973493
+        }
+      },
+      "mlp": {
+        "auc": {
+          "mean": 0.546360959332814,
+          "std": 0.035661590111702696
+        },
+        "accuracy": {
+          "mean": 0.5305975532501801,
+          "std": 0.025612783429873914
+        },
+        "fit_s": {
+          "mean": 1.700944570003776
+        }
+      }
+    },
+    "R5_concat_1536": {
+      "logistic_regression": {
+        "auc": {
+          "mean": 0.6094984494675509,
+          "std": 0.018759031973067396
+        },
+        "accuracy": {
+          "mean": 0.5670070235391733,
+          "std": 0.03456199809322097
+        },
+        "fit_s": {
+          "mean": 2.861836280004354
+        }
+      },
+      "random_forest": {
+        "auc": {
+          "mean": 0.7518341810052552,
+          "std": 0.036031710255359284
+        },
+        "accuracy": {
+          "mean": 0.6738412021121778,
+          "std": 0.039921624869339506
+        },
+        "fit_s": {
+          "mean": 1.971946679998655
+        }
+      },
+      "mlp": {
+        "auc": {
+          "mean": 0.754830169852791,
+          "std": 0.04094948150425772
+        },
+        "accuracy": {
+          "mean": 0.6806577735459218,
+          "std": 0.045330268295941466
+        },
+        "fit_s": {
+          "mean": 5.302597770001739
+        }
+      }
+    },
+    "R6_interaction_1536": {
+      "logistic_regression": {
+        "auc": {
+          "mean": 0.6806654290138321,
+          "std": 0.04538977261779032
+        },
+        "accuracy": {
+          "mean": 0.6249031518436133,
+          "std": 0.035104374735057065
+        },
+        "fit_s": {
+          "mean": 0.8762250199972186
+        }
+      },
+      "random_forest": {
+        "auc": {
+          "mean": 0.7366115615806125,
+          "std": 0.026448181825352014
+        },
+        "accuracy": {
+          "mean": 0.6610655160156671,
+          "std": 0.0316256477719588
+        },
+        "fit_s": {
+          "mean": 3.2360259900044186
+        }
+      },
+      "mlp": {
+        "auc": {
+          "mean": 0.7359118206971681,
+          "std": 0.03576227214362073
+        },
+        "accuracy": {
+          "mean": 0.6676377252497451,
+          "std": 0.03346375698019379
+        },
+        "fit_s": {
+          "mean": 3.51957038998371
+        }
+      }
+    },
+    "R2_relational_10": {
+      "logistic_regression": {
+        "auc": {
+          "mean": 0.6646960933003032,
+          "std": 0.021740420406172505
+        },
+        "accuracy": {
+          "mean": 0.6155526887883782,
+          "std": 0.020435597883680268
+        },
+        "fit_s": {
+          "mean": 0.007697239995468408
+        }
+      },
+      "random_forest": {
+        "auc": {
+          "mean": 0.6884369815763528,
+          "std": 0.028766417844858155
+        },
+        "accuracy": {
+          "mean": 0.6303402639268552,
+          "std": 0.023708899869380073
+        },
+        "fit_s": {
+          "mean": 0.47316553998971356
+        }
+      },
+      "mlp": {
+        "auc": {
+          "mean": 0.695817039864487,
+          "std": 0.0309307726032121
+        },
+        "accuracy": {
+          "mean": 0.6342601473616933,
+          "std": 0.020530386811431756
+        },
+        "fit_s": {
+          "mean": 0.4383078899991233
+        }
+      }
+    }
+  },
+  "bestModelPerRepresentation": {
+    "R1_cosine_1": "logistic_regression",
+    "R3_resume_only_768": "random_forest",
+    "R4_jd_only_768": "mlp",
+    "R5_concat_1536": "mlp",
+    "R6_interaction_1536": "random_forest",
+    "R2_relational_10": "mlp"
+  },
+  "learningCurve_R2_randomForest": [
+    {
+      "trainFraction": 0.1,
+      "trainRows": 711,
+      "auc_mean": 0.651352159742086,
+      "auc_std": 0.02038540894362767
+    },
+    {
+      "trainFraction": 0.25,
+      "trainRows": 1779,
+      "auc_mean": 0.6674094643366757,
+      "auc_std": 0.022157978639672702
+    },
+    {
+      "trainFraction": 0.5,
+      "trainRows": 3559,
+      "auc_mean": 0.6802403028344051,
+      "auc_std": 0.023326334783398753
+    },
+    {
+      "trainFraction": 0.75,
+      "trainRows": 5339,
+      "auc_mean": 0.6830360716601949,
+      "auc_std": 0.030240940198631376
+    },
+    {
+      "trainFraction": 1.0,
+      "trainRows": 7119,
+      "auc_mean": 0.6878213310481355,
+      "auc_std": 0.029895982020676493
+    }
+  ]
+}

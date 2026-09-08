@@ -1,0 +1,77 @@
+{
+  "splitStrategy": {
+    "S1_kfold_no_grouping": {
+      "auc_mean": 0.7136643558231176,
+      "auc_std": 0.016215586889253446,
+      "accuracy_mean": 0.6485,
+      "accuracy_std": 0.013939601859450656,
+      "folds": 10,
+      "rows": 8000
+    },
+    "S2_group_by_posting": {
+      "auc_mean": 0.6893702347667465,
+      "auc_std": 0.016095084628449403,
+      "accuracy_mean": 0.6331258199231562,
+      "accuracy_std": 0.011964594889597583,
+      "folds": 10,
+      "rows": 8000
+    },
+    "S3_group_by_resume": {
+      "auc_mean": 0.703232100503832,
+      "auc_std": 0.030614951949470583,
+      "accuracy_mean": 0.6448750000000001,
+      "accuracy_std": 0.02886092730665458,
+      "folds": 10,
+      "rows": 8000
+    }
+  },
+  "labelGranularity": {
+    "L1_binary_as_shipped": {
+      "auc_mean": 0.6893702347667465,
+      "auc_std": 0.016095084628449403,
+      "accuracy_mean": 0.6331258199231562,
+      "accuracy_std": 0.011964594889597583,
+      "folds": 10,
+      "rows": 8000
+    },
+    "L2_good_vs_nofit": {
+      "auc_mean": 0.6809546498377717,
+      "auc_std": 0.04992127522364585,
+      "accuracy_mean": 0.6496650828659709,
+      "accuracy_std": 0.03235806755619185,
+      "folds": 10,
+      "rows": 6000
+    },
+    "L3_three_class_ovr": {
+      "Good Fit": {
+        "auc_mean": 0.6364633597302648,
+        "auc_std": 0.06792380261041972,
+        "accuracy_mean": 0.626746127337699,
+        "accuracy_std": 0.050495209674203595,
+        "folds": 10,
+        "rows": 8000
+      },
+      "No Fit": {
+        "auc_mean": 0.6893702347667465,
+        "auc_std": 0.016095084628449396,
+        "accuracy_mean": 0.6331258199231562,
+        "accuracy_std": 0.011964594889597583,
+        "folds": 10,
+        "rows": 8000
+      },
+      "Potential Fit": {
+        "auc_mean": 0.6296108434902363,
+        "auc_std": 0.02915977668337087,
+        "accuracy_mean": 0.5917576843870068,
+        "accuracy_std": 0.028122414771713088,
+        "folds": 10,
+        "rows": 8000
+      }
+    },
+    "L3_macro_auc": 0.6518148126624159
+  },
+  "interpretation": {
+    "objection1": "If S1 > S2 > S3 with S3 near chance, most reported performance on this benchmark comes from having seen the resume before, not from matching.",
+    "objection2": "If L2 does not materially exceed L1, collapsing the fuzzy middle class is not what hides the relational signal."
+  }
+}
