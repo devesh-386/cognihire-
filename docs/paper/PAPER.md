@@ -119,10 +119,12 @@ metric cannot show you which one you bought.
 5. **A representation ablation with one-sided probes** (§6.3) quantifying how much of the
    benchmark's score is reachable without seeing one side of the pair at all.
 
-6. **Robustness analyses against the two most natural objections** (§6.5) — that the split still
-   permits leakage, and that binarising a three-class label destroyed the relational signal — plus
-   the incidental finding that generalising to an unseen *posting* is harder than to an unseen
-   *candidate*, which is the condition every new job requisition presents.
+6. **Robustness analyses against the three most natural objections** (§6.5) — that the split still
+   permits leakage, that binarising a three-class label destroyed the relational signal, and that
+   the models were left untuned. An equal-budget nested search moves no model more than +0.0077
+   AUROC and leaves the leader separating from *fewer* rivals, not more. Also here: generalising to
+   an unseen *posting* is harder than to an unseen *candidate*, which is the condition every new job
+   requisition presents.
 
 7. **Efficiency measurements** (§6.6) showing predictive quality and computational cost are
    decoupled here across three orders of magnitude in inference latency and nearly five in model
@@ -715,6 +717,47 @@ under the binarisation, with class weights handling the residual imbalance in L2
 experiments balance within each of the dataset's own splits and so retain 7,910. The two pipelines
 agree where they overlap: S2/L1 here reaches 0.6894, against the random forest's 0.688 in Table 1.
 
+**Objection 3: the models were not tuned, so the convergence is an artifact of arbitrary
+hyper-parameters.** This is the most serious of the three, because it attacks §6.1 directly. We
+therefore ran a nested cross-validation designed so that it *could* refute the paper's central claim:
+if tuning pulls one model clear of the others, "statistically indistinguishable" fails.
+
+The outer loop is the same ten folds used throughout. Inside each outer training fold, a 3-fold
+`GroupKFold` (again by posting) selects among **eight configurations per model, an identical budget
+for every model** — an unequal budget would compare search effort rather than algorithms. The
+selected configuration is refit on the full outer-training fold and scored once on the untouched
+outer-test fold, so no test row influences any selection.
+
+**Table 8.** Equal-budget nested hyper-parameter search. Tuned AUROC is mean ± sd over the ten outer
+folds; untuned values are from Table 1.
+
+| Model | Tuned AUROC | Untuned | Δ |
+|---|---|---|---|
+| MLP | **0.6938 ± 0.026** | 0.6958 | −0.0020 |
+| SVM (RBF) | 0.6913 ± 0.027 | 0.6863 | +0.0050 |
+| Gradient boosting | 0.6902 ± 0.031 | 0.6891 | +0.0011 |
+| *k*-NN | 0.6874 ± 0.029 | 0.6797 | **+0.0077** |
+| Random forest | 0.6862 ± 0.029 | 0.6881 | −0.0019 |
+| Hist. gradient boosting | 0.6835 ± 0.030 | 0.6795 | +0.0040 |
+| Extra trees | 0.6826 ± 0.029 | 0.6855 | −0.0029 |
+| Gaussian NB | 0.6671 ± 0.033 | 0.6671 | +0.0000 |
+| Logistic regression | 0.6621 ± 0.022 | 0.6647 | −0.0026 |
+
+**Tuning does not rescue any model.** The largest gain across all nine is +0.0077 (*k*-NN) and three
+models are marginally worse tuned than untuned, which is ordinary nested-CV selection noise. No model
+moves enough to change its position materially.
+
+**And it makes the field more homogeneous, not less.** The best-to-worst spread is essentially
+unchanged (0.0311 untuned → 0.0317 tuned), but the *significance* structure contracts. Friedman still
+rejects overall (χ² = 41.28, *p* = 1.8 × 10⁻⁶), yet after Holm correction the tuned leader separates
+from only **two** of eight comparisons — Gaussian NB (*p* = 0.016) and logistic regression
+(*p* = 0.016) — where the untuned leader separated from four. The two models that were significantly
+behind and gained most from tuning, SVM and *k*-NN, are no longer distinguishable from the leader.
+
+This converts the argument in §8 into a measurement. Equal-budget tuning leaves the ranking
+substantively unchanged, leaves the spread unchanged, and *weakens* rather than strengthens the case
+that any model is best. The convergence in §6.1 is not an artifact of unturned dials.
+
 ### 6.6 Accuracy and cost are decoupled
 
 ![Efficiency](figures/fig4_efficiency_pareto.png)
@@ -883,11 +926,13 @@ must be explained is the *asymmetry* between R3 and R4, which is a property of t
 labels, not of the embedding. Second, token-level features read untruncated text, so the truncation
 affects only the embedding-derived components.
 
-**No hyper-parameter tuning.** Models run at fixed modest settings. Tuning could shift the ranking
-in Table 1. It is unlikely to change the conclusion, because the conclusion is that the models are
-within noise of one another and the ceiling is representational — and §6.3 shows the representation
-matters far more than the model. A nested tuning search would strengthen the ranking claim we
-decline to make, not the null we do.
+**Hyper-parameter tuning.** The headline comparison runs models at fixed modest settings. We tested
+whether that matters with an equal-budget nested search (§6.5, Objection 3) and it does not: the
+largest gain across nine models is +0.0077 AUROC, the best-to-worst spread is unchanged (0.0311 →
+0.0317), and the tuned leader separates significantly from fewer models than the untuned one. The
+residual threat is that a substantially larger search than eight configurations per model, or a
+better-chosen grid, could yet find something we did not. We regard that as unlikely to change a
+conclusion §6.3 shows is representational rather than algorithmic, but it is not excluded.
 
 **Class balancing by downsampling.** We discard majority-class rows to make 50% the exact random
 baseline. This costs data and could in principle alter the learnable structure; the retained sample
@@ -1013,6 +1058,7 @@ statistical steps are seeded and exactly reproducible.
 | Representation ablation, learning curve | §6.3, §6.7 | `python -m ml.resume_fit.ablation` |
 | Matching isolation | §6.4 | `python -m ml.resume_fit.matching_isolation` |
 | Split-scheme and label robustness | §6.5 | `python -m ml.resume_fit.robustness` |
+| Nested tuning check | §6.5 | `python -m ml.resume_fit.tuned_benchmark` |
 | Dataset diagnostics | §3.1 | `python -m ml.resume_fit.diagnose` |
 | Replication-corpus screen | §3.4 | `python -m ml.resume_fit.probe_datasets` |
 | Contamination verification | §3.4 | `python -m ml.resume_fit.verify_med2425` |

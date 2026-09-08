@@ -1,0 +1,207 @@
+{
+  "question": "Does an equal-budget nested hyper-parameter search change the conclusion?",
+  "protocol": {
+    "outer": "GroupKFold(n_splits=10) by job description (same folds as Table 1)",
+    "inner": "GroupKFold(n_splits=3) by job description on the training fold",
+    "configsPerModel": 8,
+    "selectionMetric": "mean inner-fold AUROC",
+    "note": "Every model receives an identical search budget; unequal budgets would compare tuning effort rather than algorithms."
+  },
+  "models": {
+    "logistic_regression": {
+      "tunedAuc": {
+        "mean": 0.6621009251393872,
+        "std": 0.02215549173537603
+      },
+      "untunedAuc": 0.6647,
+      "delta": -0.0025990748606127267,
+      "mostSelectedConfig": "{\"C\": 50.0, \"max_iter\": 4000, \"penalty\": \"l2\", \"solver\": \"lbfgs\"}",
+      "configSelectionCounts": {
+        "{\"C\": 50.0, \"max_iter\": 4000, \"penalty\": \"l2\", \"solver\": \"lbfgs\"}": 5,
+        "{\"C\": 0.01, \"max_iter\": 4000, \"penalty\": \"l2\", \"solver\": \"lbfgs\"}": 2,
+        "{\"C\": 1.0, \"max_iter\": 4000, \"penalty\": \"l2\", \"solver\": \"lbfgs\"}": 1,
+        "{\"C\": 10.0, \"max_iter\": 4000, \"penalty\": \"l2\", \"solver\": \"lbfgs\"}": 1,
+        "{\"C\": 0.1, \"max_iter\": 4000, \"penalty\": \"l2\", \"solver\": \"lbfgs\"}": 1
+      }
+    },
+    "gaussian_nb": {
+      "tunedAuc": {
+        "mean": 0.6671018027559866,
+        "std": 0.032807776560937627
+      },
+      "untunedAuc": 0.6671,
+      "delta": 1.802755986601845e-06,
+      "mostSelectedConfig": "{\"var_smoothing\": 0.0001}",
+      "configSelectionCounts": {
+        "{\"var_smoothing\": 0.0001}": 7,
+        "{\"var_smoothing\": 1e-05}": 2,
+        "{\"var_smoothing\": 1e-11}": 1
+      }
+    },
+    "knn": {
+      "tunedAuc": {
+        "mean": 0.6873705698090099,
+        "std": 0.029368051419809568
+      },
+      "untunedAuc": 0.6797,
+      "delta": 0.007670569809009931,
+      "mostSelectedConfig": "{\"n_neighbors\": 50, \"weights\": \"distance\"}",
+      "configSelectionCounts": {
+        "{\"n_neighbors\": 50, \"weights\": \"distance\"}": 10
+      }
+    },
+    "svm_rbf": {
+      "tunedAuc": {
+        "mean": 0.6913021631224078,
+        "std": 0.027368967568053376
+      },
+      "untunedAuc": 0.6863,
+      "delta": 0.0050021631224077545,
+      "mostSelectedConfig": "{\"C\": 0.5, \"gamma\": \"auto\", \"kernel\": \"rbf\", \"probability\": true, \"random_state\": 100}",
+      "configSelectionCounts": {
+        "{\"C\": 0.5, \"gamma\": \"auto\", \"kernel\": \"rbf\", \"probability\": true, \"random_state\": 100}": 8,
+        "{\"C\": 0.5, \"gamma\": \"scale\", \"kernel\": \"rbf\", \"probability\": true, \"random_state\": 100}": 2
+      }
+    },
+    "random_forest": {
+      "tunedAuc": {
+        "mean": 0.6862413707330995,
+        "std": 0.0287523942982541
+      },
+      "untunedAuc": 0.6881,
+      "delta": -0.0018586292669005022,
+      "mostSelectedConfig": "{\"max_depth\": 8, \"min_samples_leaf\": 5, \"n_estimators\": 200, \"n_jobs\": -1, \"random_state\": 100}",
+      "configSelectionCounts": {
+        "{\"max_depth\": 8, \"min_samples_leaf\": 5, \"n_estimators\": 200, \"n_jobs\": -1, \"random_state\": 100}": 6,
+        "{\"max_depth\": 12, \"min_samples_leaf\": 3, \"n_estimators\": 400, \"n_jobs\": -1, \"random_state\": 100}": 1,
+        "{\"max_depth\": 12, \"min_samples_leaf\": 5, \"n_estimators\": 600, \"n_jobs\": -1, \"random_state\": 100}": 3
+      }
+    },
+    "extra_trees": {
+      "tunedAuc": {
+        "mean": 0.6826489836727162,
+        "std": 0.028906011554635853
+      },
+      "untunedAuc": 0.6855,
+      "delta": -0.002851016327283795,
+      "mostSelectedConfig": "{\"max_depth\": 12, \"min_samples_leaf\": 5, \"n_estimators\": 600, \"n_jobs\": -1, \"random_state\": 100}",
+      "configSelectionCounts": {
+        "{\"max_depth\": 12, \"min_samples_leaf\": 5, \"n_estimators\": 600, \"n_jobs\": -1, \"random_state\": 100}": 7,
+        "{\"max_depth\": 16, \"min_samples_leaf\": 3, \"n_estimators\": 200, \"n_jobs\": -1, \"random_state\": 100}": 1,
+        "{\"max_depth\": 16, \"min_samples_leaf\": 2, \"n_estimators\": 400, \"n_jobs\": -1, \"random_state\": 100}": 2
+      }
+    },
+    "gradient_boosting": {
+      "tunedAuc": {
+        "mean": 0.6902130954628011,
+        "std": 0.030678448408459954
+      },
+      "untunedAuc": 0.6891,
+      "delta": 0.0011130954628010281,
+      "mostSelectedConfig": "{\"learning_rate\": 0.02, \"max_depth\": 4, \"n_estimators\": 300, \"random_state\": 100, \"subsample\": 0.9}",
+      "configSelectionCounts": {
+        "{\"learning_rate\": 0.02, \"max_depth\": 4, \"n_estimators\": 300, \"random_state\": 100, \"subsample\": 0.9}": 4,
+        "{\"learning_rate\": 0.05, \"max_depth\": 3, \"n_estimators\": 100, \"random_state\": 100, \"subsample\": 0.9}": 4,
+        "{\"learning_rate\": 0.02, \"max_depth\": 3, \"n_estimators\": 500, \"random_state\": 100, \"subsample\": 0.9}": 2
+      }
+    },
+    "hist_gradient_boosting": {
+      "tunedAuc": {
+        "mean": 0.6835152856595388,
+        "std": 0.029963920876215386
+      },
+      "untunedAuc": 0.6795,
+      "delta": 0.004015285659538792,
+      "mostSelectedConfig": "{\"l2_regularization\": 1.0, \"learning_rate\": 0.06, \"max_depth\": 4, \"max_iter\": 200, \"random_state\": 100}",
+      "configSelectionCounts": {
+        "{\"l2_regularization\": 1.0, \"learning_rate\": 0.06, \"max_depth\": 4, \"max_iter\": 200, \"random_state\": 100}": 5,
+        "{\"l2_regularization\": 10.0, \"learning_rate\": 0.01, \"max_depth\": 8, \"max_iter\": 800, \"random_state\": 100}": 4,
+        "{\"l2_regularization\": 5.0, \"learning_rate\": 0.03, \"max_depth\": 4, \"max_iter\": 600, \"random_state\": 100}": 1
+      }
+    },
+    "mlp": {
+      "tunedAuc": {
+        "mean": 0.6938118250853758,
+        "std": 0.02616583522076247
+      },
+      "untunedAuc": 0.6958,
+      "delta": -0.001988174914624219,
+      "mostSelectedConfig": "{\"alpha\": 0.01, \"early_stopping\": true, \"hidden_layer_sizes\": [128, 64], \"max_iter\": 600, \"random_state\": 100}",
+      "configSelectionCounts": {
+        "{\"alpha\": 0.001, \"early_stopping\": true, \"hidden_layer_sizes\": [64, 32], \"max_iter\": 600, \"random_state\": 100}": 2,
+        "{\"alpha\": 0.01, \"early_stopping\": true, \"hidden_layer_sizes\": [128, 64], \"max_iter\": 600, \"random_state\": 100}": 3,
+        "{\"alpha\": 0.0001, \"early_stopping\": true, \"hidden_layer_sizes\": [64, 32], \"max_iter\": 600, \"random_state\": 100}": 3,
+        "{\"alpha\": 0.001, \"early_stopping\": true, \"hidden_layer_sizes\": [128, 64], \"max_iter\": 600, \"random_state\": 100}": 1,
+        "{\"alpha\": 0.01, \"early_stopping\": true, \"hidden_layer_sizes\": [256, 64], \"max_iter\": 600, \"random_state\": 100}": 1
+      }
+    }
+  },
+  "rankingByTunedAuc": [
+    "mlp",
+    "svm_rbf",
+    "gradient_boosting",
+    "knn",
+    "random_forest",
+    "hist_gradient_boosting",
+    "extra_trees",
+    "gaussian_nb",
+    "logistic_regression"
+  ],
+  "best": "mlp",
+  "spreadTuned": 0.031710899945988524,
+  "spreadUntuned": 0.031100000000000017,
+  "significance": {
+    "friedman_chi2": 41.28000000000003,
+    "friedman_p": 1.8477402275704382e-06,
+    "pairwise_vs_best": {
+      "logistic_regression": {
+        "wilcoxon_raw_p": 0.001953125,
+        "holm_adjusted_p": 0.015625,
+        "deltaAuc": 0.031710899945988524,
+        "significant_at_0.05": true
+      },
+      "gaussian_nb": {
+        "wilcoxon_raw_p": 0.001953125,
+        "holm_adjusted_p": 0.015625,
+        "deltaAuc": 0.026710022329389127,
+        "significant_at_0.05": true
+      },
+      "knn": {
+        "wilcoxon_raw_p": 0.232421875,
+        "holm_adjusted_p": 0.697265625,
+        "deltaAuc": 0.006441255276365854,
+        "significant_at_0.05": false
+      },
+      "svm_rbf": {
+        "wilcoxon_raw_p": 0.375,
+        "holm_adjusted_p": 0.75,
+        "deltaAuc": 0.0025096619629679795,
+        "significant_at_0.05": false
+      },
+      "random_forest": {
+        "wilcoxon_raw_p": 0.10546875,
+        "holm_adjusted_p": 0.421875,
+        "deltaAuc": 0.0075704543522762124,
+        "significant_at_0.05": false
+      },
+      "extra_trees": {
+        "wilcoxon_raw_p": 0.009765625,
+        "holm_adjusted_p": 0.05859375,
+        "deltaAuc": 0.011162841412659552,
+        "significant_at_0.05": false
+      },
+      "gradient_boosting": {
+        "wilcoxon_raw_p": 0.375,
+        "holm_adjusted_p": 0.75,
+        "deltaAuc": 0.003598729622574681,
+        "significant_at_0.05": false
+      },
+      "hist_gradient_boosting": {
+        "wilcoxon_raw_p": 0.083984375,
+        "holm_adjusted_p": 0.419921875,
+        "deltaAuc": 0.01029653942583697,
+        "significant_at_0.05": false
+      }
+    }
+  }
+}

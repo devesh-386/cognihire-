@@ -191,10 +191,12 @@ a comparison reports no significant difference.
 (\S\ref{sec:ablation}) quantifying how much of the benchmark's score is reachable
 without seeing one side of the pair at all.
 
-\item \textbf{Robustness analyses against the two most natural objections}
-(\S\ref{sec:robust}) --- that the split still permits leakage, and that binarising
-a three-class label destroyed the relational signal --- plus the incidental
-finding that generalising to an unseen \emph{posting} is harder than to an unseen
+\item \textbf{Robustness analyses against the three most natural objections}
+(\S\ref{sec:robust}) --- that the split still permits leakage, that binarising a
+three-class label destroyed the relational signal, and that the models were left
+untuned. An equal-budget nested search moves no model more than $+0.0077$ AUROC
+and leaves the leader separating from \emph{fewer} rivals, not more. Also here:
+generalising to an unseen \emph{posting} is harder than to an unseen
 \emph{candidate}, which is the condition every new job requisition presents.
 
 \item \textbf{Efficiency measurements} (\S\ref{sec:efficiency}) showing
@@ -1000,6 +1002,61 @@ and L3. The main experiments balance within each of the dataset's own splits and
 so retain 7{,}910. The two pipelines agree where they overlap: S2/L1 here reaches
 0.6894, against the random forest's 0.688 in Table~\ref{tab:main}.
 
+\paragraph{Objection 3: the models were not tuned.}
+This is the most serious of the three, because it attacks \S\ref{sec:converge}
+directly. We ran a nested cross-validation designed so that it \emph{could}
+refute the paper's central claim: if tuning pulls one model clear of the others,
+``statistically indistinguishable'' fails.
+
+The outer loop is the same ten folds used throughout. Inside each outer training
+fold, a 3-fold \texttt{GroupKFold} (again by posting) selects among \textbf{eight
+configurations per model, an identical budget for every model} --- an unequal
+budget would compare search effort rather than algorithms. The selected
+configuration is refit on the full outer-training fold and scored once on the
+untouched outer-test fold, so no test row influences any selection.
+
+\begin{table}[h]
+\centering\tabfont
+\caption{Equal-budget nested hyper-parameter search. Tuned AUROC is mean $\pm$ sd
+over the ten outer folds; untuned values are from Table~\ref{tab:main}.}
+\label{tab:tuned}
+\begin{tabular}{lccr}
+\toprule
+Model & Tuned AUROC & Untuned & $\Delta$ \\
+\midrule
+MLP                      & \textbf{0.6938 $\pm$ 0.026} & 0.6958 & $-0.0020$ \\
+SVM (RBF)                & 0.6913 $\pm$ 0.027 & 0.6863 & $+0.0050$ \\
+Gradient boosting        & 0.6902 $\pm$ 0.031 & 0.6891 & $+0.0011$ \\
+$k$-NN                   & 0.6874 $\pm$ 0.029 & 0.6797 & $\mathbf{+0.0077}$ \\
+Random forest            & 0.6862 $\pm$ 0.029 & 0.6881 & $-0.0019$ \\
+Hist.\ gradient boosting & 0.6835 $\pm$ 0.030 & 0.6795 & $+0.0040$ \\
+Extra trees              & 0.6826 $\pm$ 0.029 & 0.6855 & $-0.0029$ \\
+Gaussian NB              & 0.6671 $\pm$ 0.033 & 0.6671 & $+0.0000$ \\
+Logistic regression      & 0.6621 $\pm$ 0.022 & 0.6647 & $-0.0026$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Tuning does not rescue any model.} The largest gain across all nine is
+$+0.0077$ ($k$-NN) and three models are marginally worse tuned than untuned,
+which is ordinary nested-CV selection noise. No model moves enough to change its
+position materially.
+
+\textbf{And it makes the field more homogeneous, not less.} The best-to-worst
+spread is essentially unchanged (0.0311 untuned $\rightarrow$ 0.0317 tuned), but
+the \emph{significance} structure contracts. Friedman still rejects overall
+($\chi^2 = 41.28$, $p = 1.8 \times 10^{-6}$), yet after Holm correction the tuned
+leader separates from only \textbf{two} of eight comparisons --- Gaussian NB
+($p = 0.016$) and logistic regression ($p = 0.016$) --- where the untuned leader
+separated from four. The two models that were significantly behind and gained
+most from tuning, SVM and $k$-NN, are no longer distinguishable from the leader.
+
+This converts the argument in \S\ref{sec:threats} into a measurement.
+Equal-budget tuning leaves the ranking substantively unchanged, leaves the spread
+unchanged, and \emph{weakens} rather than strengthens the case that any model is
+best. The convergence in \S\ref{sec:converge} is not an artifact of unturned
+dials.
+
 \subsection{Accuracy and cost are decoupled}
 \label{sec:efficiency}
 
@@ -1210,13 +1267,16 @@ split and the labels, not of the embedding. Second, token-level features read
 untruncated text, so the truncation affects only the embedding-derived
 components.
 
-\paragraph{No hyper-parameter tuning.}
-Models run at fixed modest settings. Tuning could shift the ranking in
-Table~\ref{tab:main}. It is unlikely to change the conclusion, because the
-conclusion is that the models are within noise of one another and the ceiling is
-representational --- and \S\ref{sec:ablation} shows the representation matters far
-more than the model. A nested tuning search would strengthen the ranking claim we
-decline to make, not the null we do.
+\paragraph{Hyper-parameter tuning.}
+The headline comparison runs models at fixed modest settings. We tested whether
+that matters with an equal-budget nested search (\S\ref{sec:robust}, Objection 3)
+and it does not: the largest gain across nine models is $+0.0077$ AUROC, the
+best-to-worst spread is unchanged ($0.0311 \rightarrow 0.0317$), and the tuned
+leader separates significantly from fewer models than the untuned one. The
+residual threat is that a substantially larger search than eight configurations
+per model, or a better-chosen grid, could yet find something we did not. We
+regard that as unlikely to change a conclusion \S\ref{sec:ablation} shows is
+representational rather than algorithmic, but it is not excluded.
 
 \paragraph{Class balancing by downsampling.}
 We discard majority-class rows to make 50\% the exact random baseline. This costs
@@ -1322,6 +1382,7 @@ Synthetic positive control & \ref{sec:power} & \texttt{python -m ml.synthetic\_b
 Representation ablation & \ref{sec:ablation} & \texttt{python -m ml.resume\_fit.ablation} \\
 Matching isolation & \ref{sec:matching} & \texttt{python -m ml.resume\_fit.matching\_isolation} \\
 Split and label robustness & \ref{sec:robust} & \texttt{python -m ml.resume\_fit.robustness} \\
+Nested tuning check & \ref{sec:robust} & \texttt{python -m ml.resume\_fit.tuned\_benchmark} \\
 Dataset diagnostics & --- & \texttt{python -m ml.resume\_fit.diagnose} \\
 Replication-corpus screen & \ref{sec:noreplication} & \texttt{python -m ml.resume\_fit.probe\_datasets} \\
 Contamination verification & \ref{sec:noreplication} & \texttt{python -m ml.resume\_fit.verify\_med2425} \\
