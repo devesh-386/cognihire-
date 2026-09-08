@@ -204,6 +204,14 @@ of magnitude in inference latency and nearly five in model size.
 \item \textbf{A provenance finding about the benchmark}
 (\S\ref{sec:provenance}): it is in active use and carries no description,
 licence, citation, or documented labelling procedure.
+
+\item \textbf{A survey of the replication landscape}
+(\S\ref{sec:noreplication}) showing that no public résumé--fit corpus currently
+qualifies as an independent replication target --- the largest alternative shares
+100\% of its documents with the corpus under study while reporting 0\% exact-pair
+overlap, and the genuinely independent ones pair each résumé with exactly one
+posting. We give the normalisation procedure that exposes this class of
+contamination, which raw-text hashing misses.
 \end{enumerate}
 
 We note explicitly that contribution 2 corrects our own initial hypothesis, which
@@ -343,6 +351,82 @@ is the exact random baseline and accuracy is directly interpretable. This yields
 Binarisation is a modelling choice that could in principle destroy relational
 signal by collapsing the fuzzy middle class into the positive one.
 \S\ref{sec:robust} tests that directly.
+
+\subsection{The absence of an independent replication corpus}
+\label{sec:noreplication}
+
+We attempted to replicate these results on a second benchmark and could not. The
+reason is itself a finding about the field, so we report the search rather than
+omit it.
+
+We screened six publicly hosted résumé--fit datasets against three requirements:
+\textbf{independence} from the corpus under study; \textbf{recurring entities},
+meaning a résumé appearing with several postings carrying at least one positive
+and one negative label, without which the diagnostic of \S\ref{sec:matching} is
+structurally impossible; and a \textbf{binarisable fit label}.
+
+\begin{table}[h]
+\centering\tabfont
+\caption{Candidate replication corpora. None satisfies all three requirements.}
+\label{tab:candidates}
+\begin{tabular}{lrlll}
+\toprule
+Candidate & Rows & Indep. & Recurring & Outcome \\
+\midrule
+\texttt{med2425/...-merged-v1} & 93{,}733 & \textbf{no} & yes & contaminated \\
+\texttt{0xnbk/resume-ats-score-v1-en} & --- & \textbf{no} & --- & derivative \\
+\texttt{batuhanmtl/job\_resume\_fit} & 2{,}385 & yes & \textbf{no} & unusable \\
+\texttt{OlaniyanIsrael/job\_resume\_fit} & 2{,}385 & yes & \textbf{no} & unusable \\
+\texttt{aswindhanasekar/job\_resume\_fit} & 2{,}385 & yes & \textbf{no} & unusable \\
+\texttt{netsol/resume-score-details} & 1{,}031 & --- & --- & fails to load \\
+\texttt{nonameee12233/job-resume-matching} & 9{,}544 & --- & --- & fails to load \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{The largest alternative is the same corpus wearing different labels.}
+\texttt{med2425/resume-job-fit-merged-v1} passes an exact-hash contamination
+check and fails a normalised one. After lower-casing, stripping punctuation, and
+collapsing whitespace, \textbf{100\% of its résumés and 100\% of its postings are
+present in the corpus under study} --- 640 résumés and 280 postings in its train
+split, 476 and 71 in its test split, matching the original's two splits exactly.
+Its own \texttt{source} column reads \texttt{generated\_smart} for train and
+\texttt{synthetic\_test} for test. It is the original's documents, re-paired
+combinatorially into 39{,}989 new pairs, with machine-generated labels.
+Exact-pair overlap reads 0\% precisely because the pairings are new; the
+documents are not. \texttt{0xnbk/resume-ats-score-v1-en} states on its card that
+it is derived from the same source.
+
+\paragraph{The genuinely independent candidates cannot support the measurement.}
+The three \texttt{job\_resume\_fit} datasets are byte-identical triplicates of one
+another and share no documents with the corpus under study. But they pair 2{,}383
+unique résumés with 23 unique postings across 2{,}383 unique pairs:
+\textbf{every résumé appears exactly once, and no résumé is paired with two
+postings.} Within-résumé variance is therefore identically zero, and the
+within-query statistic is not merely weak on this corpus but undefined. Their
+label is a continuous AI-generated match score rather than a human fit judgement.
+
+Two consequences follow. First, the single-dataset limitation recorded in
+\S\ref{sec:threats} is not a matter of effort: the public ecosystem does not
+currently offer a second corpus meeting the requirements, and we would rather say
+so than replicate on a derivative and present it as independent confirmation.
+
+Second, and more consequential for the field: a benchmark whose most-downloaded
+derivatives regenerate its labels by model and re-pair its documents
+combinatorially is a benchmark whose apparent diversity is illusory. Work
+reporting evaluation across ``several résumé-fit datasets'' may be evaluating
+repeatedly on one, and the standard dataset-card metadata gives no warning of it.
+This compounds the provenance problem of \S\ref{sec:provenance}: undocumented
+corpora beget undocumented derivatives.
+
+\paragraph{A methodological note for anyone running such an audit.}
+Our exact-hash contamination check reported the contaminated corpus as clean, and
+only normalised matching --- lower-cased, punctuation stripped, whitespace
+collapsed --- exposed the overlap. A re-upload that alters whitespace or encoding
+defeats raw-text hashing entirely. Contamination audits should normalise before
+hashing, and should compare entity sets rather than only pair sets, since
+re-pairing the same documents preserves document overlap while destroying pair
+overlap.
 
 \section{Representations}
 
@@ -1103,11 +1187,16 @@ evidence that it measures something the pooled metric does not.
 \label{sec:threats}
 
 \paragraph{A single dataset.}
-Every result here concerns one benchmark. We do not claim that résumé--posting
-matching is unlearnable in general, only that this widely-downloaded dataset does
-not support learning it, and that studies using it should establish otherwise
-before reporting model rankings. Replication on additional résumé--fit corpora is
-the most valuable extension of this work.
+Every result here concerns one benchmark. We do not claim that our conclusions
+generalise beyond it, and replication on an independent résumé--fit corpus
+remains the most valuable extension of this work. As \S\ref{sec:noreplication}
+documents, we attempted that replication and found no public corpus that
+qualifies: the most-downloaded alternatives are derivatives of the corpus under
+study --- one shares 100\% of its documents --- and the genuinely independent
+candidates pair each résumé with exactly one posting, which makes the
+within-query statistic undefined rather than merely noisy. The limitation is real
+and we do not minimise it; we record that it presently binds on data availability
+rather than on effort.
 
 \paragraph{Encoder choice and truncation.}
 Documents are embedded with a single 768-d encoder and truncated to 2{,}000
@@ -1234,6 +1323,8 @@ Representation ablation & \ref{sec:ablation} & \texttt{python -m ml.resume\_fit.
 Matching isolation & \ref{sec:matching} & \texttt{python -m ml.resume\_fit.matching\_isolation} \\
 Split and label robustness & \ref{sec:robust} & \texttt{python -m ml.resume\_fit.robustness} \\
 Dataset diagnostics & --- & \texttt{python -m ml.resume\_fit.diagnose} \\
+Replication-corpus screen & \ref{sec:noreplication} & \texttt{python -m ml.resume\_fit.probe\_datasets} \\
+Contamination verification & \ref{sec:noreplication} & \texttt{python -m ml.resume\_fit.verify\_med2425} \\
 Figures & all & \texttt{python -m ml.make\_figures} \\
 \bottomrule
 \end{tabular}
