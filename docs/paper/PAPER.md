@@ -2,13 +2,8 @@
 
 **Devesh S V**
 Department of Computer Science and Engineering
-**[INSTITUTION — FILL THIS IN]**
+SRM Institute of Science and Technology
 `deveshsv.386@gmail.com`
-
-> This is the only field in the paper that still needs a human. It is deliberately unfilled rather
-> than guessed: an affiliation is a factual claim about a real organisation, it was not recorded
-> anywhere in the project, and inventing one would misattribute the work. Replace it here and in
-> the `\affiliation` macro at the top of `paper.tex`.
 
 ---
 

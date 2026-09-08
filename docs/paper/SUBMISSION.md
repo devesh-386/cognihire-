@@ -4,22 +4,15 @@ Everything needed to submit, plus the one field only you can supply.
 
 ---
 
-## The one remaining blocker
+## Status
 
-**Your institution.** Two places, both clearly marked:
+**No blockers remain.** The affiliation — SRM Institute of Science and
+Technology — was supplied by the author and is set in `PAPER.md` and in the
+`\affiliation` macro in `paper.tex`.
 
-| File | Where |
-|---|---|
-| `PAPER.md` | line 5, `**[INSTITUTION — FILL THIS IN]**` |
-| `paper.tex` | the `\affiliation` macro near the top |
-
-It was left unfilled deliberately. An affiliation is a factual claim about a real
-organisation; it appears nowhere in this repository (your earlier
-`docs/submission/RESEARCH_PAPER.md` omits it too), so any value would have been
-invented. A wrong affiliation on a submitted paper misattributes the work to an
-institution that never authorised it, and it is a five-second fix for you.
-
-Everything else below is done.
+The one item left is not a content gap but a build step: `paper.tex` has never
+been compiled, because no TeX toolchain was available on the machine it was
+written on. See *The LaTeX has not been compiled* below.
 
 ---
 
@@ -150,7 +143,7 @@ misses.
 
 ## Pre-submission checklist
 
-- [ ] **Institution filled in** — `PAPER.md` line 5 and the `\affiliation` macro in `paper.tex`
+- [x] **Institution filled in** — SRM Institute of Science and Technology
 - [ ] `pdflatex + bibtex + pdflatex + pdflatex` runs clean (see caveat below)
 - [ ] `paper.bbl` included in the upload
 - [ ] All five figure PDFs render in the built document
