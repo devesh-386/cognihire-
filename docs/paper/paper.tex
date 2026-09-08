@@ -43,13 +43,19 @@
 \title{\textbf{Nine Algorithms, One Ceiling:\\
 A Diagnostic Study of Résumé--Job-Description Fit Prediction}}
 
-% ---------------------------------------------------------------------
-% TODO(author): replace the institution placeholder below before
-% submission. It was deliberately left unfilled rather than guessed.
-% ---------------------------------------------------------------------
+% =====================================================================
+% THE ONLY FIELD THAT STILL NEEDS A HUMAN.
+% Put your institution between the braces below and the paper is done.
+% It is deliberately not filled in: an affiliation is a factual claim
+% about a real organisation, and it was not recorded anywhere in the
+% project, so any value here would have been invented.
+% =====================================================================
+\newcommand{\affiliation}{\textbf{[INSTITUTION --- FILL THIS IN]}}
+% e.g. \newcommand{\affiliation}{SRM Institute of Science and Technology}
+
 \author{Devesh S V\\
   Department of Computer Science and Engineering\\
-  \textit{[INSTITUTION --- TO COMPLETE]}\\
+  \affiliation\\
   \texttt{deveshsv.386@gmail.com}}
 
 \date{}
@@ -1347,6 +1353,37 @@ here --- the divergence is the finding.
 For a task whose deployed form decides who is considered for work, the difference
 between a system that ranks matches and one that ranks people is not a
 technicality, and it should not require a dedicated study to detect.
+
+\section*{Data and Code Availability}
+
+The dataset analysed is publicly available on the Hugging Face Hub as
+\texttt{cnamuangtoun/resume-job-description-fit}~\cite{resumejobfit2024}. As
+\S\ref{sec:provenance} records, it carries no licence statement; we analysed it
+as distributed and redistribute none of it.
+
+All analysis code, per-fold results, and figure sources accompany this paper
+(Appendix~\ref{sec:repro}), including the seven experiment scripts, the JSON
+reports they emit, and the per-(model, fold) CSVs underlying every table and
+figure. Document embeddings are cached but not redistributed; see the note in
+Appendix~\ref{sec:repro} on regenerating them.
+
+No human subjects were involved. No résumé, job posting, or candidate record was
+collected, contacted, or re-identified in the course of this work; all documents
+analysed were already public.
+
+\section*{Declaration of Competing Interests}
+
+The author declares no competing financial or non-financial interests. This work
+received no external funding and was not commissioned, sponsored, or reviewed by
+any vendor of hiring software.
+
+\section*{On the Use of AI Assistance}
+
+Experiment code, figure generation, and manuscript drafting were carried out with
+the assistance of a large language model. All experiments were executed locally
+and their outputs verified against the emitted JSON reports; every citation was
+retrieved and checked against a primary source before inclusion. The author is
+responsible for the content, the claims, and any errors.
 
 \bibliographystyle{plain}
 \bibliography{references}

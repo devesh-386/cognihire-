@@ -2,8 +2,13 @@
 
 **Devesh S V**
 Department of Computer Science and Engineering
-*[institution — to complete]*
+**[INSTITUTION — FILL THIS IN]**
 `deveshsv.386@gmail.com`
+
+> This is the only field in the paper that still needs a human. It is deliberately unfilled rather
+> than guessed: an affiliation is a factual claim about a real organisation, it was not recorded
+> anywhere in the project, and inventing one would misattribute the work. Replace it here and in
+> the `\affiliation` macro at the top of `paper.tex`.
 
 ---
 
@@ -993,6 +998,34 @@ divergence is the finding.
 For a task whose deployed form decides who is considered for work, the difference between a system
 that ranks matches and one that ranks people is not a technicality, and it should not require a
 dedicated study to detect.
+
+---
+
+## Data and Code Availability
+
+The dataset analysed is publicly available on the Hugging Face Hub as
+`cnamuangtoun/resume-job-description-fit` [10]. As §3.2 records, it carries no licence statement; we
+analysed it as distributed and redistribute none of it.
+
+All analysis code, per-fold results, and figure sources accompany this paper (Appendix A), including
+the seven experiment scripts, the JSON reports they emit, and the per-(model, fold) CSVs underlying
+every table and figure. Document embeddings are cached but not redistributed; see the note in
+Appendix A on regenerating them.
+
+No human subjects were involved. No résumé, job posting, or candidate record was collected,
+contacted, or re-identified in the course of this work; all documents analysed were already public.
+
+## Declaration of Competing Interests
+
+The author declares no competing financial or non-financial interests. This work received no
+external funding and was not commissioned, sponsored, or reviewed by any vendor of hiring software.
+
+## On the Use of AI Assistance
+
+Experiment code, figure generation, and manuscript drafting were carried out with the assistance of
+a large language model. All experiments were executed locally and their outputs verified against the
+emitted JSON reports; every citation was retrieved and checked against a primary source before
+inclusion. The author is responsible for the content, the claims, and any errors.
 
 ---
 

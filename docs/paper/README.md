@@ -2,6 +2,8 @@
 
 Everything needed to reproduce every number, table, and figure in the paper.
 
+- **Submission guide:** [`SUBMISSION.md`](SUBMISSION.md) — venue decision, arXiv metadata,
+  build steps, and the one field that still needs a human
 - **Paper (Markdown):** [`PAPER.md`](PAPER.md)
 - **Paper (LaTeX):** [`paper.tex`](paper.tex) + [`references.bib`](references.bib)
 - **Figures:** [`figures/`](figures/) — PDF (vector, for LaTeX) and PNG (300 dpi)
@@ -20,13 +22,20 @@ All commands run from `service/` and are deterministic at seed 100.
 ```bash
 cd service
 python -m ml.resume_fit.diagnose             # dataset diagnostics (§3.1)
+python -m ml.resume_fit.probe_datasets       # replication-corpus screen (§3.4)
+python -m ml.resume_fit.verify_med2425       # contamination verification (§3.4)
 python -m ml.resume_fit.train_benchmark      # 9 algorithms + significance (§6.1)
 python -m ml.synthetic_benchmark             # positive control (§6.2)
 python -m ml.resume_fit.ablation             # representations + learning curve (§6.3, §6.7)
 python -m ml.resume_fit.matching_isolation   # within-résumé diagnostic (§6.4)
 python -m ml.resume_fit.robustness           # split + label robustness (§6.5)
+python -m ml.resume_fit.tuned_benchmark      # nested tuning check (§6.5, Obj. 3)
 python -m ml.make_figures                    # all five figures
 ```
+
+The two `§3.4` scripts and `tuned_benchmark` reach the network to download
+candidate corpora from the Hugging Face Hub; the rest run offline once the
+embedding cache exists.
 
 **Embeddings are cached, but the cache is not in the repository.**
 `service/ml/resume_fit/cache/embeddings.json` (~16 MB) holds all ~1,470 document
@@ -52,6 +61,9 @@ statistics per fold. The others complete in under two minutes.
 | `ml/resume_fit/ablation.py` | `ablation.report.json` | Table 4, Fig. 2, Table (learning curve) |
 | `ml/resume_fit/matching_isolation.py` | `matching_isolation.report.json` | Tables (variance, pairwise), Fig. 3 |
 | `ml/resume_fit/robustness.py` | `robustness.report.json` | Tables 6–7 |
+| `ml/resume_fit/tuned_benchmark.py` | `tuned_benchmark.report.json`, `tuned_benchmark_folds.csv` | Table 8 (§6.5, Obj. 3) |
+| `ml/resume_fit/probe_datasets.py` | `probe_datasets.report.json` | §3.4 candidate table |
+| `ml/resume_fit/verify_med2425.py` | console output | §3.4 contamination figures |
 | `ml/make_figures.py` | `docs/paper/figures/*.{pdf,png}` | all figures |
 
 The `*_folds.csv` files carry one row per (model, fold) with every metric and
