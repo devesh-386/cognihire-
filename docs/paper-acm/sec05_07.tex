@@ -7,9 +7,7 @@
 
 Machine learning enters an evidence-based screening system in exactly one place:
 measuring properties of the evidence a session has accumulated. It does not
-decide, and it is not trained on hiring outcomes. That restriction is what makes
-the remainder of this section a measurement problem rather than a prediction
-problem about people. Table~\ref{tab:ml-paradigms} states the paradigms and where
+decide, and it is not trained on hiring outcomes. That restriction is what makes the rest of this section a measurement problem instead of a prediction problem about people. Table~\ref{tab:ml-paradigms} states the paradigms and where
 each is admissible.
 
 \begin{table*}[t]
@@ -34,8 +32,7 @@ produced \\
 Self-supervised & Capture-quality prediction from embedding stability & Yes & No
 human annotation, no person-level label \\
 Reinforcement learning & Adaptive question selection & Offline only & Online
-exploration means deliberately asking a real candidate a question believed to be
-poor \\
+exploration means asking a real candidate a question you already believe is poor \\
 \bottomrule
 \end{tabular}
 \end{table*}
@@ -103,17 +100,12 @@ We compare nine classifiers spanning six model families on a public
 résumé--posting fit benchmark~\cite{resumejobfit2024} of 7{,}910 balanced pairs
 drawn from 643 résumés and 351 postings. Every experiment uses ten-fold
 \texttt{GroupKFold} grouped by job posting, so each fold's test postings are
-absent from its training data. Two
-quantities are fitted inside each fold on training rows only --- the IDF corpus
-statistics and the feature scaler --- because fitting either over the pooled
-corpus would leak the test fold's term distribution into training. Identical fold
+absent from its training data. Two quantities are fitted inside each fold, on training rows only: the IDF corpus statistics and the feature scaler. Fitting either over the pooled corpus would leak the test fold's term distribution into training. Identical fold
 assignments are reused across every model, so all comparisons are paired.
 
 Models run at fixed modest hyper-parameters with no per-model tuning budget;
 \S\ref{sec:tuning} tests whether that choice matters. Scale-sensitive models
-receive standardised features and tree ensembles receive raw features, since
-standardising a scale-invariant model would compare preprocessing rather than
-algorithms.
+receive standardised features and tree ensembles receive raw features, since standardising a scale-invariant model would compare preprocessing, not algorithms.
 
 \begin{table*}[t]
 \caption{Nine classifiers on résumé--posting fit, ten-fold \texttt{GroupKFold} by
@@ -142,27 +134,21 @@ Logistic regression      & 0.665 $\pm$ 0.022 & 0.616 $\pm$ 0.020 & 0.637 $\pm$ 0
 The nine span 0.031 AUROC from best to worst, and every model's fold-to-fold
 standard deviation is of the same order as that entire spread. The Friedman test
 rejects the hypothesis that all nine perform identically ($\chi^2 = 38.35$,
-$p = 6.5 \times 10^{-6}$), so the models are not interchangeable --- but the
-post-hoc picture is what governs a ranking claim. Comparing the leader against
+$p = 6.5 \times 10^{-6}$), so the models are not interchangeable. The post-hoc picture, though, is what governs a ranking claim. Comparing the leader against
 each other model with a paired Wilcoxon signed-rank test over the ten folds and
 applying Holm--Bonferroni correction, the leading model is \textbf{statistically
 indistinguishable from all four tree ensembles}, separating only from the linear,
 probabilistic, instance-based, and kernel baselines, where the largest effect is
 three AUROC points.
 
-A study reporting only the ranked table would license the claim ``the MLP is the
-best model for résumé--job fit.'' The significance analysis does not support it.
+Although a study reporting only the ranked table would license the claim that the MLP is the best model for résumé--job fit, the significance analysis does not support it.
 Note also the non-monotonicity across metrics: the MLP leads on AUROC, gradient
 boosting on accuracy, extra trees on calibration. Which model ``wins'' depends on
 which column is placed first.
 
 \paragraph{Establishing that the protocol has power.}
 A comparison that finds no difference is uninformative unless the protocol can be
-shown to detect a difference when one exists. We therefore constructed a
-synthetic control with a pre-specified generative process --- twelve features,
-eight carrying linear weights, one interaction term, one quadratic term, four
-weightless, and a 7\% label-flip rate imposing a Bayes-optimal accuracy of 0.925
---- and ran it through the identical protocol. There the same nine models
+shown to detect a difference when one exists. We therefore constructed a synthetic control with a pre-specified generative process: twelve features, eight carrying linear weights, one interaction term, one quadratic term, four weightless, and a 7\% label-flip rate imposing a Bayes-optimal accuracy of 0.925. We ran it through the identical protocol. There the same nine models
 separate decisively ($\chi^2 = 55.42$, $p = 3.7 \times 10^{-9}$), with the best
 recovering 94.9\% of achievable accuracy.
 
@@ -183,10 +169,7 @@ Figure~\ref{fig:power} places the two side by side.
 screening performance.} It exists to characterise the protocol's power, and every
 artifact it emits is flagged as synthetic. Its role is that of a positive control
 in an assay: an instrument that reports nothing must be shown capable of
-reporting something. The comparison licenses one inference --- when learnable
-signal is present the protocol resolves it clearly, and on the résumé task it
-does not --- so the null is a property of the task, not a limitation of the
-study.
+reporting something. The comparison licenses one inference. When learnable signal is present, the protocol resolves it clearly; on the résumé task it does not. The null is a property of the task, not a limitation of the study.
 
 \subsection{Separating Matching from Candidate Quality}
 \label{sec:withinquery}
@@ -197,13 +180,9 @@ and so will a model that knows which \emph{postings} a given résumé fits. Only
 the second is matching.
 
 Varying the representation while holding the protocol fixed localises where
-performance comes from. A probe given only the résumé embedding --- which cannot
-be matching, since it never sees the thing being matched against --- reaches
-0.660 AUROC, 87\% of the best model's score and statistically indistinguishable
+performance comes from. A probe given only the résumé embedding cannot be matching, since it never sees the thing being matched against. It reaches 0.660 AUROC, 87\% of the best model's score and statistically indistinguishable
 from a single cosine-similarity feature. Its mirror, given only the posting,
-reaches 0.546, barely above chance. The best representation overall is plain
-concatenation of the two embeddings at 0.755, which is to say that the
-representation most enabling résumé recognition scores highest.
+reaches 0.546, barely above chance. The best representation overall is plain concatenation of the two embeddings at 0.755. In other words, the representation that most enables résumé recognition scores highest.
 
 \begin{figure}[t]
   \centering
@@ -214,9 +193,7 @@ representation most enabling résumé recognition scores highest.
   \label{fig:ablation}
 \end{figure}
 
-Figure~\ref{fig:ablation} shows the ordering. That evidence pointed us toward a
-strong conclusion --- that the benchmark's labels were not relational at all ---
-and a direct test refuted it. Decomposing
+Figure~\ref{fig:ablation} shows the ordering. That evidence pointed us toward a strong conclusion: the benchmark's labels were not relational at all. A direct test refuted it. Decomposing
 label variance shows \textbf{80.6\% is within-résumé}: the same résumé labelled
 fit for one posting and not for another. To measure whether models access that
 variance we restrict evaluation to pairs of rows sharing a résumé, one positive
@@ -252,7 +229,7 @@ Interaction (1536-d) & \textbf{0.7372} & 0.6240 & $2.0 \times 10^{-57}$ \\
 above chance by every test applied. A model given one résumé and two postings
 picks the fitting one roughly 63\% of the time.
 
-\textbf{But the pooled gain does not come from matching.} Moving from the ten
+\textbf{The pooled gain, however, does not come from matching.} Moving from the ten
 engineered features to the 1536-dimensional interaction encoding raises
 between-résumé ranking by $+0.047$ and pooled AUROC by $+0.041$, while
 within-résumé matching changes by $-0.009$, which a paired Wilcoxon test over the
@@ -267,16 +244,12 @@ suits a candidate where it was. Nothing in the pooled metric reveals which of th
 two capabilities moved.
 
 \paragraph{The diagnostic generalises.}
-Nothing in the construction is specific to résumés. Any benchmark whose instances
-are (entity, item) pairs with recurring entities --- candidate--job,
-patient--treatment, user--item, student--question, query--document --- admits the
-same test: condition on the entity, rank within it, compare against the pooled
+Nothing in the construction is specific to résumés. Any benchmark whose instances are (entity, item) pairs with recurring entities admits the same test. Candidate--job, patient--treatment, user--item, student--question, query--document all qualify: condition on the entity, rank within it, compare against the pooled
 number. It needs no extra labels and one pass over predictions already computed.
-Where the two diverge, the pooled number is measuring something other than the
-advertised capability. For algorithmic hiring specifically, this is the
+Where the two diverge, the pooled number is measuring something other than the capability it advertises. For algorithmic hiring specifically, this is the
 measurement that distinguishes a system that ranks matches from one that ranks
-people --- precisely the target substitution Raghavan et
-al.~\cite{raghavan2020hiring} warn carries the ethical and legal weight.
+people. This is the target substitution Raghavan et
+al.~\cite{raghavan2020hiring} identify as carrying the ethical and legal weight.
 
 \subsection{Robustness of the Comparison}
 \label{sec:splitscheme}
@@ -301,14 +274,11 @@ Two objections bear on the interpretation, and both are testable.
 \emph{Does the protocol still permit résumé leakage?}
 Table~\ref{tab:splits} varies only the splitting scheme. The ungrouped scheme a
 conventional bake-off would use scores 0.024 AUROC above the posting-grouped
-protocol we adopt, so the naive protocol inflates, modestly. But closing the
-résumé channel does not collapse performance --- it raises it. We expected the
+protocol we adopt, so the naive protocol inflates, modestly. Closing the résumé channel, however, does not collapse performance. It raises it. We expected the
 résumé-grouped scheme to fall sharply if the model's apparent skill were résumé
 recognition; it scores 0.014 \emph{above} the posting-grouped scheme. A
 strong-memorisation account predicts the opposite sign and is refuted. The
-ordering instead tracks which side of the pair is novel, and generalising to a
-new posting is the harder problem --- which matters in deployment, where every
-new requisition presents exactly that condition.
+ordering instead tracks which side of the pair is novel, and generalising to a new posting is the harder problem. That matters in deployment, where every new requisition presents exactly that condition.
 
 \emph{Did binarising a three-class label destroy the signal?}
 The cleanest available contrast, Good Fit against No Fit with the ambiguous
@@ -322,14 +292,10 @@ concealing signal.
 The claim that nine models are statistically indistinguishable is vulnerable to
 the objection that they were left untuned. We tested it with a design that could
 have refuted the claim: a nested cross-validation whose outer loop is the same
-ten folds and whose inner three-fold loop selects among eight configurations per
-model --- an identical budget for every model, since an unequal budget compares
-search effort rather than algorithms.
+ten folds and whose inner three-fold loop selects among eight configurations per model. The budget is identical for every model, since an unequal one compares search effort instead of algorithms.
 
 Tuning rescues no model. The largest gain across all nine is $+0.0077$ AUROC and
-three models are marginally worse tuned than untuned, which is ordinary
-nested-CV selection noise. The best-to-worst spread is essentially unchanged
-($0.0311 \rightarrow 0.0317$), but the significance structure \emph{contracts}:
+three models are marginally worse tuned than untuned, which is what ordinary nested-CV selection noise looks like. The best-to-worst spread is essentially unchanged ($0.0311 \rightarrow 0.0317$); the significance structure, however, \emph{contracts}:
 after Holm correction the tuned leader separates from only two of eight rivals
 where the untuned leader separated from four. The two models that had been
 significantly behind and gained most from tuning are no longer distinguishable
@@ -346,21 +312,14 @@ unchanged and weakens rather than strengthens the case that any model is best.
   \label{fig:mltiers}
 \end{figure}
 
-Figure~\ref{fig:mltiers} shows placement. Two considerations drive it. Scoring
-that must survive a network outage runs on-device, which is why the evidence
-sufficiency model ships as exported coefficients rather than as a service call.
-Components requiring model weights too large to ship run in the service. Training
+Figure~\ref{fig:mltiers} shows placement. Two things drive it. Scoring that must survive a network outage runs on-device, so the evidence sufficiency model ships as exported coefficients and not as a service call, while components whose weights are too large to ship stay in the service. Training
 and calibration are strictly offline and gated: the export refuses to write an
 artifact unless held-out AUROC, calibration error, and Brier score all clear
 stated bars, so a bad run produces no file rather than a quietly bad one.
 
 \paragraph{Efficiency is decoupled from accuracy.}
-Across the nine models, inference latency spans 0.2 to 195.0 $\mu$s per row --- a
-factor of roughly 1{,}000 --- and serialised size spans 0.9 KB to 63.4 MB, a
-factor of about 70{,}000. Predictive quality spans 0.031 AUROC.
-Figure~\ref{fig:efficiency} shows the frontier, which is nearly flat. For an
-interactive deployment the rational choice is therefore the cheapest model that
-is not significantly worse, which here is a kilobyte of logistic-regression
+Across the nine models, inference latency spans 0.2 to 195.0 $\mu$s per row, a factor of roughly 1{,}000. Serialised size spans 0.9 KB to 63.4 MB, a factor of about 70{,}000. Predictive quality spans 0.031 AUROC.
+Figure~\ref{fig:efficiency} shows a frontier that is close to flat, so for an interactive deployment the rational choice is the cheapest model that is not significantly worse, which here is a kilobyte of logistic-regression
 coefficients rather than a 64-megabyte forest.
 
 \begin{figure}[t]
@@ -412,15 +371,13 @@ as changing algorithm; effort is better spent there \\
 \end{tabular}
 \end{table}
 
-The first row is a finding rather than a limitation of effort. A benchmark whose
+The first row is a finding, not a limitation of effort. A benchmark whose
 most-downloaded derivatives regenerate its labels by model and re-pair its
 documents combinatorially is a benchmark whose apparent diversity is illusory:
 work reporting evaluation across ``several résumé-fit datasets'' may be
 evaluating repeatedly on one. We note also that an exact-hash contamination check
 passed the contaminated corpus as clean, and only normalised matching exposed it.
-Contamination audits should normalise before hashing and compare entity sets
-rather than only pair sets, since re-pairing the same documents preserves
-document overlap while destroying pair overlap.
+Contamination audits should normalise before hashing, and should compare entity sets and not only pair sets, since re-pairing the same documents preserves document overlap while destroying pair overlap.
 
 % =====================================================================
 \section{Deep Learning for Identity and Extraction}
@@ -457,12 +414,9 @@ text if unconstrained & Proposes spans; the gate decides \\
 \end{table*}
 
 \paragraph{Why the encoder is frozen.}
-Retraining face recognition on a project-scale dataset would be strictly worse
-than the pretrained model and would introduce demographic bias the project cannot
-audit. The research question is not the encoder; it is what is done with the
+Retraining face recognition on a project-scale dataset would be strictly worse than the pretrained model, and would introduce demographic bias that the project has no means to audit. The research question is not the encoder; it is what is done with the
 embedding stream downstream. Relatedly, the vendor model pack ships an age and
-gender classifier, and the loader specifies an allow-list that never loads it ---
-a single argument a reviewer can verify, rather than a policy statement.
+gender classifier, and the loader specifies an allow-list that never loads it. That is one argument a reviewer can check, not a policy statement.
 
 \subsection{Threshold Calibration and Abstention}
 
@@ -474,9 +428,7 @@ a single argument a reviewer can verify, rather than a policy statement.
   \label{fig:identity}
 \end{figure*}
 
-The system originally compared embeddings against an authored similarity
-threshold of 0.50 --- a value arrived at by reasoning, documented honestly, and
-flagged in its own source comment as uncalibrated. We replaced it with a measured
+The system originally compared embeddings against an authored similarity threshold of 0.50. The value was arrived at by reasoning, documented honestly, and flagged in its own source comment as uncalibrated. We replaced it with a measured
 one. Using the Labeled Faces in the Wild benchmark~\cite{huang2007lfw}, an
 equal-error-rate sweep on 2{,}200 training pairs and evaluation on 1{,}000
 held-out pairs yields the results in Table~\ref{tab:calibration}. No weights are
@@ -496,13 +448,8 @@ Threshold & FAR & FRR & Accuracy & AUC \\
 \end{tabular}
 \end{table}
 
-\textbf{This is the article's most consequential single finding.} The prior
-threshold was not arbitrary; it was reasoned, documented, and plausible. It was
-also wrong in a way nobody could have known without measuring: it would have
-falsely rejected \textbf{41.4\%} of genuine identity matches. In deployment,
-roughly two in five legitimate re-verification checks would have failed --- and
-because the system correctly refuses to treat an unmeasured check as a pass,
-those candidates would have accumulated integrity flags for being themselves.
+\textbf{This is the article's most consequential single finding.} The prior threshold was not arbitrary --- it was reasoned, documented, and plausible. It was also wrong in a way nobody could have known without measuring, since it would have falsely rejected \textbf{41.4\%} of genuine identity matches. In deployment,
+roughly two in five legitimate re-verification checks would have failed. Because the system correctly refuses to treat an unmeasured check as a pass, those candidates would then have accumulated integrity flags for being themselves.
 Calibration reduced false rejection by a factor of twelve at a false-acceptance
 cost of 3.0\%. The lesson generalises beyond this component: in
 security-adjacent systems, \emph{reasoned} and \emph{correct} are different
@@ -510,9 +457,7 @@ properties, and only one of them can be demonstrated.
 
 \paragraph{Abstention as a hard gate.}
 Figure~\ref{fig:identity} shows the three-valued result type.
-\texttt{Unchecked} carries a reason and has \emph{no similarity field at all}. It
-is not similarity 0.0, not null, not a default --- the value does not exist, so
-no downstream comparison can read a failed measurement as a low-but-real one and
+\texttt{Unchecked} carries a reason and has \emph{no similarity field at all}. It is not similarity 0.0, not null, not a default. The value does not exist, so no downstream comparison can read a failed measurement as a low-but-real one and
 no serialisation can emit a number that was never measured. Selective prediction
 of this kind is a hard constraint rather than a soft preference, in the spirit of
 distribution-free abstention~\cite{vovk2005algorithmic}; a model that
@@ -555,14 +500,13 @@ Allow-list modules; never load them \\
 
 \subsection{Motivation for Integration}
 
-Each family alone leaves a gap. Grounding guarantees that claims are the
+Taken alone, each family leaves a gap. Grounding guarantees that claims are the
 candidate's own words but says nothing about whether a session gathered enough
 evidence to judge them. ML measures evidence sufficiency but, without grounding,
 would measure the sufficiency of text a model may have invented. DL supplies
 identity continuity but produces no claim and no verdict. The combination closes
-a loop that none closes alone, and Figure~\ref{fig:loop} shows its shape --- with
-the human reviewer at the centre, because the loop deliberately terminates in a
-person rather than in an aggregate.
+a loop that none closes alone, and Figure~\ref{fig:loop} shows its shape, with the human reviewer at the centre. The loop terminates in a person, not in an
+aggregate.
 
 \begin{figure}[t]
   \centering
@@ -599,11 +543,8 @@ Composite score & Present in comparable systems & \textbf{Absent by construction
 \end{tabular}
 \end{table*}
 
-Table~\ref{tab:before-after} collects the measured effect of integration. Three
-observations follow. First, the largest single improvement came not from a model
-but from measuring a constant. Second, two rows read ``unmeasured'' before ---
-the property was asserted rather than tested, which is the condition this article
-argues is most common and least noticed. Third, the last row is a capability
+Table~\ref{tab:before-after} collects the measured effect of integration. Three things stand out. First, the largest single improvement came not from a model
+but from measuring a constant. Second, two rows read ``unmeasured'' before. The property was asserted, not tested. That condition is the one this article argues is most common and least noticed. Third, the last row is a capability
 \emph{removed}: the system cannot emit a composite score, and that absence is
 enforced by a test.
 
@@ -632,8 +573,7 @@ trigger \\
 \end{tabular}
 \end{table}
 
-Each row converts a claim that requires trust into one that can be checked in
-seconds by someone who does not trust us. That is the property we would most like
+Each row converts a claim that requires trust into one that can be checked in seconds by somebody who does not trust us. That is the property we would most like
 other screening systems to adopt, independent of any of the specific technologies
 in this article.
 
@@ -690,5 +630,4 @@ turn \\
 
 The mapping in Table~\ref{tab:compliance} is possible only because the system
 declines to produce an aggregate. A bias audit of a composite score must explain
-the score; a bias audit of a claim audit examines the distribution of verdicts
-and the evidence attached to each, which is a smaller and better-posed question.
+the score; a bias audit of a claim audit examines the distribution of verdicts and the evidence attached to each. That is a smaller and better-posed question.

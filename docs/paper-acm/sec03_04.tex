@@ -5,13 +5,9 @@
 
 \subsection{Layered Architecture and Surfaces}
 
-An evidence-based screening system spans four surfaces, shown in
-Figure~\ref{fig:layers}. A candidate-facing portal collects consent, résumé, and
-session media. An inference service hosts the perception and learned components.
+An evidence-based screening system spans four surfaces, shown in Figure~\ref{fig:layers}. A candidate-facing portal collects consent, résumé, and session media, while an inference service hosts the perception and learned components.
 A persistence layer event-sources the session so it can be reconstructed turn by
-turn. A recruiter-facing application renders the audit. The separation matters
-because the guarantees this article describes are enforced at boundaries between
-these surfaces rather than inside any one of them.
+turn. A recruiter-facing application renders the audit. The separation matters. Every guarantee this article describes is enforced at a boundary between two of these surfaces, not inside any one of them.
 
 \begin{figure}[t]
   \centering
@@ -21,9 +17,9 @@ these surfaces rather than inside any one of them.
 \end{figure}
 
 Session state is written to an append-only table with a sequence-assigning
-database trigger. Question plans are deliberately \emph{not} persisted, so a plan
-cannot be retrospectively edited to match an outcome --- a small design decision
-that removes a whole category of post-hoc rationalisation.
+database trigger. Question plans are never persisted, so a plan cannot be
+edited after the fact to match an outcome. It is a small decision that removes a
+whole category of post-hoc rationalisation.
 
 \subsection{Failure Landscape}
 
@@ -72,7 +68,7 @@ raw document text \\
 \end{tabular}
 \end{table*}
 
-The first two rows are not hypothetical. Section~\ref{sec:deployment} reports an
+Neither of the first two rows is hypothetical. Section~\ref{sec:deployment} reports an
 audit of a reference implementation in which both occurred simultaneously: an
 object detector that never successfully loaded, a luminance heuristic that filled
 the gap and logged its output as camera-verified detections, and a status string
@@ -128,10 +124,7 @@ employment-related systems as high risk, with corresponding transparency and
 human-oversight obligations. The Illinois Human Rights Act as amended by
 HB 3773 constrains AI use in employment decisions from 2026.
 
-These instruments share a direction: an automated employment decision must be
-explicable and contestable. A system architected around a scalar faces a retrofit
-that its architecture resists, because the explanatory information was discarded
-at design time. Figure~\ref{fig:standards} summarises the practices that follow.
+These instruments share a direction: an automated employment decision must be explicable and contestable. A system architected around a scalar therefore faces a retrofit that its own architecture resists, since the explanatory information was discarded at design time and cannot be recovered afterwards. Figure~\ref{fig:standards} summarises the practices that follow.
 
 \begin{figure*}[t]
   \centering
@@ -146,10 +139,7 @@ at design time. Figure~\ref{fig:standards} summarises the practices that follow.
 Figure~\ref{fig:taxonomy} organises the technologies examined in the remainder of
 this article. The division is not arbitrary: grounding governs what may be
 \emph{asserted}, ML measures properties of \emph{evidence}, and DL supplies
-\emph{perception}. Assigning a task to the wrong family is itself a failure mode
---- using a learned model where a rule is correct produces an unauditable
-decision, and using a rule where measurement is required produces an unvalidated
-constant.
+\emph{perception}. Assigning a task to the wrong family is itself a failure mode. Use a learned model where a rule is correct and the decision becomes unauditable; use a rule where measurement is required and you are left with an unvalidated constant.
 
 \begin{figure*}[t]
   \centering
@@ -169,14 +159,12 @@ The central mechanism of the system is a constraint on what a language model is
 permitted to produce. Its rule: \textbf{a claim's text must be a verbatim
 substring of the résumé.} The model's role is selection, not generation.
 
-Naive substring matching is insufficient, and Figure~\ref{fig:gate} shows the
-decision pipeline that replaces it. Beyond verbatim containment the gate
+Naive substring matching is insufficient, however, and Figure~\ref{fig:gate} shows the decision pipeline that replaces it. Beyond verbatim containment the gate
 implements negation rejection, so that \emph{``I have not worked with
 Kubernetes''} yields no Kubernetes claim despite containing the substring; hedge
 rejection, so that \emph{``some exposure to Kafka''} is not a Kafka experience
 claim; contrastive-conjunction splitting, so that \emph{``I used Django, but
-never in production''} is split rather than truncated; and clause scoping, so
-that matching occurs within clause boundaries rather than across them.
+never in production''} is split rather than truncated; and clause scoping, so that matching happens inside clause boundaries and never across them.
 
 \begin{figure}[t]
   \centering
@@ -196,9 +184,7 @@ that matching occurs within clause boundaries rather than across them.
 
 \paragraph{Enforcement.}
 The grounding module is forbidden from importing the AI module, and an
-architecture test fails continuous integration if that import appears. The
-guarantee is therefore a property of the build rather than of developer
-discipline. Table~\ref{tab:grounding-adv} summarises what this buys.
+architecture test fails continuous integration if that import appears. The guarantee is a property of the build, not of developer discipline. Table~\ref{tab:grounding-adv} summarises what this buys.
 
 \begin{table}[t]
 \caption{Key advantages of evidence grounding.}
@@ -216,8 +202,7 @@ Auditable rejection & A discarded claim is discarded by a named rule, not by
 model preference \\
 Stable evaluation & The gate is deterministic, so its behaviour can be regression
 tested at corpus scale \\
-No fluency confound & Extraction quality is fidelity to the source, not the
-plausibility of generated text \\
+No fluency confound & Extraction quality is fidelity to the source, not plausibility of generated text \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -242,14 +227,14 @@ Quote fidelity in speech & Spoken-turn quotes must match the transcript verbatim
 including disfluency & An interviewer cannot attribute tidied speech to a
 candidate \\
 Non-fabrication of coverage & Unexamined claims carry an explicit verdict &
-Absence of evidence is reported, not omitted \\
+Absence of evidence is reported, never omitted \\
 \bottomrule
 \end{tabular}
 \end{table*}
 
 The last row deserves emphasis. The audit's verdict set is
 \texttt{substantiated}, \texttt{notDemonstrated}, \texttt{contradicted}, and
-\texttt{notExamined}, and the four are deliberately not orderable.
+\texttt{notExamined}. The four are not orderable, and that is intentional.
 \texttt{notExamined} is load-bearing: without it an unprobed claim is simply
 absent from the report, and absence reads as acceptance. Making non-measurement
 explicit is what prevents an audit from being fabricated by omission.
@@ -276,9 +261,7 @@ rejection rate. Figure~\ref{fig:gateresults} reports the outcome.
 
 \paragraph{The defect this surfaced.}
 The initial run showed a 0.82\% false-rejection rate: 425 genuine claims wrongly
-discarded. Every one contained a period-bearing token --- \texttt{Node.js},
-\texttt{React.js}, \texttt{asp.net}, \texttt{Python 3.9} --- and \emph{zero}
-occurred without one. The clause splitter treated a period, question mark, or
+discarded. Every one contained a period-bearing token: \texttt{Node.js}, \texttt{React.js}, \texttt{asp.net}, \texttt{Python 3.9}. \emph{Zero} occurred without one. The clause splitter treated a period, question mark, or
 exclamation mark as a sentence terminal unconditionally, so
 \emph{``\ldots using JavaScript, Node.js.''} split into \emph{``\ldots Node''}
 and \emph{``js.''}, leaving a one-clause claim spanning two clauses where the
@@ -287,15 +270,12 @@ error, no diagnostic, just an absent claim.
 
 The fix constrains a terminal to count only when followed by whitespace or
 end-of-string. A real sentence terminal always is; the period between two word
-characters never is. Crucially, keeping dotted tokens whole makes clauses
-\emph{longer}, which widens negation scope rather than narrowing it, so the fix
-cannot weaken the guard --- and the measured before/after confirms it, with both
-rejection rates unchanged at exactly 100\%.
+characters never is. Keeping dotted tokens whole makes clauses \emph{longer},
+which widens negation scope instead of narrowing it, so the fix cannot weaken the
+guard. The measured before and after confirms this: both rejection rates stayed
+at exactly 100\%.
 
-This is a failure mode worth naming: the bug was \emph{silent}. Nothing crashed
-and no test failed; claims simply went missing. Only a corpus-scale evaluation
-with an explicit true-positive metric could surface it, which is an argument for
-measuring the properties you claim rather than only testing the paths you wrote.
+The failure mode is worth naming, because the bug was \emph{silent}: nothing crashed, no test failed, and claims simply went missing. Only a corpus-scale evaluation with an explicit true-positive metric could surface it. That is an argument for measuring the properties you claim, and not merely testing the paths you wrote.
 
 \paragraph{Honest scope.}
 The corpus is synthetic and produced by a single generator, so 100\% extraction

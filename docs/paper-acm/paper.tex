@@ -59,37 +59,36 @@ for Accountable Technical Screening}
 
 \begin{abstract}
 Automated hiring systems overwhelmingly emit a \emph{score}: a scalar ranking a
-candidate against others. Such scores are difficult to explain, impossible for a
-candidate to contest, and an increasing regulatory liability under New York City
-Local Law 144, the Illinois Human Rights Act as amended by HB 3773, and the
+candidate against others. Such scores resist explanation, give a candidate
+nothing specific to contest, and carry growing regulatory exposure under New York
+City Local Law 144, the Illinois Human Rights Act as amended by HB 3773, and the
 European Union Artificial Intelligence Act. This article presents CogniHire, a
-technical screening system built on the opposite premise --- it \emph{audits the
-claims a candidate makes about themselves} and never scores the candidate --- and
-uses it as a vehicle for examining how three technology families combine in
-accountable screening: evidence grounding, machine learning (ML), and deep
-learning (DL).
+technical screening system built on the opposite premise. It audits the claims a
+candidate makes about themselves, and it never scores the candidate. We use it to
+examine how three technology families combine in accountable screening: evidence
+grounding, machine learning (ML), and deep learning (DL).
 
 We survey the architecture, failure landscape, and regulatory trajectory of
-automated screening, then examine each technology family in turn. Evidence
-grounding constrains a language model to \emph{select} claim text and never to
-\emph{author} it; measured across roughly 100{,}000 adversarial trials over
-5{,}200 résumés, the gate rejected 100\% of meaning-preserving paraphrases and
-100\% of negation traps while admitting 100\% of verbatim claims. For ML we
-report a nine-model, six-family comparison under grouped cross-validation with
-significance testing, and a within-query diagnostic that separates matching
-ability from candidate-level quality --- a distinction pooled metrics cannot
-make, and one that overturned our own initial hypothesis. For DL we show that a
-plausible authored similarity constant of 0.50 would have falsely rejected
-41.4\% of genuine identity matches, against 3.4\% at a threshold calibrated on
-Labeled Faces in the Wild.
+automated screening, then take each family in turn. Evidence grounding constrains
+a language model to \emph{select} claim text and forbids it to \emph{author} any.
+Measured across roughly 100{,}000 adversarial trials over 5{,}200 résumés, the
+gate rejected every meaning-preserving paraphrase and every negation trap while
+admitting every verbatim claim. For ML we report a nine-model, six-family
+comparison under grouped cross-validation with significance testing, together
+with a within-query diagnostic that separates matching ability from
+candidate-level quality. Pooled metrics cannot make that separation. The
+diagnostic overturned our own initial hypothesis. For DL we show that a plausible
+authored similarity constant of 0.50 would have falsely rejected 41.4\% of
+genuine identity matches, against 3.4\% at a threshold calibrated on Labeled
+Faces in the Wild.
 
-Synthesising these, we argue that the useful output of automated screening is not
-a judgement of the person but an audit of their claims, and that the recurring
+Two conclusions follow. The useful output of automated screening is an audit of a
+candidate's claims, not a judgement of the candidate. And the recurring
 engineering move is converting policy into structure: an import boundary that
 fails the build, a type with no field to hold a fabricated value, a vocabulary
 ban that forbids a composite score. We report a weak result and a rejected
-component alongside strong ones, because a system that publishes only its
-successes offers no evidence that it evaluates itself honestly.
+component alongside the strong ones. A system that publishes only its successes
+offers no evidence that it evaluates itself honestly.
 \end{abstract}
 
 \begin{CCSXML}
@@ -130,10 +129,8 @@ never knowledge; it was a compression of knowledge that discarded everything
 needed to audit it.
 
 Contemporary automated interview platforms largely reproduce this failure at
-scale. They add throughput and consistency and they retain the scalar. The
-industry's response to criticism has been to make the scalar more sophisticated
---- more features, better models, fairness post-processing --- rather than to ask
-whether a scalar was the right output object at all.
+scale. They add throughput and consistency, and they keep the scalar. Faced with
+criticism, the industry has mostly made the scalar more sophisticated, adding features, better models, and fairness post-processing. However, few have asked whether a scalar was the right output object at all.
 
 \begin{figure}[t]
   \centering
@@ -141,29 +138,28 @@ whether a scalar was the right output object at all.
   \caption{Data flow and component interactions in CogniHire. Evidence moves
   upward from the candidate session to the recruiter console; each transition
   narrows what the system is permitted to assert. The right-hand band lists the
-  guarantees enforced structurally rather than by convention
+  guarantees enforced structurally, not by convention
   (\S\ref{sec:integration}).}
   \label{fig:dataflow}
 \end{figure}
 
-This article takes the opposite position. We argue that the useful output of an
-automated screening stage is not a judgement of the candidate but an \textbf{audit
-of the claims the candidate has made}. A résumé is a set of assertions. Each
-assertion can be probed, each probe yields evidence, and evidence supports a
-verdict about \emph{the claim}. The verdicts, with evidence attached, go to a
-human who decides about \emph{the person}. Figure~\ref{fig:dataflow} shows the
-resulting data flow.
+This article takes the opposite position. The useful output of an automated
+screening stage is an audit of the claims the candidate has made, not a
+judgement of the candidate. A résumé is a set of assertions. Each assertion can
+be probed, each probe yields evidence, and evidence supports a verdict about
+\emph{the claim}. The verdicts, with their evidence attached, go to a human who
+decides about \emph{the person}. Figure~\ref{fig:dataflow} shows the resulting
+data flow.
 
-That reframing is not merely ethical positioning. It changes what the system must
-be able to do and, more importantly, what it must be \emph{unable} to do --- and
-it changes which technologies are appropriate at which layer. Three families
-carry the load. \textbf{Evidence grounding} constrains generative extraction so
-that a model may select a candidate's own words but never compose new ones.
-\textbf{Machine learning} measures properties of the accumulated evidence.
-\textbf{Deep learning} supplies perception: face embedding for identity
-continuity, sentence encoding for semantic comparison. Each is examined in turn,
-and \S\ref{sec:integration} examines what their combination buys that none
-delivers alone.
+The reframing is not only ethical positioning. It changes what the system must be
+able to do, and more importantly what it must be \emph{unable} to do. It also
+changes which technologies belong at which layer. Three families carry the load.
+Evidence grounding constrains generative extraction so that a model may select a
+candidate's own words but never compose new ones. Machine learning measures
+properties of the accumulated evidence. Deep learning supplies perception: face
+embedding for identity continuity, sentence encoding for semantic comparison.
+We take each in turn, and \S\ref{sec:integration} asks what their combination
+buys that none delivers alone.
 
 \paragraph{Scope of this article.}
 We survey the architecture, failure landscape, and regulatory trajectory of
@@ -171,8 +167,7 @@ automated candidate screening, and examine the integration of grounding, ML, and
 DL within it. Where the literature supports a claim we cite it; where we have
 measured something ourselves we report the measurement, the protocol, and the
 uncertainty. The system described is deployed, and \S\ref{sec:deployment}
-reports what deployment taught us, including three gaps we state rather than
-conceal.
+reports what deployment taught us, including three gaps we name openly.
 
 \subsection{Key Research Questions}
 
@@ -230,10 +225,7 @@ Section~\ref{sec:conclusion} concludes.
 
 \subsection{Comparison of Existing Works}
 
-Work adjacent to accountable candidate screening divides into four groups:
-audits of deployed hiring systems, methodological critiques of model comparison,
-studies of leakage and evaluation protocol, and technical work on the perception
-components screening systems depend on. Most treat these concerns in isolation.
+Work adjacent to accountable candidate screening divides into four groups: audits of deployed hiring systems, methodological critiques of model comparison, studies of leakage and evaluation protocol, and technical work on the perception components that screening systems depend on. While each group is mature on its own terms, almost all of it treats these concerns in isolation, and the gaps we care about sit between them.
 Table~\ref{tab:related} classifies the reviewed literature and states what this
 work adds.
 
@@ -269,12 +261,11 @@ $\oplus$: benchmark/dataset; $\ast$: survey/review; $\ddagger$: applied research
 $\dagger$: framework/method.
 \end{table*}
 
-Several strands warrant expansion. Raghavan et al.~\cite{raghavan2020hiring}
+Four of these strands bear directly on what follows. Raghavan et al.~\cite{raghavan2020hiring}
 surveyed vendors of algorithmic pre-employment assessment and drew attention to
 the consequences of a vendor's choice of \emph{prediction target}, since the
 fairness analysis that follows is conducted against the stated target rather than
-the deployed one. That concern is central here, and \S\ref{sec:ml} supplies a
-measurement procedure for detecting when the two diverge.
+the deployed one. That concern is central here, and although the paper offers no remedy for a misdescribed target, \S\ref{sec:ml} does supply a measurement procedure for detecting when the stated and deployed targets diverge.
 
 A second strand re-ran published comparisons under controlled protocols and found
 the reported progress did not survive. Ferrari Dacrema et
@@ -282,14 +273,11 @@ al.~\cite{dacrema2019progress} examined eighteen neural recommendation methods,
 could reproduce only seven, and found six of those seven were often outperformed
 by simple heuristics. Musgrave et al.~\cite{musgrave2020reality} reached an
 analogous conclusion for deep metric learning. Our \S\ref{sec:ml} sits in this
-tradition but differs in target: rather than showing a complex method failing to
-beat a simple one, we find that \emph{no} method separates from any other, and
+tradition but differs in target. Instead of showing a complex method failing to beat a simple one, we find that \emph{no} method separates from any other, and
 then trace why.
 
 A third strand concerns evaluation protocol.
-Demšar~\cite{demsar2006statistical} is the standard reference for comparing
-multiple classifiers and cautions specifically against reading a ranking off raw
-score differences. Gorman and Bedrick~\cite{gorman2019splits} showed system
+Demšar~\cite{demsar2006statistical} remains the standard reference for comparing multiple classifiers, and cautions specifically against reading a ranking off raw score differences. Gorman and Bedrick~\cite{gorman2019splits} showed system
 rankings established on a single standard split frequently fail to reproduce
 under regenerated splits. Kapoor and Narayanan~\cite{kapoor2023leakage} surveyed
 machine-learning-based science across seventeen fields and documented leakage
@@ -300,15 +288,11 @@ Some crucial \emph{research gaps} follow from this comparison:
 
 \begin{itemize}
 \item \emph{Grounding is absent.} No reviewed work constrains generative
-      extraction so that a model may select but not author. Extraction is
-      treated as a generation problem and evaluated on fluency or coverage
-      rather than on fidelity to the source document.
+      extraction so that a model may select but not author. Extraction is treated as a generation problem and evaluated on fluency or coverage, whereas fidelity to the source document goes unmeasured.
 \item \emph{Prediction targets go unverified.} Vendors and benchmarks alike state
       a target and evaluate against a pooled metric that cannot distinguish it
       from an easier correlate.
-\item \emph{Authored constants persist.} Perception components ship with
-      similarity thresholds chosen by reasoning rather than measurement, and the
-      error is invisible without a calibration study.
+\item \emph{Authored constants persist.} Perception components ship with similarity thresholds chosen by reasoning and never measured, and the error stays invisible until someone runs a calibration study.
 \item \emph{Isolation.} Grounding, ML, and DL are evaluated separately; no
       reviewed work reports what their integration measurably buys.
 \end{itemize}
@@ -317,13 +301,12 @@ Some crucial \emph{research gaps} follow from this comparison:
 
 \begin{enumerate}
 \item A \textbf{claim-audit output model} replacing the composite score, with a
-      four-valued verdict set that makes unmeasured evidence explicit rather than
-      absent (\S\ref{sec:grounding}).
-\item A \textbf{structurally enforced grounding constraint} --- the model may
-      select claim text but never author it --- implemented as an import boundary
-      that a continuous-integration test enforces, and \emph{measured} at 100\%
-      paraphrase and negation-trap rejection across roughly 100{,}000 trials
-      (\S\ref{sec:grounding}).
+      four-valued verdict set that makes unmeasured evidence explicit instead of absent (\S\ref{sec:grounding}).
+\item A \textbf{structurally enforced grounding constraint}, under which the
+      model may select claim text but never author it. It is implemented as an
+      import boundary that a continuous-integration test enforces, and
+      \emph{measured} at 100\% paraphrase and negation-trap rejection across
+      roughly 100{,}000 trials (\S\ref{sec:grounding}).
 \item A \textbf{nine-model, six-family comparison} under grouped cross-validation
       with Friedman and Holm-corrected Wilcoxon testing, together with a
       synthetic positive control that establishes the protocol's statistical
@@ -337,8 +320,7 @@ Some crucial \emph{research gaps} follow from this comparison:
 \item A \textbf{measurement type system} in which a failed measurement carries no
       value, so a failure cannot be silently coerced into a pass
       (\S\ref{sec:integration}).
-\item A \textbf{deployed implementation} with the gaps between design and
-      deployment named rather than elided (\S\ref{sec:deployment}).
+\item A \textbf{deployed implementation} with the gaps between design and deployment named, not elided (\S\ref{sec:deployment}).
 \end{enumerate}
 
 \subsection{Literature and Corpus Review Process}
@@ -356,9 +338,9 @@ Some crucial \emph{research gaps} follow from this comparison:
 Two review processes underpin this article. For literature, every citation was
 retrieved and read against a primary source before inclusion; the project has
 previously had fabricated references caught in internal review, and the
-verification rule was adopted in response. Consequently the bibliography is
-smaller than is conventional for a survey of this length, and we prefer that to
-padding it with work we have not read.
+verification rule was adopted in response. The bibliography is therefore smaller
+than is conventional for a survey of this length. We prefer that to padding it
+with work we have not read.
 
 For datasets, Figure~\ref{fig:review} reports a screen of publicly hosted
 résumé--posting corpora against three requirements: independence from the corpus

@@ -39,24 +39,19 @@ fixed, 1 mitigated \\
 
 The most instructive material came from auditing a reference implementation of a
 comparable system, read in full before deciding what this project should inherit.
-Its computer-vision core was sound and worth porting. Its decision layer was
-largely fabricated, and the fabrications shared one root cause.
+Its computer-vision core was sound and worth porting. Its decision layer, however, was largely fabricated, and the fabrications shared a single root cause.
 
 \paragraph{A detector that never ran, and a heuristic that filled the gap.}
 The object detector was configured with an invalid model name, so it threw on
 every load and real detection never executed once. What filled the gap was a
 luminance heuristic: if the left or right third of the frame deviated more than
-60\% from mean brightness for three consecutive frames, it logged a phone or book
-detection --- labelled \emph{camera verified}. A window, a desk lamp, or a
-light-coloured shirt was sufficient. Those fabricated events then fed an
-escalating penalty system. Compounding it, the load-failure handler set a status
+60\% from mean brightness for three consecutive frames, it logged a phone or book detection, labelled \emph{camera verified}. A window, a desk lamp, or a light-coloured shirt was sufficient, and those fabricated events then fed an escalating penalty system. Compounding it, the load-failure handler set a status
 string reading \emph{proctoring engine ready}, and that status was never rendered
 anywhere, so a total detector outage was invisible.
 
 \paragraph{A confident pass manufactured from missing data.}
 The identity endpoint returned a verified result with a similarity of 98.7 and a
-confidence of 0.98 when no enrolled face profile existed at all. The absence of a
-record produced a high-confidence pass rather than an error.
+confidence of 0.98 when no enrolled face profile existed at all. The absence of a record produced a high-confidence pass, not an error.
 
 \paragraph{Analysis that measured nothing.}
 A résumé analyser substring-matched a fixed keyword list and, on zero matches,
@@ -93,8 +88,7 @@ with reported error rates \\
 \toprule
 Domain & Decision \\
 \midrule
-Face detection and embedding & Used, pretrained, frozen --- genuinely a
-perception problem \\
+Face detection and embedding & Used, pretrained, frozen; genuinely a perception problem \\
 Semantic comparison & Used for clustering and relational features; similarity is
 not treated as entailment \\
 Claim proposal & Used, but gated; the model never authors \\
@@ -114,13 +108,11 @@ proposed live dashboard included confidence, stress, and eye-contact percentages
 feeding back into question selection. We did not wire them in, and the reasoning
 generalises: a stress percentage that silently changes which questions a
 candidate is asked \emph{is} a hidden score, and one the candidate can neither
-see nor contest. Every adaptive behaviour that dashboard promised is reachable
-from what the candidate \emph{said}, which is observable, quotable, and
-defensible in a rejection conversation.
+see nor contest. Every adaptive behaviour that dashboard promised is reachable from what the candidate \emph{said} --- observable, quotable, and defensible in a rejection conversation.
 
 \subsection{Honest Position on Maturity}
 
-Three gaps are stated rather than concealed. Identity matching is implemented and
+Three gaps are stated openly here. Identity matching is implemented and
 unit-tested but is currently only a presence gate on the production candidate
 path, so the system does \emph{not} today perform continuous identity
 verification. The face threshold is calibrated on a public benchmark rather than
@@ -176,21 +168,14 @@ nothing was measured.
 
 \subsection{Explainable and Contestable Screening}
 
-The project's core premise --- that a claim audit is more useful to a reviewer
-than a score --- is untested. A controlled comparison of reviewers given an audit
-versus a score, measured by inter-reviewer agreement on identical sessions, would
-test it directly. We regard this as the single most valuable study the project
+The project's core premise is untested: that a claim audit is more useful to a reviewer than a score. A controlled comparison of reviewers given an audit against reviewers given a score, measured by inter-reviewer agreement on identical sessions, would test it directly. We regard this as the single most valuable study the project
 does not yet have, and note that it could refute the premise.
 
 \subsection{Privacy-Preserving Process Evidence}
 
 Process signals are informative and dangerous. Our position is that a deviation
-in how an answer was produced should select a \emph{question}, never raise a
-\emph{flag} --- the candidate's answer is the evidence. Whether that survives
-contact with real candidates is untested. Technically, the promising direction is
-computing deviation on-device so that raw timings never leave the client and only
-a small number of derived scores are transmitted, which is a privacy property
-rather than an optimisation.
+in how an answer was produced should select a \emph{question}, never raise a \emph{flag}. The candidate's answer is the evidence. Whether that position survives contact with real candidates is, as yet, untested. Technically, the promising direction is
+computing deviation on-device so that raw timings never leave the client and only a small number of derived scores are transmitted. That is a privacy property, not an optimisation.
 
 \subsection{Within-Query Evaluation Standards}
 
@@ -209,21 +194,17 @@ away.
 
 CogniHire replaces the composite hiring score with a per-claim audit. Claims are
 extracted under a grounding constraint enforced by an architectural boundary
-rather than by prompt discipline, probed in a live interview, and reported as
-verdicts traceable to evidence --- including explicit statements about what was
-not measured. A human decides.
+rather than by prompt discipline, probed in a live interview, and reported as verdicts traceable to evidence, including explicit statements about what was not measured. A human decides.
 
 The methodological contribution is the repeated conversion of policies into
 structures. ``The AI must not author claims'' becomes an import boundary with a
 failing test. ``Unmeasured is not passed'' becomes a type with no field to hold a
 fabricated value. ``No demographic inference'' becomes a module that is never
-loaded. These are verifiable by inspection in seconds, and they do not decay as
-attention moves elsewhere.
+loaded. Each is verifiable by inspection in seconds, and none of them decays as attention moves elsewhere.
 
 Three empirical findings stand out. The grounding gate rejected 100\% of
 paraphrases and negation traps across roughly 100{,}000 adversarial trials while
-admitting 100\% of verbatim claims, making ``the model selects, never authors'' a
-measured property rather than a design aspiration. A carefully reasoned
+admitting 100\% of verbatim claims, making ``the model selects, never authors'' a measured property, not a design aspiration. A carefully reasoned
 similarity constant of 0.50 would have falsely rejected 41.4\% of genuine
 identity matches; measurement reduced that to 3.4\%. And nine classifiers
 spanning six families proved statistically indistinguishable at the top on a
@@ -234,16 +215,14 @@ them to roles.
 That last finding deserves the final word, because it began as a different one.
 The evidence initially indicated that the benchmark's labels were not relational
 at all, and a direct test refuted it: four-fifths of the label variance is
-within-résumé and models recover a real part of it. What survived was narrower
---- a decoupling between leaderboard progress and task progress that no pooled
-metric can reveal. We report the sequence rather than the conclusion alone,
+within-résumé and models recover a real part of it. What survived was narrower: a decoupling between leaderboard progress and task progress that no pooled metric can reveal. We report the sequence rather than the conclusion alone,
 because a diagnostic capable of distinguishing two hypotheses is only shown to
 have that power when it actually overturns one.
 
 We report a weak result and a rejected component alongside strong ones. A project
 that publishes only its successes offers no evidence that it evaluates itself
-honestly --- and honest evaluation is precisely what this system claims to
-provide to the people it screens.
+honestly, and honest evaluation is what this system claims to provide to the
+people it screens.
 
 \section*{Data and Code Availability}
 
