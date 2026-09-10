@@ -1,0 +1,279 @@
+% =====================================================================
+\section{Deployment Experiences and Lessons}
+\label{sec:deployment}
+% =====================================================================
+
+\subsection{Use Cases of Grounding, ML, and DL}
+
+\begin{table*}[t]
+\caption{Deployment case studies: where each technology family is exercised and
+what it produced.}
+\label{tab:cases}
+\small
+\begin{tabular}{@{}p{2.8cm}p{2.0cm}p{5.2cm}p{5.6cm}@{}}
+\toprule
+Case & Family & What was done & Core impact \\
+\midrule
+Corpus-scale gate evaluation & Grounding & 5{,}200 synthetic résumés, roughly
+100{,}000 adversarial trials, run offline against real pipeline modules &
+Surfaced a silent 0.82\% false-rejection defect invisible to the unit tests \\
+Threshold calibration & DL & Equal-error sweep on LFW, 2{,}200 train and 1{,}000
+held-out pairs & False rejection reduced from 0.414 to 0.034 \\
+Nine-model comparison & ML & Ten grouped folds, Friedman plus Holm-corrected
+Wilcoxon, synthetic positive control & Established that algorithm choice is not
+the bottleneck on this task \\
+Within-query diagnostic & ML & 4{,}112 within-résumé pairs, entity effects
+cancelled by construction & Separated matching from candidate ranking; refuted
+our own hypothesis \\
+Sufficiency pipeline validation & ML & Planted-weight synthetic generator with
+two weightless noise features & Pipeline recovered the planted structure and
+correctly ignored the noise features \\
+Independent security audit & All & Structured review of 17 public and 23
+authenticated endpoints, 3 upload paths & 10 findings (5 high, 5 medium); 9
+fixed, 1 mitigated \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\subsection{Lessons Learned from Real Deployments}
+
+The most instructive material came from auditing a reference implementation of a
+comparable system, read in full before deciding what this project should inherit.
+Its computer-vision core was sound and worth porting. Its decision layer was
+largely fabricated, and the fabrications shared one root cause.
+
+\paragraph{A detector that never ran, and a heuristic that filled the gap.}
+The object detector was configured with an invalid model name, so it threw on
+every load and real detection never executed once. What filled the gap was a
+luminance heuristic: if the left or right third of the frame deviated more than
+60\% from mean brightness for three consecutive frames, it logged a phone or book
+detection --- labelled \emph{camera verified}. A window, a desk lamp, or a
+light-coloured shirt was sufficient. Those fabricated events then fed an
+escalating penalty system. Compounding it, the load-failure handler set a status
+string reading \emph{proctoring engine ready}, and that status was never rendered
+anywhere, so a total detector outage was invisible.
+
+\paragraph{A confident pass manufactured from missing data.}
+The identity endpoint returned a verified result with a similarity of 98.7 and a
+confidence of 0.98 when no enrolled face profile existed at all. The absence of a
+record produced a high-confidence pass rather than an error.
+
+\paragraph{Analysis that measured nothing.}
+A résumé analyser substring-matched a fixed keyword list and, on zero matches,
+returned a plausible-looking hardcoded skill list; its score was floored so an
+unrelated résumé could never fall below a fifth of the scale. A speech-analytics
+component took text rather than audio and derived fluency metrics from it.
+
+\begin{table}[t]
+\caption{Lessons carried into this system's architecture.}
+\label{tab:lessons}
+\small
+\begin{tabular}{@{}p{2.1cm}p{5.3cm}@{}}
+\toprule
+Lesson & Architectural response \\
+\midrule
+A fallback that fabricates is worse than an outage & A failed measurement has its
+own type carrying no value; nothing can substitute for it \\
+Silent failure is the dangerous failure & Component health is surfaced where a
+human sees it; corpus-scale evaluation with an explicit true-positive metric \\
+Plausible output invites trust & Outputs are traceable to source spans, so
+plausibility is checkable rather than persuasive \\
+Hidden weights become verdicts & The composite score is removed, not improved \\
+Reasoned is not correct & Security-adjacent constants require calibration studies
+with reported error rates \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\caption{Where deep learning is and is not used, and why.}
+\label{tab:dl-domains}
+\small
+\begin{tabular}{@{}p{2.0cm}p{5.4cm}@{}}
+\toprule
+Domain & Decision \\
+\midrule
+Face detection and embedding & Used, pretrained, frozen --- genuinely a
+perception problem \\
+Semantic comparison & Used for clustering and relational features; similarity is
+not treated as entailment \\
+Claim proposal & Used, but gated; the model never authors \\
+Affect or emotion inference & \textbf{Not used.} No defensible accuracy on a
+diverse candidate pool, and it maps onto disability, neurodivergence, and
+cultural difference in expression \\
+Demographic attributes & \textbf{Never loaded.} The bundled classifier is
+excluded by an allow-list \\
+Deception or cheating estimation & \textbf{Not built.} A learned cheating score
+has no ground truth and cannot be calibrated \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:dl-domains} records an argument worth stating explicitly. A
+proposed live dashboard included confidence, stress, and eye-contact percentages
+feeding back into question selection. We did not wire them in, and the reasoning
+generalises: a stress percentage that silently changes which questions a
+candidate is asked \emph{is} a hidden score, and one the candidate can neither
+see nor contest. Every adaptive behaviour that dashboard promised is reachable
+from what the candidate \emph{said}, which is observable, quotable, and
+defensible in a rejection conversation.
+
+\subsection{Honest Position on Maturity}
+
+Three gaps are stated rather than concealed. Identity matching is implemented and
+unit-tested but is currently only a presence gate on the production candidate
+path, so the system does \emph{not} today perform continuous identity
+verification. The face threshold is calibrated on a public benchmark rather than
+on candidates. No structured recruiter validation interviews have been conducted,
+which makes the premise that recruiters prefer a claim audit to a score the
+project's largest untested assumption. The résumé--posting fit model reached
+0.657 AUROC in earlier work and is \emph{not deployed}; no runtime module imports
+it, and \S\ref{sec:ml} explains why that number is weak.
+
+% =====================================================================
+\section{Future Directions and Research Opportunities}
+\label{sec:future}
+% =====================================================================
+
+\begin{table*}[t]
+\caption{Research areas in evidence-based screening: core challenges and key
+questions.}
+\label{tab:research-areas}
+\small
+\begin{tabular}{@{}p{3.0cm}p{5.6cm}p{6.4cm}@{}}
+\toprule
+Research area & Core challenge & Key question \\
+\midrule
+Deployment-aware audit architectures & Continuous provenance without continuous
+surveillance & How much identity assurance is obtainable from intermittent,
+consented checks with explicit unmeasured intervals? \\
+Explainable and contestable screening & Explanations that support appeal, not
+just interpretation & Does a claim audit change human decisions relative to a
+score, measured by inter-reviewer agreement? \\
+Privacy-preserving process evidence & Keystroke and timing data are highly
+identifying & Can within-session process deviation be measured on-device so only
+derived scores leave the client? \\
+Within-query evaluation standards & Pooled metrics conflate capabilities & Should
+conditioning on the recurring entity become a reporting requirement for paired
+benchmarks? \\
+Benchmark provenance & Undocumented corpora beget undocumented derivatives &
+What minimum provenance metadata should a hiring benchmark carry before it is
+usable for published comparison? \\
+Calibrated abstention & Choosing an operating point for ``unknown'' & What
+abstention rate maximises usefulness while preserving honesty? \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\subsection{Deployment-Aware Audit Architectures}
+
+The immediate engineering task is wiring the calibrated matcher into the live
+candidate session, which \S\ref{sec:deployment} records as not yet done. The
+research question underneath it is more interesting: continuous verification and
+candidate privacy pull in opposite directions, and the honest resolution is
+probably not more surveillance but better accounting for intervals in which
+nothing was measured.
+
+\subsection{Explainable and Contestable Screening}
+
+The project's core premise --- that a claim audit is more useful to a reviewer
+than a score --- is untested. A controlled comparison of reviewers given an audit
+versus a score, measured by inter-reviewer agreement on identical sessions, would
+test it directly. We regard this as the single most valuable study the project
+does not yet have, and note that it could refute the premise.
+
+\subsection{Privacy-Preserving Process Evidence}
+
+Process signals are informative and dangerous. Our position is that a deviation
+in how an answer was produced should select a \emph{question}, never raise a
+\emph{flag} --- the candidate's answer is the evidence. Whether that survives
+contact with real candidates is untested. Technically, the promising direction is
+computing deviation on-device so that raw timings never leave the client and only
+a small number of derived scores are transmitted, which is a privacy property
+rather than an optimisation.
+
+\subsection{Within-Query Evaluation Standards}
+
+\S\ref{sec:withinquery} showed that a representation change worth $+0.041$ pooled
+AUROC delivered no measurable within-query improvement. The diagnostic costs one
+pass over predictions already computed, needs no additional labels, and has a
+fixed null of 0.5. We suggest reporting it alongside pooled metrics as a matter
+of course for any paired benchmark with a recurring entity, and treating a
+divergence between the two as information rather than as an anomaly to explain
+away.
+
+% =====================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+% =====================================================================
+
+CogniHire replaces the composite hiring score with a per-claim audit. Claims are
+extracted under a grounding constraint enforced by an architectural boundary
+rather than by prompt discipline, probed in a live interview, and reported as
+verdicts traceable to evidence --- including explicit statements about what was
+not measured. A human decides.
+
+The methodological contribution is the repeated conversion of policies into
+structures. ``The AI must not author claims'' becomes an import boundary with a
+failing test. ``Unmeasured is not passed'' becomes a type with no field to hold a
+fabricated value. ``No demographic inference'' becomes a module that is never
+loaded. These are verifiable by inspection in seconds, and they do not decay as
+attention moves elsewhere.
+
+Three empirical findings stand out. The grounding gate rejected 100\% of
+paraphrases and negation traps across roughly 100{,}000 adversarial trials while
+admitting 100\% of verbatim claims, making ``the model selects, never authors'' a
+measured property rather than a design aspiration. A carefully reasoned
+similarity constant of 0.50 would have falsely rejected 41.4\% of genuine
+identity matches; measurement reduced that to 3.4\%. And nine classifiers
+spanning six families proved statistically indistinguishable at the top on a
+public screening benchmark, while a within-query diagnostic showed that the
+pooled metric's apparent gains came from ranking candidates rather than matching
+them to roles.
+
+That last finding deserves the final word, because it began as a different one.
+The evidence initially indicated that the benchmark's labels were not relational
+at all, and a direct test refuted it: four-fifths of the label variance is
+within-résumé and models recover a real part of it. What survived was narrower
+--- a decoupling between leaderboard progress and task progress that no pooled
+metric can reveal. We report the sequence rather than the conclusion alone,
+because a diagnostic capable of distinguishing two hypotheses is only shown to
+have that power when it actually overturns one.
+
+We report a weak result and a rejected component alongside strong ones. A project
+that publishes only its successes offers no evidence that it evaluates itself
+honestly --- and honest evaluation is precisely what this system claims to
+provide to the people it screens.
+
+\section*{Data and Code Availability}
+
+All analysis code, per-fold results, and figure sources accompany this article,
+including the experiment scripts, the JSON reports they emit, and the
+per-(model, fold) CSVs underlying every table and figure. The résumé--posting
+corpus analysed is publicly available on the Hugging Face Hub; as
+\S\ref{sec:ml} records, it carries no licence statement, and we analysed it as
+distributed and redistribute none of it.
+
+No human subjects were involved in the studies reported here. No résumé, job
+posting, or candidate record was collected, contacted, or re-identified; the
+face-verification study uses the public LFW benchmark~\cite{huang2007lfw}, and
+the grounding evaluation uses a synthetic résumé corpus.
+
+\section*{Declaration of Competing Interests}
+
+The author declares no competing financial or non-financial interests. This work
+received no external funding and was not commissioned, sponsored, or reviewed by
+any vendor of hiring software.
+
+\section*{On the Use of AI Assistance}
+
+Experiment code, figure generation, and manuscript drafting were carried out with
+the assistance of a large language model. All experiments were executed locally
+and their outputs verified against the emitted JSON reports; every citation was
+retrieved and checked against a primary source before inclusion. The author is
+responsible for the content, the claims, and any errors.
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
+
+\end{document}
