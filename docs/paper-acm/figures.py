@@ -154,7 +154,17 @@ def arrow(ax, xy_from, xy_to, *, color=INK, lw=0.8, style="-|>"):
 
 
 def _canvas(w, h):
-    fig, ax = plt.subplots(figsize=(w, h))
+    """Figure whose axes fills it completely.
+
+    This matters for text fitting, not aesthetics. `fit_text` converts an
+    axes-fraction box width into inches by multiplying by the figure width, which
+    is only correct when the axes spans the whole figure. A default
+    `plt.subplots` axes occupies about 78% of the figure width, so every box was
+    silently 22% narrower than the fitting maths believed and long labels ran
+    past their edges -- invisibly, where the text was white on a dark fill.
+    """
+    fig = plt.figure(figsize=(w, h))
+    ax = fig.add_axes([0, 0, 1, 1])
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.axis("off")

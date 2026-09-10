@@ -32,9 +32,10 @@
 \acmMonth{9}
 
 \usepackage{booktabs}
-\usepackage{multirow}
-\usepackage{amssymb}
 \usepackage{pifont}
+% Note: acmart already loads newtxmath, which defines \Bbbk. Adding amssymb on
+% top of it raises "Command \Bbbk already defined". Nothing here needs amssymb,
+% so it is deliberately not loaded.
 
 % Presence / absence marks used in the comparison table, matching the
 % template's convention.

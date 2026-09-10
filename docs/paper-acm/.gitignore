@@ -1,0 +1,9 @@
+# LaTeX build artifacts. paper.pdf is committed deliberately as the deliverable.
+*.aux
+*.log
+*.out
+*.bbl
+*.blg
+*.fls
+*.fdb_latexmk
+*.synctex.gz
