@@ -1,19 +1,30 @@
 """Figure generation for the ACM-format CogniHire paper.
 
-Mirrors the figure conventions of the format template supplied by the project
-guide (Bilal et al., ACM Comput. Surv. 58(15), Art. 385). That paper carries 16
-figures across 27 body pages -- roughly one visual per 1.7 pages -- and leans on
-a small number of recurring visual idioms:
+Follows the figure density of the format template supplied by the project guide
+(Bilal et al., ACM Comput. Surv. 58(15), Art. 385), which carries 16 figures
+across 27 body pages.
 
-  * a hierarchical org-chart of the paper's own structure (their Fig. 2)
-  * taxonomy trees with citation anchors (their Fig. 3)
-  * a PRISMA-style review-methodology flow (their Fig. 4)
-  * layered / tiered architecture stacks (their Figs. 5, 10, 14)
-  * horizontal stacked bar charts for distributions (their Figs. 7, 8)
-  * left-to-right process ribbons (their Figs. 9, 11, 16)
+## Why these are not drawn from shared templates
 
-Each idiom is implemented once here as a helper and reused, so the figure set
-reads as one system rather than sixteen unrelated drawings.
+The first version of this module did the opposite of what it should have. It
+implemented three helpers -- a top-down `tree`, a left-to-right `chain`, and a
+vertical `stack` -- and reused them, on the theory that a consistent visual
+language would make the set read as one system. Eleven of the sixteen figures
+came out of those three helpers, and the result read as machine-produced,
+because it was: four near-identical trees, four near-identical ribbons, three
+near-identical stacks, all sharing one palette and one box style.
+
+A person drawing sixteen figures over months produces sixteen things that do not
+match. They reach for whatever form fits the content, and the forms differ
+because the content differs. So the figures here are mostly bespoke, each
+choosing a shape the material actually wants: a quadrant matrix where two
+independent axes exist, swimlanes where group membership matters, an era
+timeline where the content is chronological, nested frames where the point is
+containment, numbered discs where obligations trace to separate statutes.
+No idiom now appears more than twice.
+
+`tree`, `chain`, and `stack` survive for the two cases each where that form is
+genuinely right, and the palette varies per figure rather than being global.
 
 Run from the repository root:
 
@@ -552,33 +563,69 @@ def fig05_layered_arch() -> None:
 # ---------------------------------------------------------------------------
 
 def fig06_failure_landscape() -> None:
+    """Quadrant matrix, deliberately not a tree.
+
+    Four of the sixteen figures were originally top-down trees drawn by the same
+    helper, which made the figure set look machine-produced. The failure families
+    are better served by a matrix anyway: the horizontal axis distinguishes
+    failures of *measurement* from failures of *presentation*, and the vertical
+    axis distinguishes ones a reader can see from ones that are silent.
+    """
     FW = 7.1
-    fig, ax = _canvas(FW, 2.5)
-    low = tree(ax, fig_w=FW, root="Failure Modes in Automated Candidate Screening",
-               branches=[
-                   ("Fabricated evidence", [
-                       "Heuristics labelled as detections",
-                       "Confident pass from missing data",
-                       "Hardcoded fallback outputs",
-                       "Silent component outage",
-                   ]),
-                   ("Unvalidated constants", [
-                       "Authored similarity thresholds",
-                       "Arbitrary telemetry cut-offs",
-                       "Uncalibrated confidence",
-                   ]),
-                   ("Opaque aggregation", [
-                       "Composite score with hidden weights",
-                       "Non-contestable ranking",
-                       "Evidence discarded at design time",
-                   ]),
-                   ("Provenance gaps", [
-                       "Identity checked once at login",
-                       "Process data filed, never used",
-                       "Unmeasured read as passed",
-                   ]),
-               ])
-    ax.set_ylim(low - 0.02, 1.0)
+    fig, ax = _canvas(FW, 2.9)
+
+    quads = [
+        (0.03, 0.60, "#FBE9E4", "#C8785A", "Fabricated measurement",
+         ["Heuristic proxy logged as a detection",
+          "Confident pass built from a missing record",
+          "Hardcoded fallback output on empty input"]),
+        (0.51, 0.60, "#E8EEF7", "#7B9AC8", "Unvalidated constants",
+         ["Authored similarity thresholds",
+          "Arbitrary telemetry cut-offs",
+          "Confidence reported without calibration"]),
+        (0.03, 0.10, "#EDEAF4", "#9188BC", "Opaque aggregation",
+         ["Composite score over hidden weights",
+          "Ranking a candidate cannot contest",
+          "Evidence discarded at design time"]),
+        (0.51, 0.10, "#E9F1E7", "#84A878", "Provenance gaps",
+         ["Identity checked once, assumed after",
+          "Process data captured but never used",
+          "Unmeasured interval read as a pass"]),
+    ]
+    w, h = 0.46, 0.36
+    for x, y, fc, ec, title, items in quads:
+        ax.add_patch(FancyBboxPatch(
+            (x, y), w, h, boxstyle="round,pad=0,rounding_size=0.012",
+            facecolor=fc, edgecolor=ec, linewidth=0.9, zorder=2))
+        ax.plot([x + 0.02, x + w - 0.02], [y + h - 0.085, y + h - 0.085],
+                color=ec, lw=0.8, zorder=3)
+        ax.text(x + 0.025, y + h - 0.052, title, ha="left", va="center",
+                fontsize=5.4, fontweight="bold", color="#222222", zorder=3)
+        yy = y + h - 0.135
+        for it in items:
+            s = fit_text(it, w - 0.06, FW, 4.3)
+            ax.text(x + 0.045, yy, "•", ha="left", va="top",
+                    fontsize=4.3, color=ec, zorder=3)
+            ax.text(x + 0.068, yy, s, ha="left", va="top", fontsize=4.3,
+                    color="#333333", zorder=3, linespacing=1.3)
+            yy -= 0.030 * len(s.split("\n")) + 0.035
+
+    # Axis annotations, which is what makes it a matrix and not four boxes.
+    ax.annotate("", xy=(0.985, 0.565), xytext=(0.02, 0.565),
+                arrowprops=dict(arrowstyle="-", color="#AAAAAA", lw=0.7))
+    ax.annotate("", xy=(0.495, 0.995), xytext=(0.495, 0.02),
+                arrowprops=dict(arrowstyle="-", color="#AAAAAA", lw=0.7))
+    ax.text(0.25, 0.985, "fails while measuring", ha="center", va="bottom",
+            fontsize=4.4, style="italic", color="#777777")
+    ax.text(0.75, 0.985, "fails while reporting", ha="center", va="bottom",
+            fontsize=4.4, style="italic", color="#777777")
+    ax.text(0.008, 0.78, "visible", rotation=90, ha="center", va="center",
+            fontsize=4.4, style="italic", color="#777777")
+    ax.text(0.008, 0.28, "silent", rotation=90, ha="center", va="center",
+            fontsize=4.4, style="italic", color="#777777")
+
+    ax.set_xlim(-0.005, 1.0)
+    ax.set_ylim(0.06, 1.06)
     _save(fig, "fig06_failure_landscape")
 
 
@@ -656,17 +703,45 @@ def fig08_regulatory_timeline() -> None:
 # ---------------------------------------------------------------------------
 
 def fig09_standards() -> None:
+    """Numbered obligations, each tied to the instrument that imposes it.
+
+    Drawn as numbered discs with the governing statute named underneath, so the
+    figure carries provenance for each obligation instead of being a row of
+    equivalent boxes.
+    """
     FW = 7.1
-    fig, ax = _canvas(FW, 1.15)
-    chain(ax, [
-        "Bias audit\npublished annually\n(NYC LL144)",
-        "Candidate\nnotification and\nconsent",
-        "Human oversight\nof every\ndecision",
-        "Traceable evidence\nretained per\nclaim",
-        "No demographic\ninference at\nany stage",
-    ], fig_w=FW, y=0.20, h=0.62, fs=4.2,
-        fcs=[GREY, BLUE, BLUE, PEACH, GREEN],
-        ecs=[GREY_EDGE, BLUE_EDGE, BLUE_EDGE, PEACH_EDGE, GREEN_EDGE])
+    fig, ax = _canvas(FW, 1.25)
+
+    items = [
+        ("Bias audit,\npublished annually", "NYC LL144", "#7B9AC8"),
+        ("Candidate notice\nand consent", "AIVIA; LL144", "#7B9AC8"),
+        ("Human oversight\nof every decision", "EU AI Act", "#9188BC"),
+        ("Evidence retained\nper claim", "EU AI Act; HB 3773", "#C8785A"),
+        ("No demographic\ninference", "HB 3773", "#84A878"),
+    ]
+
+    # Discs are drawn as point-space markers, not data-space Circles. A Circle
+    # needs `set_aspect("equal")` to stay round, and on a wide short figure that
+    # call rewrites the data limits: the first version of this figure came out
+    # with the discs sliced in half and the spine gone.
+    n = len(items)
+    y = 0.74
+    xs = [0.10 + i * (0.80 / (n - 1)) for i in range(n)]
+    ax.plot([xs[0], xs[-1]], [y, y], color="#DDDDDD", lw=0.8, zorder=1)
+
+    for i, ((label, statute, col), x) in enumerate(zip(items, xs)):
+        ax.plot([x], [y], marker="o", ms=13, color=col,
+                markeredgecolor="white", markeredgewidth=1.2, zorder=3)
+        ax.text(x, y, str(i + 1), ha="center", va="center", fontsize=5.0,
+                fontweight="bold", color="white", zorder=4)
+        ax.text(x, y - 0.135, fit_text(label, 0.175, FW, 4.3), ha="center",
+                va="top", fontsize=4.3, color="#222222", zorder=3,
+                linespacing=1.28)
+        ax.text(x, y - 0.430, statute, ha="center", va="top", fontsize=3.8,
+                style="italic", color=col, zorder=3)
+
+    ax.set_xlim(0.02, 0.98)
+    ax.set_ylim(0.22, 0.90)
     _save(fig, "fig09_standards")
 
 
@@ -734,17 +809,60 @@ def fig11_grounding_flow() -> None:
 # ---------------------------------------------------------------------------
 
 def fig12_ml_evolution() -> None:
+    """Era timeline with alternating callouts, not another left-to-right chain.
+
+    Four figures originally used the same `chain` ribbon. Here the content is
+    genuinely chronological, so a spine with callouts above and below carries it
+    better and breaks the repetition.
+    """
     FW = 7.1
-    fig, ax = _canvas(FW, 1.15)
-    chain(ax, [
-        "Keyword\nmatching",
-        "Boolean applicant\ntracking rules",
-        "Learned relevance\nranking",
-        "Embedding\nsimilarity",
-        "Grounded evidence\naudit",
-    ], fig_w=FW, y=0.20, h=0.62, fs=4.3,
-        fcs=[GREY, GREY, BLUE, BLUE, GREEN],
-        ecs=[GREY_EDGE, GREY_EDGE, BLUE_EDGE, BLUE_EDGE, GREEN_EDGE])
+    fig, ax = _canvas(FW, 1.85)
+
+    stages = [
+        ("Lexical", "Keyword matching against a\nfixed skills list",
+         "no notion of the posting", "#BFBFBF"),
+        ("Rule-based", "Boolean applicant-tracking\nfilters",
+         "brittle, hand-maintained", "#A8A8A8"),
+        ("Learned ranking", "Supervised relevance models\nover engineered features",
+         "target often a hiring outcome", "#7B9AC8"),
+        ("Representation", "Dense embedding similarity\nbetween documents",
+         "opaque; conflates capabilities", "#9188BC"),
+        ("Grounded audit", "Per-claim verdicts traceable\nto the source span",
+         "this work", "#84A878"),
+    ]
+
+    spine = 0.50
+    ax.plot([0.03, 0.97], [spine, spine], color="#999999", lw=1.0, zorder=1)
+    ax.annotate("", xy=(0.985, spine), xytext=(0.955, spine),
+                arrowprops=dict(arrowstyle="-|>", color="#999999", lw=1.0))
+
+    n = len(stages)
+    for i, (era, what, note, col) in enumerate(stages):
+        x = 0.085 + i * (0.83 / (n - 1))
+        above = i % 2 == 0
+        ax.plot([x], [spine], marker="o", ms=4.0, color=col,
+                markeredgecolor="white", markeredgewidth=0.8, zorder=4)
+
+        stem = 0.085
+        y_lab = spine + stem if above else spine - stem
+        ax.plot([x, x], [spine, y_lab], color="#BBBBBB", lw=0.6, zorder=1)
+
+        va = "bottom" if above else "top"
+        ax.text(x, y_lab + (0.012 if above else -0.012), era, ha="center", va=va,
+                fontsize=5.0, fontweight="bold", color=col, zorder=3)
+        off = 0.075 if above else -0.075
+        ax.text(x, y_lab + off + (0.012 if above else -0.012),
+                fit_text(what, 0.185, FW, 4.1), ha="center", va=va,
+                fontsize=4.1, color="#333333", zorder=3, linespacing=1.25)
+        off2 = 0.185 if above else -0.185
+        ax.text(x, y_lab + off2 + (0.012 if above else -0.012),
+                fit_text(note, 0.185, FW, 3.8), ha="center", va=va,
+                fontsize=3.8, style="italic", color="#8A8A8A", zorder=3,
+                linespacing=1.2)
+
+    ax.text(0.03, spine - 0.035, "earlier", ha="left", va="top",
+            fontsize=3.9, style="italic", color="#AAAAAA")
+    ax.set_ylim(0.02, 0.98)
     _save(fig, "fig12_ml_evolution")
 
 
@@ -753,31 +871,62 @@ def fig12_ml_evolution() -> None:
 # ---------------------------------------------------------------------------
 
 def fig13_ml_roles() -> None:
+    """Swimlanes: one band per family, model chips inside, role stated at right.
+
+    Drawn as bands rather than as another tree so the figure set does not read
+    as one template repeated. The band widths also carry information the tree
+    could not: how many estimators each family contributes to the comparison.
+    """
     FW = 7.1
-    fig, ax = _canvas(FW, 2.4)
-    low = tree(ax, fig_w=FW, root="Model Families Evaluated in This Work",
-               branches=[
-                   ("Linear and probabilistic", [
-                       "Logistic regression",
-                       "Gaussian naive Bayes",
-                       "Role: interpretable baseline",
-                   ]),
-                   ("Instance and kernel", [
-                       "k-nearest neighbours",
-                       "RBF support vector machine",
-                       "Role: non-parametric contrast",
-                   ]),
-                   ("Tree ensembles", [
-                       "Random forest, extra trees",
-                       "Gradient and histogram boosting",
-                       "Role: tabular strong baseline",
-                   ]),
-                   ("Neural", [
-                       "Multi-layer perceptron",
-                       "Role: learned interactions",
-                   ]),
-               ])
-    ax.set_ylim(low - 0.02, 1.0)
+    fig, ax = _canvas(FW, 2.15)
+
+    lanes = [
+        ("Linear and\nprobabilistic", ["Logistic regression", "Gaussian naive Bayes"],
+         "Interpretable baseline; no interactions", "#E8EEF7", "#7B9AC8"),
+        ("Instance and\nkernel", ["$k$-nearest neighbours", "RBF support vector machine"],
+         "Non-parametric contrast", "#EDEAF4", "#9188BC"),
+        ("Tree\nensembles", ["Random forest", "Extra trees", "Gradient boosting",
+                             "Hist. gradient boosting"],
+         "Strong tabular baseline", "#E9F1E7", "#84A878"),
+        ("Neural", ["Multi-layer perceptron"],
+         "Learned feature interactions", "#FBE9E4", "#C8785A"),
+    ]
+
+    lane_h, gap = 0.205, 0.038
+    label_w, role_x = 0.145, 0.755
+    y = 1.0
+    for title, chips, role, fc, ec in lanes:
+        y -= lane_h
+        ax.add_patch(FancyBboxPatch(
+            (0.0, y), 0.99, lane_h, boxstyle="round,pad=0,rounding_size=0.010",
+            facecolor=fc, edgecolor="none", zorder=1))
+        ax.plot([0.0, 0.99], [y, y], color="#DDDDDD", lw=0.5, zorder=2)
+        ax.text(0.012, y + lane_h / 2, title, ha="left", va="center",
+                fontsize=4.8, fontweight="bold", color="#333333",
+                zorder=3, linespacing=1.25)
+
+        # Model chips, laid out left to right inside the lane.
+        cx = label_w + 0.012
+        for c in chips:
+            cw = text_width_in(c, 4.2) / FW + 0.028
+            ax.add_patch(FancyBboxPatch(
+                (cx, y + lane_h / 2 - 0.055), cw, 0.110,
+                boxstyle="round,pad=0,rounding_size=0.014",
+                facecolor="white", edgecolor=ec, linewidth=0.8, zorder=3))
+            ax.text(cx + cw / 2, y + lane_h / 2, c, ha="center", va="center",
+                    fontsize=4.2, color="#222222", zorder=4)
+            cx += cw + 0.014
+
+        ax.text(role_x, y + lane_h / 2, fit_text(role, 0.235, FW, 4.2),
+                ha="left", va="center", fontsize=4.2, style="italic",
+                color="#666666", zorder=3, linespacing=1.25)
+        y -= gap
+
+    ax.plot([role_x - 0.016, role_x - 0.016], [y + gap, 1.0],
+            color="#CCCCCC", lw=0.6, zorder=2)
+    ax.text(role_x, 1.012, "Role in the comparison", ha="left", va="bottom",
+            fontsize=4.3, style="italic", color="#888888")
+    ax.set_ylim(y + gap - 0.01, 1.06)
     _save(fig, "fig13_ml_roles")
 
 
@@ -786,27 +935,44 @@ def fig13_ml_roles() -> None:
 # ---------------------------------------------------------------------------
 
 def fig14_ml_tiers() -> None:
+    """Containment, drawn as nested frames rather than a third stacked list.
+
+    Nesting states something a stack cannot: each tier operates inside the
+    authority of the one enclosing it, and the human tier encloses everything.
+    """
     FW = 3.4
-    fig, ax = _canvas(FW, 2.4)
-    tiers = [
-        ("Offline", "Training, calibration, export gates", GREY, GREY_EDGE),
-        ("Service", "Face embedding, claim extraction, scoring", PEACH, PEACH_EDGE),
-        ("On device", "Sufficiency scoring, telemetry capture", BLUE, BLUE_EDGE),
-        ("Human", "Reviewer adjudicates every claim", GREEN, GREEN_EDGE),
+    fig, ax = _canvas(FW, 2.0)
+
+    rings = [
+        ("Human reviewer", "adjudicates every claim", "#84A878", "#F1F6EF"),
+        ("Offline", "training, calibration, export gates", "#9188BC", "#F0EEF6"),
+        ("Service", "face embedding, extraction, scoring", "#C8785A", "#FBEDE7"),
+        ("On device", "sufficiency scoring, telemetry", "#7B9AC8", "#EAF0F8"),
     ]
-    x, w = 0.04, 0.92
-    y = 0.96
-    for name, sub, fc, ec in tiers:
-        s = fit_text(sub, w, FW, 3.9)
-        h = (1 + len(s.split("\n"))) * 0.075 + 0.030
-        y -= h
-        box(ax, x, y, w, h, "", fc=fc, ec=ec, radius=0.010)
-        ax.text(x + w / 2, y + h - 0.058, name, ha="center", va="center",
-                fontsize=4.8, fontweight="bold", zorder=3)
-        ax.text(x + w / 2, y + (h - 0.080) / 2, s, ha="center", va="center",
-                fontsize=3.9, color="#4A4A4A", zorder=3, linespacing=1.25)
-        y -= 0.048
-    ax.set_ylim(y, 1.0)
+
+    # Each ring is inset far more from the top than from the sides, so every
+    # ring keeps a header band that the ring nested inside it cannot cover.
+    # Insetting uniformly, as the first draft did, hid three of the four
+    # subtitles behind the next frame.
+    for i, (name, sub, ec, fc) in enumerate(rings):
+        x = 0.035 + i * 0.048
+        w = 0.93 - 2 * i * 0.048
+        top = 0.945 - i * 0.135
+        bot = 0.075 + i * 0.032
+        ax.add_patch(FancyBboxPatch(
+            (x, bot), w, top - bot,
+            boxstyle="round,pad=0,rounding_size=0.014",
+            facecolor=fc, edgecolor=ec, linewidth=1.0, zorder=i + 1))
+        ax.text(x + 0.020, top - 0.042, name, ha="left", va="center",
+                fontsize=4.6, fontweight="bold", color=ec, zorder=i + 2)
+        ax.text(x + 0.020 + text_width_in(name, 4.6, "bold") / FW + 0.022,
+                top - 0.042, sub, ha="left", va="center",
+                fontsize=3.7, color="#777777", zorder=i + 2)
+
+    ax.text(0.5, 0.012, "inner tiers run inside the authority of the outer",
+            ha="center", va="bottom", fontsize=3.8, style="italic",
+            color="#999999")
+    ax.set_ylim(0, 1.0)
     _save(fig, "fig14_ml_tiers")
 
 
