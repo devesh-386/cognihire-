@@ -111,6 +111,7 @@ services:
 
       # Browser origins allowed to call this API, comma-separated.
       #
+      # Production sets this in .env via .github/workflows/configure-cors.yml.
       # The "*" default is a leftover from before the portal and HR app had
       # real deployed origins. They do now, so it should be set in this
       # box's .env — it is left permissive here only because tightening the
