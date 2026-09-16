@@ -1,0 +1,312 @@
+% =====================================================================
+\section{Automated Hiring: Architecture, Failure Landscape, and Regulatory Trends}
+\label{sec:landscape}
+% =====================================================================
+
+\subsection{Layered Architecture and Surfaces}
+
+An evidence-based screening system spans four surfaces, shown in Figure~\ref{fig:layers}. A candidate-facing portal collects consent, résumé, and session media, while an inference service hosts the perception and learned components.
+A persistence layer event-sources the session so it can be reconstructed turn by
+turn. A recruiter-facing application renders the audit. The separation matters. Every guarantee this article describes is enforced at a boundary between two of these surfaces, not inside any one of them.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig05_layered_arch.pdf}
+  \caption{Layered deployment architecture across the four surfaces.}
+  \label{fig:layers}
+\end{figure}
+
+Session state is written to an append-only table with a sequence-assigning
+database trigger. Question plans are never persisted, so a plan cannot be
+edited after the fact to match an outcome. It is a small decision that removes a
+whole category of post-hoc rationalisation.
+
+\subsection{Failure Landscape}
+
+Automated screening fails in ways that conventional information systems do not,
+because its outputs are judgements about people and its inputs are difficult to
+verify. Figure~\ref{fig:failures} organises the failure modes we encountered, and
+Table~\ref{tab:threats} states their manifestations and defence implications.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{fig06_failure_landscape.pdf}
+  \caption{Failure modes in automated candidate screening. The four families are
+  not independent: fabricated evidence typically originates in an unvalidated
+  constant and is concealed by opaque aggregation.}
+  \label{fig:failures}
+\end{figure*}
+
+\begin{table*}[t]
+\caption{Failure modes in automated screening, their manifestations, and defence
+implications.}
+\label{tab:threats}
+\small
+\begin{tabular}{@{}p{2.6cm}p{6.2cm}p{6.6cm}@{}}
+\toprule
+Failure mode & Manifestation & Defence implication \\
+\midrule
+Fabricated evidence & A heuristic proxy is logged under the label of a
+measurement; a confident pass is returned when the underlying record is absent &
+Measurements must be structurally distinguishable from inferences; absence must
+have its own representation \\
+Silent component outage & A model fails to load, a fallback fills the gap, and
+the status is never surfaced & Health of every perception component must be
+rendered where a human will see it \\
+Unvalidated constants & A similarity or timing threshold is chosen by reasoning
+and never measured & Security-adjacent constants require calibration studies with
+reported error rates \\
+Opaque aggregation & A composite score is produced from hidden weights and cannot
+be explained or contested & Aggregation should be omitted where the downstream
+decision is made by a human anyway \\
+Provenance gaps & Identity is verified once at login and assumed thereafter &
+Provenance must be continuous, and unmeasured intervals must be visible \\
+Instruction injection & Text in a candidate document is interpreted as a
+directive by a downstream model & Planning must consume typed structures, never
+raw document text \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+Neither of the first two rows is hypothetical. Section~\ref{sec:deployment} reports an
+audit of a reference implementation in which both occurred simultaneously: an
+object detector that never successfully loaded, a luminance heuristic that filled
+the gap and logged its output as camera-verified detections, and a status string
+reporting readiness that was never rendered anywhere.
+
+\subsection{Current State and Industry Trends}
+
+Table~\ref{tab:trad-vs-current} contrasts traditional screening practice with
+current automated practice and states what each advance costs.
+
+\begin{table*}[t]
+\caption{Comparison of traditional and current automated screening solutions.}
+\label{tab:trad-vs-current}
+\small
+\begin{tabular}{@{}p{2.4cm}p{4.4cm}p{4.4cm}p{4.2cm}@{}}
+\toprule
+Aspect & Traditional & Current & Advances and limitations \\
+\midrule
+Output object & Interviewer notes and a rating & Composite score or ranking &
+Higher throughput; loses the evidence that justified it \\
+Identity & Visual confirmation in person & One-time check at login &
+Scales; assumes continuity that remote settings do not guarantee \\
+Process evidence & Observed directly by the interviewer & Captured and filed for
+retrospective review & Available for fraud investigation; not fed back into the
+live interview \\
+Consistency & Varies by interviewer & Uniform by construction & Removes one bias
+source; can entrench another at scale \\
+Explanation & Reconstructed from memory & Feature attributions over a score &
+Post-hoc; explains the model, not the decision \\
+Contestability & Conversation with the recruiter & Appeal against an opaque
+number & Formally available, practically difficult \\
+Auditability & Paper trail, incomplete & Logged, but of the score not the
+evidence & Satisfies retention; not sufficient for a bias audit \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig08_regulatory_timeline.pdf}
+  \caption{Regulatory instruments governing automated employment decisions.
+  Dates are statutory effective dates.}
+  \label{fig:regulation}
+\end{figure}
+
+Regulation is converging on explainability. Figure~\ref{fig:regulation} places
+the four instruments that bear most directly on this system. The Illinois
+Artificial Intelligence Video Interview Act took effect in 2020 and requires
+notice and consent for AI analysis of interview video. New York City Local Law
+144 requires bias auditing and candidate notification for automated employment
+decision tools. The European Union Artificial Intelligence Act classifies
+employment-related systems as high risk, with corresponding transparency and
+human-oversight obligations. The Illinois Human Rights Act as amended by
+HB 3773 constrains AI use in employment decisions from 2026.
+
+These instruments share a direction: an automated employment decision must be explicable and contestable. A system architected around a scalar therefore faces a retrofit that its own architecture resists, since the explanatory information was discarded at design time and cannot be recovered afterwards. Figure~\ref{fig:standards} summarises the practices that follow.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{fig09_standards.pdf}
+  \caption{Compliance practices implied by the instruments in
+  Figure~\ref{fig:regulation}.}
+  \label{fig:standards}
+\end{figure*}
+
+\subsection{Landscape of Grounding, ML, and DL}
+
+Figure~\ref{fig:taxonomy} organises the technologies examined in the remainder of
+this article. The division is not arbitrary: grounding governs what may be
+\emph{asserted}, ML measures properties of \emph{evidence}, and DL supplies
+\emph{perception}. Assigning a task to the wrong family is itself a failure mode. Use a learned model where a rule is correct and the decision becomes unauditable; use a rule where measurement is required and you are left with an unvalidated constant.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{fig03_taxonomy.pdf}
+  \caption{Taxonomy of technologies for evidence-based candidate screening.}
+  \label{fig:taxonomy}
+\end{figure*}
+
+% =====================================================================
+\section{Evidence Grounding as an Enabler}
+\label{sec:grounding}
+% =====================================================================
+
+\subsection{Grounding-Centric Extraction}
+
+The central mechanism of the system is a constraint on what a language model is
+permitted to produce. Its rule: \textbf{a claim's text must be a verbatim
+substring of the résumé.} The model's role is selection, not generation.
+
+Naive substring matching is insufficient, however, and Figure~\ref{fig:gate} shows the decision pipeline that replaces it. Beyond verbatim containment the gate
+implements negation rejection, so that \emph{``I have not worked with
+Kubernetes''} yields no Kubernetes claim despite containing the substring; hedge
+rejection, so that \emph{``some exposure to Kafka''} is not a Kafka experience
+claim; contrastive-conjunction splitting, so that \emph{``I used Django, but
+never in production''} is split rather than truncated; and clause scoping, so that matching happens inside clause boundaries and never across them.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.92\columnwidth]{fig10_grounding_gate.pdf}
+  \caption{The grounding gate as a decision pipeline. Any branch marked
+  \emph{no} discards the proposed claim; nothing downstream sees it.}
+  \label{fig:gate}
+\end{figure}
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{fig11_grounding_flow.pdf}
+  \caption{End-to-end grounded extraction. Segmentation and normalisation remain
+  deterministic; the model contributes span selection only.}
+  \label{fig:groundflow}
+\end{figure*}
+
+\paragraph{Enforcement.}
+The grounding module is forbidden from importing the AI module, and an
+architecture test fails continuous integration if that import appears. The guarantee is a property of the build, not of developer discipline. Table~\ref{tab:grounding-adv} summarises what this buys.
+
+\begin{table}[t]
+\caption{Key advantages of evidence grounding.}
+\label{tab:grounding-adv}
+\small
+\begin{tabular}{@{}p{2.3cm}p{5.1cm}@{}}
+\toprule
+Advantage & Basis \\
+\midrule
+Verifiable claims & Every claim is a substring with character offsets into the
+source document \\
+Injection resistance & Résumé text reaches the planner only as typed claims, so
+an instruction in a document has no field to occupy \\
+Auditable rejection & A discarded claim is discarded by a named rule, not by
+model preference \\
+Stable evaluation & The gate is deterministic, so its behaviour can be regression
+tested at corpus scale \\
+No fluency confound & Extraction quality is fidelity to the source, not plausibility of generated text \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Integrity Functions Enabled by Grounding}
+
+\begin{table*}[t]
+\caption{Integrity functions enabled by grounding, and where each is exercised.}
+\label{tab:grounding-features}
+\small
+\begin{tabular}{@{}p{3.0cm}p{5.6cm}p{6.4cm}@{}}
+\toprule
+Function & Mechanism & Application \\
+\midrule
+Claim provenance & Character offsets retained from extraction through to the
+audit & A reviewer clicks a claim and lands on the candidate's own words \\
+Prompt-injection defence & Planner consumes typed claims only & A résumé
+containing an embedded instruction has no channel to the planner \\
+Assertion-scope fidelity & Negation and hedge detection inside clause boundaries
+& Denials and qualifications are not converted into claims \\
+Quote fidelity in speech & Spoken-turn quotes must match the transcript verbatim,
+including disfluency & An interviewer cannot attribute tidied speech to a
+candidate \\
+Non-fabrication of coverage & Unexamined claims carry an explicit verdict &
+Absence of evidence is reported, never omitted \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+The last row deserves emphasis. The audit's verdict set is
+\texttt{substantiated}, \texttt{notDemonstrated}, \texttt{contradicted}, and
+\texttt{notExamined}. The four are not orderable, and that is intentional.
+\texttt{notExamined} is load-bearing: without it an unprobed claim is simply
+absent from the report, and absence reads as acceptance. Making non-measurement
+explicit is what prevents an audit from being fabricated by omission.
+
+\subsection{Measured Behaviour of the Gate}
+
+The project's central claim is that the model selects but never authors. The
+preceding subsections argue this structurally; this one measures it.
+
+An offline deterministic harness drives the real pipeline modules read-only over
+a corpus of 5{,}200 synthetic résumés spanning eight fields and four seniority
+levels. No language-model key is required, so the result is reproducible by
+anyone. Three quantities are measured across roughly 100{,}000 trials: the
+verbatim true-positive rate, the paraphrase rejection rate, and the negation-trap
+rejection rate. Figure~\ref{fig:gateresults} reports the outcome.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig07_grounding_gate_results.pdf}
+  \caption{Grounding-gate evaluation before and after the clause-splitter fix
+  described below. Trial counts are shown at right.}
+  \label{fig:gateresults}
+\end{figure}
+
+\paragraph{The defect this surfaced.}
+The initial run showed a 0.82\% false-rejection rate: 425 genuine claims wrongly
+discarded. Every one contained a period-bearing token: \texttt{Node.js}, \texttt{React.js}, \texttt{asp.net}, \texttt{Python 3.9}. \emph{Zero} occurred without one. The clause splitter treated a period, question mark, or
+exclamation mark as a sentence terminal unconditionally, so
+\emph{``\ldots using JavaScript, Node.js.''} split into \emph{``\ldots Node''}
+and \emph{``js.''}, leaving a one-clause claim spanning two clauses where the
+locator could never find it. The claim was then \emph{silently} rejected: no
+error, no diagnostic, just an absent claim.
+
+The fix constrains a terminal to count only when followed by whitespace or
+end-of-string. A real sentence terminal always is; the period between two word
+characters never is. Keeping dotted tokens whole makes clauses \emph{longer},
+which widens negation scope instead of narrowing it, so the fix cannot weaken the
+guard. The measured before and after confirms this: both rejection rates stayed
+at exactly 100\%.
+
+The failure mode is worth naming, because the bug was \emph{silent}: nothing crashed, no test failed, and claims simply went missing. Only a corpus-scale evaluation with an explicit true-positive metric could surface it. That is an argument for measuring the properties you claim, and not merely testing the paths you wrote.
+
+\paragraph{Honest scope.}
+The corpus is synthetic and produced by a single generator, so 100\% extraction
+coverage is an artifact of that format and is \emph{not} claimed as a general
+result. The defensible claim is narrower and concerns the safety mechanism: the
+gate rejected 100\% of model-style paraphrases and negation traps across roughly
+100{,}000 trials while admitting 100\% of verbatim claims.
+
+\subsection{Open Challenges in Grounded Extraction}
+
+\begin{table}[t]
+\caption{Future directions for grounded extraction and their expected impact.}
+\label{tab:grounding-future}
+\small
+\begin{tabular}{@{}p{2.2cm}p{5.2cm}@{}}
+\toprule
+Direction & Expected impact \\
+\midrule
+Compositional claims & Extracting technology, artefact, metric, and agency as
+typed relations rather than as a single span \\
+Multilingual scope & Negation and hedge detection currently assume English clause
+structure \\
+Discontiguous spans & Some true claims are expressible only across
+non-contiguous text; a discontiguous grounding relation would admit them without
+loosening the gate \\
+Speech grounding & Applying the constraint to spoken turns requires treating the
+transcript as the source of truth, with its own error rate \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The gate's principal cost is recall on claims a résumé expresses across a
+sentence boundary. Tightening that without loosening the safety property is the
+main open problem in this component.

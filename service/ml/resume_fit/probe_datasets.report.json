@@ -1,0 +1,116 @@
+[
+  {
+    "dataset": "med2425/resume-job-fit-merged-v1",
+    "splits": {
+      "train": 80017,
+      "test": 13716
+    },
+    "columns": [
+      "resume",
+      "jd",
+      "label",
+      "source",
+      "resume_domain",
+      "jd_domain"
+    ],
+    "mapped": {
+      "resume": "resume",
+      "jd": "jd",
+      "label": "label"
+    },
+    "scannedRows": 20000,
+    "uniqueResumes": 642,
+    "uniquePostings": 280,
+    "labelCounts": {
+      "No Fit": 15057,
+      "Potential Fit": 3432,
+      "Good Fit": 1511
+    },
+    "resumesWithMultiplePostings": 642,
+    "resumesWithVaryingLabel": 551,
+    "pairOverlapWithOriginal": 0,
+    "pairOverlapPct": 0.0,
+    "resumeOverlapPct": 100.0,
+    "verdict": "USABLE"
+  },
+  {
+    "dataset": "netsol/resume-score-details",
+    "error": "DatasetGenerationError: An error occurred while generating the dataset"
+  },
+  {
+    "dataset": "batuhanmtl/job_resume_fit",
+    "splits": {
+      "train": 2385
+    },
+    "columns": [
+      "ID",
+      "resume_text",
+      "job_text",
+      "category",
+      "job_required_skills",
+      "resume_skill_list",
+      "ai_matched_skills",
+      "ai_match_score",
+      "skill_string_match_score",
+      "fuzzy_match_score"
+    ],
+    "mapped": {
+      "resume": "resume_text",
+      "jd": null,
+      "label": "ai_matched_skills"
+    },
+    "verdict": "UNUSABLE - no resume/JD pair columns"
+  },
+  {
+    "dataset": "OlaniyanIsrael/job_resume_fit",
+    "splits": {
+      "train": 2385
+    },
+    "columns": [
+      "ID",
+      "resume_text",
+      "job_text",
+      "category",
+      "job_required_skills",
+      "resume_skill_list",
+      "ai_matched_skills",
+      "ai_match_score",
+      "skill_string_match_score",
+      "fuzzy_match_score"
+    ],
+    "mapped": {
+      "resume": "resume_text",
+      "jd": null,
+      "label": "ai_matched_skills"
+    },
+    "verdict": "UNUSABLE - no resume/JD pair columns"
+  },
+  {
+    "dataset": "aswindhanasekar/job_resume_fit",
+    "splits": {
+      "train": 2385
+    },
+    "columns": [
+      "ID",
+      "resume_text",
+      "job_text",
+      "category",
+      "job_required_skills",
+      "resume_skill_list",
+      "ai_matched_skills",
+      "ai_match_score",
+      "skill_string_match_score",
+      "fuzzy_match_score"
+    ],
+    "mapped": {
+      "resume": "resume_text",
+      "jd": null,
+      "label": "ai_matched_skills"
+    },
+    "verdict": "UNUSABLE - no resume/JD pair columns"
+  },
+  {
+    "dataset": "nonameee12233/job-resume-matching",
+    "error": "DatasetGenerationCastError: An error occurred while generating the dataset\n\nAll the data files must have the same columns, but at some point there are 6 new columns ({'"
+  }
+]

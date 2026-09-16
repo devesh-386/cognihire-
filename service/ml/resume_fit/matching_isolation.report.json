@@ -1,0 +1,62 @@
+{
+  "question": "Of the label variation that is genuinely relational, how much can a model recover?",
+  "protocol": {
+    "cv": "GroupKFold(n_splits=10) grouped by job description",
+    "model": "RandomForest(300 trees, depth 12) - the strongest tree model in the full benchmark",
+    "pairwiseConvention": "ties count 0.5; chance = 0.5 exactly",
+    "maxPairsPerResume": 40
+  },
+  "varianceDecomposition": {
+    "totalVariance": 0.25,
+    "betweenResumeVariance": 0.04849878009060552,
+    "withinResumeVariance": 0.20150121990939449,
+    "withinResumeShare": 0.8060048796375779,
+    "resumes": 643,
+    "resumesWithMultiplePostings": 616,
+    "resumesWithVaryingLabel": 502,
+    "note": "withinResumeShare is the fraction of label variance that is genuinely relational - the maximum any matching model could explain."
+  },
+  "pairwiseRanking": {
+    "relational_10": {
+      "withinResumePairAccuracy": 0.6332684824902723,
+      "withinResumePairs": 4112,
+      "withinResumePerFold": [
+        0.7007672634271099,
+        0.48148148148148145,
+        0.6835699797160243,
+        0.6870324189526185,
+        0.6080332409972299,
+        0.6323529411764706,
+        0.6571782178217822,
+        0.5861344537815126,
+        0.6,
+        0.71875
+      ],
+      "withinResumeStd": 0.06694017141134476,
+      "withinResumeBinomialP": 3.796304126435212e-66,
+      "betweenResumePairAccuracy": 0.6904594808658252,
+      "betweenResumePairs": 199486
+    },
+    "interaction_1536": {
+      "withinResumePairAccuracy": 0.6240272373540856,
+      "withinResumePairs": 4112,
+      "withinResumePerFold": [
+        0.6061381074168798,
+        0.5763888888888888,
+        0.592292089249493,
+        0.6870324189526185,
+        0.6662049861495845,
+        0.6887254901960784,
+        0.5606435643564357,
+        0.6722689075630253,
+        0.5780487804878048,
+        0.6175595238095238
+      ],
+      "withinResumeStd": 0.04693516831526613,
+      "withinResumeBinomialP": 1.948378706815073e-57,
+      "betweenResumePairAccuracy": 0.7372270091176574,
+      "betweenResumePairs": 199503
+    }
+  },
+  "interpretation": "within-resume pair accuracy near 0.5 means the model cannot tell which posting a given resume fits - all of its apparent skill is ranking resumes against each other, which is a resume-quality task, not a matching task."
+}
