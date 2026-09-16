@@ -1,0 +1,70 @@
+name: Configure CORS origins on the Azure VM
+
+# One-off, manually-triggered workflow: writes ALLOWED_ORIGINS into the VM's
+# .env and recreates the api container. Same shape as configure-smtp.yml, and
+# for the same reason: deploy.yml never touches .env.
+#
+# Setting this closes the security-audit finding "wildcard CORS reachable in
+# production". With ALLOWED_ORIGINS left at the compose default "*", CORS
+# accepts any origin and the Origin check on the /interview/live WebSocket is
+# disabled (service/main.py). The portal is the only browser client; the apex
+# domain 308-redirects to www but is listed so a direct apex load still works.
+# The Flutter desktop app and the edge functions send no browser Origin, so
+# they are unaffected.
+
+on:
+  workflow_dispatch:
+    inputs:
+      origins:
+        description: Comma-separated browser origins (no spaces, no trailing slash)
+        required: true
+        default: https://www.cognihire.online,https://cognihire.online
+
+jobs:
+  configure-cors:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH in, update .env, recreate the api container
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
+        env:
+          # Passed through env, not interpolated into the script, so the
+          # input cannot inject shell.
+          ALLOWED_ORIGINS: ${{ inputs.origins }}
+        with:
+          host: ${{ secrets.AZURE_VM_HOST }}
+          username: ${{ secrets.AZURE_VM_USER }}
+          key: ${{ secrets.AZURE_VM_SSH_KEY }}
+          script_stop: true
+          envs: ALLOWED_ORIGINS
+          script: |
+            cd ~/CogniHire
+
+            case "$ALLOWED_ORIGINS" in
+              *" "*|*"*"*|"") echo "refusing origins value: '$ALLOWED_ORIGINS'"; exit 1 ;;
+            esac
+
+            grep -q '^ALLOWED_ORIGINS=' .env 2>/dev/null && sed -i "s#^ALLOWED_ORIGINS=.*#ALLOWED_ORIGINS=${ALLOWED_ORIGINS}#" .env || echo "ALLOWED_ORIGINS=${ALLOWED_ORIGINS}" >> .env
+            echo ".env updated"
+
+            # force-recreate: .env substitution happens at container-create
+            # time, so `up -d` alone would keep the old value.
+            docker compose -f docker-compose.api.yml up -d --force-recreate api
+
+            for i in $(seq 1 30); do
+              if curl -fsS http://localhost:8000/health > /tmp/health.json 2>/dev/null; then
+                break
+              fi
+              echo "waiting for the service to come back up ($i/30)..."
+              sleep 3
+            done
+            cat /tmp/health.json
+            echo
+            grep -q "\"allowed_origins\":\"${ALLOWED_ORIGINS}\"" /tmp/health.json || { echo "health does not report the new origins"; exit 1; }
+
+      - name: Confirm the public endpoint reports the new origins
+        env:
+          ALLOWED_ORIGINS: ${{ inputs.origins }}
+        run: |
+          curl -fsS https://api.cognihire.online/health | tee health.json
+          echo
+          grep -q "\"allowed_origins\":\"${ALLOWED_ORIGINS}\"" health.json
