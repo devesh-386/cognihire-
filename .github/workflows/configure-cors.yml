@@ -34,29 +34,23 @@ jobs:
           host: ${{ secrets.AZURE_VM_HOST }}
           username: ${{ secrets.AZURE_VM_USER }}
           key: ${{ secrets.AZURE_VM_SSH_KEY }}
-          script_stop: true
+          # No script_stop: it appends an exit check after every line, which
+          # breaks multi-line constructs (bash syntax error before anything
+          # runs). Each command that can fail exits explicitly instead.
           envs: ALLOWED_ORIGINS
           script: |
-            cd ~/CogniHire
+            cd ~/CogniHire || exit 1
 
-            case "$ALLOWED_ORIGINS" in
-              *" "*|*"*"*|"") echo "refusing origins value: '$ALLOWED_ORIGINS'"; exit 1 ;;
-            esac
+            if [ -z "$ALLOWED_ORIGINS" ] || echo "$ALLOWED_ORIGINS" | grep -q "[ *]"; then echo "refusing origins value: $ALLOWED_ORIGINS"; exit 1; fi
 
-            grep -q '^ALLOWED_ORIGINS=' .env 2>/dev/null && sed -i "s#^ALLOWED_ORIGINS=.*#ALLOWED_ORIGINS=${ALLOWED_ORIGINS}#" .env || echo "ALLOWED_ORIGINS=${ALLOWED_ORIGINS}" >> .env
+            grep -q '^ALLOWED_ORIGINS=' .env 2>/dev/null && sed -i "s#^ALLOWED_ORIGINS=.*#ALLOWED_ORIGINS=${ALLOWED_ORIGINS}#" .env || echo "ALLOWED_ORIGINS=${ALLOWED_ORIGINS}" >> .env || exit 1
             echo ".env updated"
 
             # force-recreate: .env substitution happens at container-create
             # time, so `up -d` alone would keep the old value.
-            docker compose -f docker-compose.api.yml up -d --force-recreate api
+            docker compose -f docker-compose.api.yml up -d --force-recreate api || exit 1
 
-            for i in $(seq 1 30); do
-              if curl -fsS http://localhost:8000/health > /tmp/health.json 2>/dev/null; then
-                break
-              fi
-              echo "waiting for the service to come back up ($i/30)..."
-              sleep 3
-            done
+            for i in $(seq 1 30); do curl -fsS http://localhost:8000/health > /tmp/health.json 2>/dev/null && break; echo "waiting for the service ($i/30)..."; sleep 3; done
             cat /tmp/health.json
             echo
             grep -q "\"allowed_origins\":\"${ALLOWED_ORIGINS}\"" /tmp/health.json || { echo "health does not report the new origins"; exit 1; }
