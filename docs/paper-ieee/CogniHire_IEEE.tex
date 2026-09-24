@@ -8,10 +8,11 @@
 \usepackage{xcolor}
 \usepackage{url}
 \usepackage{tikz}
-\usetikzlibrary{positioning,arrows.meta,fit}
+\usetikzlibrary{positioning,arrows.meta,fit,calc}
 \usepackage{pgfplots}
 \pgfplotsset{compat=1.17}
-\usepgfplotslibrary{groupplots}
+\usepgfplotslibrary{groupplots,statistics}
+\usepackage{balance}
 \usepackage[hidelinks]{hyperref}
 
 \newcommand{\code}[1]{\texttt{#1}}
@@ -58,40 +59,32 @@ accountability, model comparison, face verification, threshold calibration
 \end{IEEEkeywords}
 
 % ---------------------------------------------------------------- Fig. 1
-\begin{figure*}[t]
+\begin{figure}[t]
 \centering
 \begin{tikzpicture}[
-  layer/.style={draw, rounded corners=2pt, minimum width=8.6cm, minimum height=0.78cm,
-                align=center, font=\small, line width=0.5pt},
-  flow/.style={-{Stealth[length=4pt]}, gray},
-  lbl/.style={font=\scriptsize\itshape, text=black!70, anchor=west},
-  node distance=0.42cm]
-\node[layer, fill=green!10, draw=green!50!black] (cs) {\textbf{Candidate Session}\\[-1pt]{\footnotesize R\'esum\'e $\cdot$ camera $\cdot$ typed or spoken answers}};
-\node[layer, fill=gray!10, draw=gray, above=of cs] (pe) {\textbf{Perception}\\[-1pt]{\footnotesize Face embedding $\cdot$ process telemetry $\cdot$ r\'esum\'e parsing}};
-\node[layer, fill=orange!15, draw=orange!70!black, above=of pe] (gg) {\textbf{Grounding Gate}\\[-1pt]{\footnotesize Verbatim only $\cdot$ negation- and hedge-aware}};
-\node[layer, fill=blue!8, draw=blue!50, above=of gg] (ie) {\textbf{Interview Engine}\\[-1pt]{\footnotesize Claim-driven planning $\cdot$ adaptive follow-ups}};
-\node[layer, fill=blue!8, draw=blue!50, above=of ie] (eg) {\textbf{Evidence Graph}\\[-1pt]{\footnotesize Typed nodes and edges $\cdot$ mandatory rationale}};
-\node[layer, fill=green!10, draw=green!50!black, above=of eg] (rg) {\textbf{Report Generation}\\[-1pt]{\footnotesize Deterministic transform $\cdot$ cannot invent a verdict}};
-\node[layer, fill=green!10, draw=green!50!black, above=of rg] (rc) {\textbf{Recruiter Console}\\[-1pt]{\footnotesize Per-claim audit $\cdot$ evidence $\cdot$ no composite score}};
-\foreach \a/\b/\t in {cs/pe/Measured signals, pe/gg/Selected spans only, gg/ie/Grounded claims,
-                      ie/eg/Linked evidence, eg/rg/Structured verdicts, rg/rc/Audited claims and cited evidence}{
-  \draw[flow] (\a.north) -- (\b.south) node[midway, lbl, xshift=2pt] {\t};
+  layer/.style={draw, rounded corners=2pt, minimum width=0.62\columnwidth, minimum height=0.72cm,
+                align=center, font=\footnotesize, line width=0.5pt, inner sep=2pt},
+  flow/.style={-{Stealth[length=3.5pt]}, gray},
+  lbl/.style={font=\scriptsize\itshape, text=black!75, anchor=west},
+  node distance=0.36cm]
+\node[layer, fill=green!10, draw=green!50!black] (cs) {\textbf{Candidate Session}\\R\'esum\'e, camera, answers};
+\node[layer, fill=gray!10, draw=gray, above=of cs] (pe) {\textbf{Perception}\\Face embedding, telemetry, parsing};
+\node[layer, fill=orange!15, draw=orange!70!black, above=of pe] (gg) {\textbf{Grounding Gate}\\Verbatim only; negation- and hedge-aware};
+\node[layer, fill=blue!8, draw=blue!50, above=of gg] (ie) {\textbf{Interview Engine}\\Claim-driven planning, follow-ups};
+\node[layer, fill=blue!8, draw=blue!50, above=of ie] (eg) {\textbf{Evidence Graph}\\Typed nodes; mandatory rationale};
+\node[layer, fill=green!10, draw=green!50!black, above=of eg] (rg) {\textbf{Report Generation}\\Deterministic; cannot invent a verdict};
+\node[layer, fill=green!10, draw=green!50!black, above=of rg] (rc) {\textbf{Recruiter Console}\\Per-claim audit; no composite score};
+\foreach \a/\b/\t in {cs/pe/Measured signals, pe/gg/Selected spans, gg/ie/Grounded claims,
+                      ie/eg/Linked evidence, eg/rg/Structured verdicts, rg/rc/Cited evidence}{
+  \draw[flow] (\a.north) -- (\b.south) node[midway, lbl, xshift=1pt] {\t};
 }
-\node[draw, rounded corners=2pt, fill=gray!8, draw=gray, right=0.8cm of eg.east, anchor=west,
-      minimum width=4.2cm, align=left, font=\small, inner sep=6pt] (sg)
-  {\textbf{Structural guarantees}\\[3pt]
-   $\bullet$ No composite score\\
-   $\bullet$ AI selects, never authors\\
-   $\bullet$ Unmeasured is not passed\\
-   $\bullet$ No demographic inference\\
-   $\bullet$ No hiring-outcome labels};
 \end{tikzpicture}
 \caption{Data flow in CogniHire. Evidence moves upward from the candidate
 session to the recruiter console; each transition narrows what the system may
-assert. The right-hand panel lists the guarantees enforced structurally
-(Table~\ref{tab:policies}).}
+assert. The guarantees enforced at these boundaries are listed in
+Table~\ref{tab:policies}.}
 \label{fig:flow}
-\end{figure*}
+\end{figure}
 
 \section{Introduction}
 A technical interview ends and a form is filled in: \emph{``Strong
@@ -155,8 +148,7 @@ quantify one leakage category on a hiring benchmark.
 
 For perception we build on SCRFD~\cite{guo2022} and ArcFace~\cite{deng2019},
 which leave the verification threshold to the integrator, and calibrate it on
-LFW~\cite{huang2007}, treating the threshold as a calibration problem in the
-sense of Platt~\cite{platt1999}. Across these strands three gaps recur: no work
+LFW~\cite{huang2007}. Across these strands three gaps recur: no work
 constrains generative extraction to selection; prediction targets go
 unverified behind pooled metrics; and perception components ship with
 authored, unmeasured thresholds.
@@ -166,7 +158,7 @@ authored, unmeasured thresholds.
 \label{tab:policies}
 \centering
 \footnotesize
-\begin{tabular}{@{}p{0.36\columnwidth}p{0.57\columnwidth}@{}}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.40\columnwidth}>{\raggedright\arraybackslash}p{0.53\columnwidth}@{}}
 \toprule
 Policy & Structure \\
 \midrule
@@ -175,7 +167,7 @@ Unmeasured is not passed & Result type with no similarity field \\
 No composite score & Vocabulary ban that fails the build \\
 No demographic inference & Classifier module never loaded (allow-list) \\
 No outcome labels & No such dataset, no code path to build one \\
-Plans cannot be back-edited & Question plans never persisted \\
+Plans cannot be edited later & Question plans never persisted \\
 Sessions reconstructible & Append-only event table with sequencing trigger \\
 \bottomrule
 \end{tabular}
@@ -190,8 +182,14 @@ state is written to an append-only table with a sequence-assigning trigger, so
 a session can be reconstructed turn by turn; question plans are never
 persisted, so a plan cannot be edited after the fact to match an outcome.
 
-The audit's verdict set is \code{substantiated}, \code{notDemonstrated},
-\code{contradicted}, and \code{notExamined}. The four are deliberately not
+The audit has four verdicts:
+\begin{itemize}
+\item \code{substantiated},
+\item \code{notDemonstrated},
+\item \code{contradicted}, and
+\item \code{notExamined}.
+\end{itemize}
+The four are deliberately not
 orderable, and no composite is computed. \code{notExamined} is load-bearing:
 without it an unprobed claim is simply absent from the report, and absence
 reads as acceptance.
@@ -212,7 +210,27 @@ crosses a clause boundary.
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=\columnwidth]{figs/fig2_gate.pdf}
+\begin{tikzpicture}[
+  gstep/.style={draw=orange!70!black, fill=orange!12, rounded corners=2pt, minimum width=0.60\columnwidth,
+               minimum height=0.55cm, font=\footnotesize, align=center},
+  io/.style={gstep, draw=blue!50, fill=blue!8},
+  ok/.style={gstep, draw=green!50!black, fill=green!10},
+  arr/.style={-{Stealth[length=3.5pt]}, gray},
+  node distance=0.28cm]
+\node[io] (in) {Language model proposes a claim span};
+\node[gstep, below=of in] (q1) {Verbatim substring of the r\'esum\'e?};
+\node[gstep, below=of q1] (q2) {Assertion scope free of negation?};
+\node[gstep, below=of q2] (q3) {Free of hedging qualifiers?};
+\node[gstep, below=of q3] (q4) {Contained within one clause?};
+\node[ok, below=of q4] (out) {Claim admitted with character offsets};
+\node[draw=red!60!black, fill=red!8, rounded corners=2pt, font=\footnotesize, minimum height=0.55cm,
+      anchor=west] (no) at ([xshift=0.15\columnwidth]$(q2.east)!0.5!(q3.east)$) {Discarded};
+\coordinate (bus) at ([xshift=0.08\columnwidth]q1.east);
+\foreach \a/\b in {in/q1,q1/q2,q2/q3,q3/q4,q4/out} \draw[arr] (\a) -- (\b);
+\foreach \q in {q1,q2,q3,q4} \draw[red!60!black] (\q.east) -- node[above, font=\scriptsize, pos=0.5]{no} (\q.east -| bus);
+\draw[red!60!black] (q1.east -| bus) -- (q4.east -| bus);
+\draw[arr, red!60!black] ($(q2.east -| bus)!0.5!(q3.east -| bus)$) -- (no.west);
+\end{tikzpicture}
 \caption{The grounding gate as a decision pipeline. Any \emph{no} branch
 discards the proposed claim.}
 \label{fig:gate}
@@ -229,41 +247,27 @@ An offline deterministic harness drives the real pipeline modules over 5,200
 synthetic r\'esum\'es spanning eight fields and four seniority levels. No
 language-model key is needed, so the result is reproducible. Across roughly
 100,000 trials the gate rejected all 48,149 meaning-preserving paraphrases and
-all 51,761 negation traps (Fig.~\ref{fig:gateeval}).
+all 51,761 negation traps (Table~\ref{tab:gate}).
 
-\begin{figure}[t]
+\begin{table}[t]
+\caption{Grounding-Gate Correct-Decision Rate Before and After the Clause-Splitter Fix}
+\label{tab:gate}
 \centering
-\begin{tikzpicture}
-\begin{axis}[
-  xbar, width=0.95\columnwidth, height=5.0cm,
-  xmin=98.5, xmax=100.15,
-  xtick={98.5,99.0,99.5,100.0},
-  xticklabel style={/pgf/number format/fixed, /pgf/number format/precision=1},
-  xlabel={Correct-decision rate (\%)}, xlabel style={font=\footnotesize},
-  ytick={1,2,3},
-  yticklabels={{Verbatim claims\\(should admit)},{Paraphrases\\(must reject)},{Negation traps\\(must reject)}},
-  yticklabel style={align=right, font=\scriptsize},
-  ticklabel style={font=\scriptsize},
-  bar width=6pt, enlarge y limits=0.28,
-  legend style={font=\scriptsize, at={(0.5,1.03)}, anchor=south, legend columns=2, draw=none},
-  reverse legend,
-  nodes near coords, nodes near coords style={font=\tiny, anchor=west},
-  point meta=explicit symbolic,
-  xmajorgrids, grid style={gray!25}]
-\addplot[fill=gray!35, draw=gray] coordinates {(99.18,1)[99.18\%] (100,2)[100\%] (100,3)[100\%]};
-\addplot[fill=blue!45, draw=blue!60!black] coordinates {(100,1)[100\%] (100,2)[100\%] (100,3)[100\%]};
-\legend{Before fix, After fix}
-\end{axis}
-\end{tikzpicture}
-\caption{Grounding-gate evaluation before and after the clause-splitter fix.
-The axis is truncated at 98.5\% to make the verbatim-admission defect visible;
-$n=51{,}761$ verbatim claims, $48{,}149$ paraphrases, $51{,}761$ negation traps.}
-\label{fig:gateeval}
-\end{figure}
+\footnotesize
+\begin{tabular}{@{}lrcc@{}}
+\toprule
+Trial type & $n$ & Before fix & After fix \\
+\midrule
+Paraphrases (must reject)    & 48,149 & 100\%   & 100\% \\
+Negation traps (must reject) & 51,761 & 100\%   & 100\% \\
+Verbatim claims (must admit) & 51,761 & 99.18\% & \textbf{100\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 The initial run showed a 0.82\% false-rejection rate: 425 of 51,761 genuine
-claims discarded, every one containing a period-bearing token (\code{Node.js},
-\code{asp.net}, \code{Python 3.9}). The clause splitter treated every period as
+claims discarded, every one containing a period-bearing token such as
+\code{Node.js}, \code{asp.net} or \code{Python~3.9}. The clause splitter treated every period as
 a terminal, so ``Node.js.'' split into ``Node'' and ``js.'' and the claim was
 \emph{silently} dropped. Requiring a terminal to be followed by whitespace or
 end-of-string fixed it; since the change only makes clauses longer, it widens
@@ -291,7 +295,7 @@ only, and identical folds are reused for every model so all comparisons are
 paired. Table~\ref{tab:nine} reports the results.
 
 \begin{table}[t]
-\caption{Nine Classifiers, Ten-Fold \code{GroupKFold} by Posting
+\caption{Nine Classifiers, Ten-Fold Cross-Validation Grouped by Posting
 (Mean $\pm$ Fold Std.)}
 \label{tab:nine}
 \centering
@@ -307,7 +311,7 @@ Random forest       & 0.688 $\pm$ 0.030 & 0.047 & 88.2  & 24,732.6 \\
 SVM (RBF)           & 0.686 $\pm$ 0.028 & 0.053 & 195.0 & 526.8 \\
 Extra trees         & 0.685 $\pm$ 0.030 & \textbf{0.046} & 84.9 & 63,415.9 \\
 $k$-NN              & 0.680 $\pm$ 0.031 & 0.057 & 35.5  & 1,272.8 \\
-Hist.\ grad.\ boost.& 0.679 $\pm$ 0.029 & 0.057 & 7.3   & 591.8 \\
+Hist.\ grad.\ boosting & 0.679 $\pm$ 0.029 & 0.057 & 7.3   & 591.8 \\
 Gaussian NB         & 0.667 $\pm$ 0.033 & 0.117 & 0.3   & 1.1 \\
 Logistic regression & 0.665 $\pm$ 0.022 & 0.052 & \textbf{0.2} & \textbf{0.9} \\
 \bottomrule
@@ -330,7 +334,7 @@ task, not the protocol.
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.95\textwidth]{figs/fig4_folds.pdf}
+\input{figs/fig4_folds.tex}
 \caption{Per-fold results over ten grouped folds. (a) Nine models on the real
 screening task (AUROC): boxes overlap almost completely. (b) Same models,
 folds, and code on the synthetic positive control (accuracy), which they
@@ -375,10 +379,11 @@ Interaction (1536-d)  & \textbf{0.7372} & 0.6240 & $2.0\times10^{-57}$ \\
 \end{table}
 
 Models do match: given one r\'esum\'e and two postings, they pick the fitting
-one about 63\% of the time (Table~\ref{tab:within}). But moving from the
-relational to the 1536-dimensional interaction representation raises pooled
-AUROC by $+0.041$ and between-r\'esum\'e ranking by $+0.047$, while
-within-r\'esum\'e matching changes by $-0.009$ ($p = 0.445$, paired Wilcoxon).
+one about 63\% of the time (Table~\ref{tab:within}). But for the same random
+forest, moving from the relational to the 1536-dimensional interaction
+representation raises pooled AUROC by $+0.048$ (0.688 to 0.737) and
+between-r\'esum\'e ranking by $+0.047$, while within-r\'esum\'e matching
+changes by $-0.009$ ($p > 0.4$, paired Wilcoxon over folds).
 The improvement a leaderboard would record came from ranking candidates against
 each other, not from matching them to roles. The diagnostic needs no extra
 labels and applies to any paired benchmark with a recurring entity
@@ -388,8 +393,10 @@ target substitution Raghavan et al.~\cite{raghavan2020} identify.
 
 \subsection{Robustness and Efficiency}
 Table~\ref{tab:splits} varies only the splitting scheme, holding features and
-model fixed: a 300-tree, class-balanced random forest on the relational
-features, configured separately from the Table~\ref{tab:nine} forest. The ungrouped scheme a conventional bake-off would use scores
+model fixed. Because the same run also tests label granularity, it uses all
+8,000 rows without the class-balancing downsample and a class-weighted
+300-tree random forest on the relational features; its numbers are comparable
+with each other, not with Table~\ref{tab:nine}. The ungrouped scheme a conventional bake-off would use scores
 0.024 AUROC above the posting-grouped protocol, a modest leakage inflation.
 Closing the r\'esum\'e channel, however, does not collapse performance:
 grouping by r\'esum\'e scores 0.014 \emph{higher}, which refutes a
@@ -400,8 +407,8 @@ either: the cleanest contrast, Good Fit against No Fit with the ambiguous class
 removed, scores 0.681, no better than the 0.689 of the binarized label.
 
 \begin{table}[t]
-\caption{Split-Scheme Comparison (Random Forest, Relational 10-d
-Features, Identical Throughout; Mean $\pm$ Fold Std.)}
+\caption{Split-Scheme Comparison on All 8,000 Rows (Class-Weighted Random
+Forest, Relational Features; Mean $\pm$ Fold Std.)}
 \label{tab:splits}
 \centering
 \footnotesize
@@ -414,7 +421,6 @@ $k$-fold, no grouping   & nothing            & 0.714 $\pm$ 0.016 \\
 \code{GroupKFold} by posting    & every test posting    & 0.689 $\pm$ 0.016 \\
 \bottomrule
 \end{tabular}
-
 \end{table}
 
 A learning curve over the same folds rises from 0.651 AUROC at a tenth of the
@@ -424,7 +430,7 @@ point, so the limitation is not sample size.
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.85\columnwidth]{figs/fig5_curve.pdf}
+\input{figs/fig5_curve.tex}
 \caption{Learning curve over the same ten folds (mean $\pm$ fold std.).}
 \label{fig:curve}
 \end{figure}
@@ -446,21 +452,21 @@ choice is the cheapest model not significantly worse.
   yticklabel style={/pgf/number format/fixed, /pgf/number format/fixed zerofill, /pgf/number format/precision=3},
   grid=major, grid style={gray!25},
   nodes near coords, point meta=explicit symbolic,
-  every node near coord/.style={font=\tiny, inner sep=1.5pt}]
+  every node near coord/.style={font=\scriptsize, inner sep=1.5pt}]
 \addplot[only marks, mark=*, mark size=1.6pt, blue!70!black,
   visualization depends on={value \thisrow{anc}\as\anc},
   every node near coord/.append style={anchor=\anc}]
   table[x=lat, y=auc, meta=name]{
-  lat   auc   name                anc
-  0.5   0.696 MLP                 west
-  1.9   0.689 {Gradient boost.}   south
-  88.2  0.688 {Random forest}     south
-  195.0 0.686 {SVM (RBF)}         west
-  84.9  0.685 {Extra trees}       north east
-  35.5  0.680 {$k$-NN}            south
-  7.3   0.679 {Hist.\ grad.\ boost.} north
-  0.3   0.667 {Gaussian NB}       west
-  0.2   0.665 {Logistic reg.}     north west
+  lat   auc   name                    anc
+  0.5   0.696 MLP                     west
+  1.9   0.689 {Gradient boosting}     south
+  88.2  0.688 {Random forest}         south east
+  195.0 0.686 {SVM (RBF)}             west
+  84.9  0.685 {Extra trees}           north east
+  35.5  0.680 {$k$-NN}                west
+  7.3   0.679 {Hist.\ grad.\ boosting} east
+  0.3   0.667 {Gaussian NB}           west
+  0.2   0.665 {Logistic regression}   north west
   };
 \end{semilogxaxis}
 \end{tikzpicture}
@@ -471,27 +477,28 @@ magnitude of latency buy 0.031 AUROC.}
 
 \section{Deep Learning: Calibrating Identity}
 Face detection uses SCRFD~\cite{guo2022} and embedding uses
-ArcFace~\cite{deng2019}; both are frozen. Retraining on project-scale data
+\mbox{ArcFace}~\cite{deng2019}; both are frozen. Retraining on project-scale data
 would be worse and would introduce demographic bias we cannot audit. The vendor
 pack's age and gender classifier is excluded by a loader allow-list.
 
 The system originally used an authored cosine-similarity threshold of 0.50,
 reasoned and documented but flagged as uncalibrated. An equal-error-rate sweep
 on 2,200 LFW~\cite{huang2007} training pairs, evaluated on 1,000 held-out
-pairs, gives Table~\ref{tab:face}.
+pairs, gives Table~\ref{tab:face}; the embedding's AUC on the held-out pairs
+is 0.9785 at any threshold.
 
 \begin{table}[t]
-\caption{Face-Verification Threshold Before and After Calibration on LFW
-(1,000 Held-Out Pairs)}
+\caption{Face-Verification Threshold Before and After Calibration
+(LFW, 1,000 Held-Out Pairs)}
 \label{tab:face}
 \centering
 \footnotesize
-\begin{tabular}{@{}lcccc@{}}
+\begin{tabular}{@{}lccc@{}}
 \toprule
-Threshold & FAR & FRR & Acc. & AUC \\
+Threshold & FAR & FRR & Acc. \\
 \midrule
-\textbf{0.1266} (calibrated) & 0.030 & \textbf{0.034} & \textbf{0.968} & 0.9785 \\
-0.50 (authored)              & 0.000 & 0.414 & 0.793 & --- \\
+\textbf{0.1266} (calibrated) & 0.030 & \textbf{0.034} & \textbf{0.968} \\
+0.50 (authored)              & 0.000 & 0.414 & 0.793 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -520,11 +527,11 @@ requires consented candidate data we have not collected.
 Obligation & Instrument & Mechanism in CogniHire \\
 \midrule
 Bias audit of the tool & NYC Local Law 144~\cite{nycll144} & No composite score to audit; the audited object is the per-claim verdict distribution \\
-Candidate notification & NYC Local Law 144~\cite{nycll144}; Illinois AI Video Interview Act~\cite{ilaivia} & Consent captured per session with a recorded consent version \\
-Human oversight & EU AI Act, Annex III high-risk~\cite{euaiact} & Report generation is a deterministic transform containing no code that could emit a recommendation \\
-Explanation and contestability & EU AI Act~\cite{euaiact}; Illinois HB 3773~\cite{ilhb3773} & Every verdict carries its evidence and character offsets into the candidate's own words \\
+Candidate notification & NYC Local Law 144~\cite{nycll144}; Illinois AI Video Interview Act~\cite{ilaivia}; Illinois HB 3773~\cite{ilhb3773} & Consent captured per session with a recorded consent version \\
+Human oversight & EU AI Act, Art.~14 (high-risk systems; employment is listed in Annex III)~\cite{euaiact} & Report generation is a deterministic transform containing no code that could emit a recommendation \\
+Explanation of decisions & EU AI Act, Art.~86~\cite{euaiact} & Every verdict carries its evidence and character offsets into the candidate's own words \\
 Non-discrimination & Illinois Human Rights Act as amended by HB 3773~\cite{ilhb3773} & No demographic inference, no outcome labels, no historical decision pattern to inherit \\
-Traceability & All & Append-only event store; sessions reconstructible turn by turn \\
+Record-keeping & EU AI Act, Art.~12~\cite{euaiact} & Append-only event store; sessions reconstructible turn by turn \\
 \bottomrule
 \end{tabular}
 \end{table*}
@@ -539,7 +546,7 @@ aggregate.
 
 This design maps directly onto regulation (Table~\ref{tab:reg}). The
 instruments share a direction: an automated employment decision must be
-explicable and contestable. A system architected around a scalar faces a
+disclosed, auditable, and open to human oversight and explanation. A system architected around a scalar faces a
 retrofit its own architecture resists, since the explanatory information was
 discarded at design time. The mapping in Table~\ref{tab:reg} is possible only
 because CogniHire declines to produce an aggregate: a bias audit of a composite
@@ -576,7 +583,7 @@ AUROC) is deliberately not deployed: Section~\ref{sec:within} shows that
 pooled fit scores on this benchmark largely reward ranking candidates rather
 than matching them.
 
-\section{Conclusion}
+\section{Conclusion and Future Work}
 CogniHire replaces the composite hiring score with a per-claim audit whose
 guarantees are enforced by architecture rather than by prompt discipline.
 Three findings stand out. The grounding gate rejected every meaning-preserving
@@ -590,12 +597,18 @@ than matching them. That last finding overturned our own initial hypothesis;
 we report the sequence because a diagnostic proves its power only when it
 refutes something.
 
+Three steps follow directly from the limitations in Section~VII: a controlled
+recruiter study comparing inter-reviewer agreement on a claim audit against a
+composite score; recalibration of the face threshold on consented candidate
+data; and continuous identity verification on the production path.
+
 \section*{Data Availability}
 Analysis code, per-fold results, and figure sources are available from the
 author on request. % AUTHOR: replace with a public repository URL or DOI if you have one.
 The face study uses the public LFW benchmark and the grounding evaluation a
 synthetic corpus; no human subjects were involved.
 
+\balance
 \begin{thebibliography}{99}
 
 \bibitem{raghavan2020}
@@ -655,40 +668,38 @@ Wild: A database for studying face recognition in unconstrained
 environments,'' Univ. Massachusetts, Amherst, MA, USA, Tech. Rep. 07-49,
 Oct. 2007.
 
-\bibitem{platt1999}
-J.~Platt, ``Probabilistic outputs for support vector machines and comparisons
-to regularized likelihood methods,'' in \emph{Advances in Large Margin
-Classifiers}. Cambridge, MA, USA: MIT Press, 1999, pp.~61--74.
-
-\bibitem{vovk2005}
-V.~Vovk, A.~Gammerman, and G.~Shafer, \emph{Algorithmic Learning in a Random
-World}. New York, NY, USA: Springer, 2005.
-
 \bibitem{cnamuangtoun2024}
 cnamuangtoun, ``resume-job-description-fit,'' Hugging Face Datasets, 2024.
 [Online]. Available:
 \url{https://huggingface.co/datasets/cnamuangtoun/resume-job-description-fit}
+(accessed Sep. 24, 2026).
 
 \bibitem{pedregosa2011}
 F.~Pedregosa \emph{et al.}, ``Scikit-learn: Machine learning in Python,''
 \emph{J. Mach. Learn. Res.}, vol.~12, pp.~2825--2830, 2011.
 
+\bibitem{vovk2005}
+V.~Vovk, A.~Gammerman, and G.~Shafer, \emph{Algorithmic Learning in a Random
+World}. New York, NY, USA: Springer, 2005.
+
 \bibitem{nycll144}
 New York City Council, ``Local Law 144 of 2021: Automated employment decision
-tools,'' N.Y.C. Admin. Code \S\S~20-870--20-874, 2021.
+tools,'' N.Y.C. Admin. Code \S\S~20-870--20-874, enacted Dec. 2021, enforced
+from Jul. 5, 2023.
 
 \bibitem{ilaivia}
 Illinois General Assembly, ``Artificial Intelligence Video Interview Act,''
-820 ILCS 42, 2019.
+820 ILCS 42, effective Jan. 1, 2020.
 
 \bibitem{ilhb3773}
 Illinois General Assembly, ``HB 3773: Amendment to the Illinois Human Rights
-Act (artificial intelligence in employment),'' Public Act 103-0804, 2024.
+Act (artificial intelligence in employment),'' Public Act 103-0804, effective
+Jan. 1, 2026.
 
 \bibitem{euaiact}
 European Parliament and Council of the European Union, ``Regulation (EU)
 2024/1689 laying down harmonised rules on artificial intelligence (Artificial
-Intelligence Act),'' \emph{Official J. European Union}, L series, Jul. 2024.
+Intelligence Act),'' \emph{Off. J. Eur. Union}, OJ L, 2024/1689, Jul. 12, 2024.
 
 \end{thebibliography}
 
