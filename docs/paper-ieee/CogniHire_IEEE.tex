@@ -1,0 +1,695 @@
+\documentclass[conference]{IEEEtran}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{url}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,fit}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.17}
+\usepgfplotslibrary{groupplots}
+\usepackage[hidelinks]{hyperref}
+
+\newcommand{\code}[1]{\texttt{#1}}
+
+\begin{document}
+
+\title{CogniHire: Auditing R\'esum\'e Claims Instead of\\Scoring Candidates}
+
+\author{\IEEEauthorblockN{Devesh S V}
+\IEEEauthorblockA{Department of Computer Science and Engineering\\
+SRM Institute of Science and Technology\\
+Chennai, India\\
+deveshsv.386@gmail.com}}
+
+\maketitle
+
+\begin{abstract}
+Automated hiring systems overwhelmingly emit a \emph{score}: a scalar that
+ranks a candidate against others. Such scores resist explanation, give a
+candidate nothing specific to contest, and carry growing regulatory exposure
+under New York City Local Law~144, the Illinois Human Rights Act as amended by
+HB~3773, and the EU Artificial Intelligence Act. We present CogniHire, a
+technical screening system built on the opposite premise: it audits the claims
+a candidate makes and never scores the candidate. Three technology families
+carry the load. Evidence grounding constrains a language model to \emph{select}
+claim text and forbids it to \emph{author} any; across roughly 100,000
+adversarial trials over 5,200 r\'esum\'es the gate rejected every
+meaning-preserving paraphrase and every negation trap while admitting every
+verbatim claim. For machine learning we report a nine-model, six-family
+comparison under grouped cross-validation with significance testing, and a
+within-query diagnostic that separates matching ability from candidate-level
+quality, which pooled metrics cannot do. For deep learning we show that a
+plausible authored face-similarity threshold of 0.50 would have falsely
+rejected 41.4\% of genuine identity matches, against 3.4\% at a threshold
+calibrated on Labeled Faces in the Wild. The recurring engineering move is
+converting policy into structure: an import boundary that fails the build, a
+type with no field to hold a fabricated value, a vocabulary ban that forbids a
+composite score.
+\end{abstract}
+
+\begin{IEEEkeywords}
+automated hiring, evidence grounding, claim verification, algorithmic
+accountability, model comparison, face verification, threshold calibration
+\end{IEEEkeywords}
+
+% ---------------------------------------------------------------- Fig. 1
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[
+  layer/.style={draw, rounded corners=2pt, minimum width=8.6cm, minimum height=0.78cm,
+                align=center, font=\small, line width=0.5pt},
+  flow/.style={-{Stealth[length=4pt]}, gray},
+  lbl/.style={font=\scriptsize\itshape, text=black!70, anchor=west},
+  node distance=0.42cm]
+\node[layer, fill=green!10, draw=green!50!black] (cs) {\textbf{Candidate Session}\\[-1pt]{\footnotesize R\'esum\'e $\cdot$ camera $\cdot$ typed or spoken answers}};
+\node[layer, fill=gray!10, draw=gray, above=of cs] (pe) {\textbf{Perception}\\[-1pt]{\footnotesize Face embedding $\cdot$ process telemetry $\cdot$ r\'esum\'e parsing}};
+\node[layer, fill=orange!15, draw=orange!70!black, above=of pe] (gg) {\textbf{Grounding Gate}\\[-1pt]{\footnotesize Verbatim only $\cdot$ negation- and hedge-aware}};
+\node[layer, fill=blue!8, draw=blue!50, above=of gg] (ie) {\textbf{Interview Engine}\\[-1pt]{\footnotesize Claim-driven planning $\cdot$ adaptive follow-ups}};
+\node[layer, fill=blue!8, draw=blue!50, above=of ie] (eg) {\textbf{Evidence Graph}\\[-1pt]{\footnotesize Typed nodes and edges $\cdot$ mandatory rationale}};
+\node[layer, fill=green!10, draw=green!50!black, above=of eg] (rg) {\textbf{Report Generation}\\[-1pt]{\footnotesize Deterministic transform $\cdot$ cannot invent a verdict}};
+\node[layer, fill=green!10, draw=green!50!black, above=of rg] (rc) {\textbf{Recruiter Console}\\[-1pt]{\footnotesize Per-claim audit $\cdot$ evidence $\cdot$ no composite score}};
+\foreach \a/\b/\t in {cs/pe/Measured signals, pe/gg/Selected spans only, gg/ie/Grounded claims,
+                      ie/eg/Linked evidence, eg/rg/Structured verdicts, rg/rc/Audited claims and cited evidence}{
+  \draw[flow] (\a.north) -- (\b.south) node[midway, lbl, xshift=2pt] {\t};
+}
+\node[draw, rounded corners=2pt, fill=gray!8, draw=gray, right=0.8cm of eg.east, anchor=west,
+      minimum width=4.2cm, align=left, font=\small, inner sep=6pt] (sg)
+  {\textbf{Structural guarantees}\\[3pt]
+   $\bullet$ No composite score\\
+   $\bullet$ AI selects, never authors\\
+   $\bullet$ Unmeasured is not passed\\
+   $\bullet$ No demographic inference\\
+   $\bullet$ No hiring-outcome labels};
+\end{tikzpicture}
+\caption{Data flow in CogniHire. Evidence moves upward from the candidate
+session to the recruiter console; each transition narrows what the system may
+assert. The right-hand panel lists the guarantees enforced structurally
+(Table~\ref{tab:policies}).}
+\label{fig:flow}
+\end{figure*}
+
+\section{Introduction}
+A technical interview ends and a form is filled in: \emph{``Strong
+communication. Good Flutter knowledge. 8.7/10.''} Six months later the number
+is indefensible. Nobody can reconstruct which answer moved it from 8.4 to 8.7;
+the candidate cannot appeal it and the recruiter cannot defend it. The number
+was a compression of knowledge that discarded everything needed to audit it.
+
+Automated interview platforms largely reproduce this failure at scale. Faced
+with criticism, the industry has made the scalar more sophisticated---more
+features, better models, fairness post-processing---but few have asked whether
+a scalar was the right output object at all.
+
+We take the opposite position: the useful output of automated screening is an
+audit of the claims a candidate has made, not a judgment of the candidate. A
+r\'esum\'e is a set of assertions. Each can be probed, each probe yields
+evidence, and evidence supports a verdict about \emph{the claim}. The verdicts,
+with evidence attached, go to a human who decides about \emph{the person}
+(Fig.~\ref{fig:flow}). This changes what the system must be \emph{unable} to
+do, and which technology belongs at which layer: grounding governs what may be
+asserted, machine learning (ML) measures properties of evidence, and deep
+learning (DL) supplies perception.
+
+Our contributions are:
+\begin{enumerate}
+\item A \textbf{claim-audit output model} replacing the composite score, with a
+  four-valued verdict set that makes unmeasured evidence explicit.
+\item A \textbf{structurally enforced grounding constraint}, measured at 100\%
+  paraphrase and negation-trap rejection over ${\sim}$100,000 trials.
+\item A \textbf{nine-model comparison} under grouped cross-validation with
+  Friedman and Holm-corrected Wilcoxon tests, plus a synthetic positive control
+  establishing statistical power.
+\item A \textbf{within-query ranking diagnostic} that separates matching from
+  entity-level quality on any paired benchmark.
+\item An \textbf{empirical threshold calibration} showing that a documented,
+  authored constant was wrong by a quantified amount.
+\end{enumerate}
+
+\section{Related Work}
+Raghavan et al.~\cite{raghavan2020} surveyed vendors of algorithmic
+pre-employment assessment and highlighted the consequences of a vendor's choice
+of prediction target: fairness analysis is conducted against the stated target
+rather than the deployed one. They offer no remedy for a misdescribed target;
+Section~\ref{sec:within} supplies a measurement that detects one.
+
+A second strand re-ran published comparisons under controlled protocols.
+Ferrari Dacrema et al.~\cite{dacrema2019} could reproduce only seven of
+eighteen neural recommenders, six of which were often beaten by simple
+heuristics; Musgrave et al.~\cite{musgrave2020} found the same for deep metric
+learning, and Grinsztajn et al.~\cite{grinsztajn2022} showed tree ensembles
+still rival deep networks on tabular data. We differ in finding that no method
+separates from any other, and then tracing why.
+
+On evaluation protocol, Dem\v{s}ar~\cite{demsar2006} cautions against reading a
+ranking off raw score differences; Nadeau and Bengio~\cite{nadeau2003} show
+that overlapping training sets bias naive variance estimates; Gorman and
+Bedrick~\cite{gorman2019} showed rankings from a single standard split often
+fail to reproduce; and Kapoor and Narayanan~\cite{kapoor2023} documented
+leakage in 294 ML-based science papers. We adopt Dem\v{s}ar's protocol and
+quantify one leakage category on a hiring benchmark.
+
+For perception we build on SCRFD~\cite{guo2022} and ArcFace~\cite{deng2019},
+which leave the verification threshold to the integrator, and calibrate it on
+LFW~\cite{huang2007}, treating the threshold as a calibration problem in the
+sense of Platt~\cite{platt1999}. Across these strands three gaps recur: no work
+constrains generative extraction to selection; prediction targets go
+unverified behind pooled metrics; and perception components ship with
+authored, unmeasured thresholds.
+
+\begin{table}[t]
+\caption{Policies Converted Into Structural Guarantees}
+\label{tab:policies}
+\centering
+\footnotesize
+\begin{tabular}{@{}p{0.36\columnwidth}p{0.57\columnwidth}@{}}
+\toprule
+Policy & Structure \\
+\midrule
+AI must not author claims & Import boundary plus a CI architecture test \\
+Unmeasured is not passed & Result type with no similarity field \\
+No composite score & Vocabulary ban that fails the build \\
+No demographic inference & Classifier module never loaded (allow-list) \\
+No outcome labels & No such dataset, no code path to build one \\
+Plans cannot be back-edited & Question plans never persisted \\
+Sessions reconstructible & Append-only event table with sequencing trigger \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{System Architecture}
+CogniHire spans four surfaces: a candidate portal (consent, r\'esum\'e, session
+media), an inference service (perception and learned components), an
+event-sourced persistence layer, and a recruiter console that renders the
+audit. Every guarantee is enforced at a boundary between two surfaces. Session
+state is written to an append-only table with a sequence-assigning trigger, so
+a session can be reconstructed turn by turn; question plans are never
+persisted, so a plan cannot be edited after the fact to match an outcome.
+
+The audit's verdict set is \code{substantiated}, \code{notDemonstrated},
+\code{contradicted}, and \code{notExamined}. The four are deliberately not
+orderable, and no composite is computed. \code{notExamined} is load-bearing:
+without it an unprobed claim is simply absent from the report, and absence
+reads as acceptance.
+
+Table~\ref{tab:policies} lists the policies the system converts into
+structures. Each turns a claim that requires trust into one a skeptical
+reviewer can check by inspection.
+
+\section{Evidence Grounding}
+\subsection{The Grounding Gate}
+The central rule: a claim's text must be a verbatim substring of the
+r\'esum\'e. The model selects; it does not generate. Naive substring matching
+is insufficient, so the gate (Fig.~\ref{fig:gate}) adds negation rejection
+(``I have not worked with Kubernetes'' yields no Kubernetes claim), hedge
+rejection (``some exposure to Kafka''), contrastive-conjunction splitting (``I
+used Django, but never in production''), and clause scoping, so matching never
+crosses a clause boundary.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figs/fig2_gate.pdf}
+\caption{The grounding gate as a decision pipeline. Any \emph{no} branch
+discards the proposed claim.}
+\label{fig:gate}
+\end{figure}
+
+The grounding module is forbidden from importing the AI module, and an
+architecture test fails continuous integration if that import appears. The
+guarantee is a property of the build, not of developer discipline. Because the
+planner consumes only typed claims, an instruction embedded in a r\'esum\'e has
+no field to occupy, which also closes the prompt-injection channel.
+
+\subsection{Measured Behavior}
+An offline deterministic harness drives the real pipeline modules over 5,200
+synthetic r\'esum\'es spanning eight fields and four seniority levels. No
+language-model key is needed, so the result is reproducible. Across roughly
+100,000 trials the gate rejected all 48,149 meaning-preserving paraphrases and
+all 51,761 negation traps (Fig.~\ref{fig:gateeval}).
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  xbar, width=0.95\columnwidth, height=5.0cm,
+  xmin=98.5, xmax=100.15,
+  xtick={98.5,99.0,99.5,100.0},
+  xticklabel style={/pgf/number format/fixed, /pgf/number format/precision=1},
+  xlabel={Correct-decision rate (\%)}, xlabel style={font=\footnotesize},
+  ytick={1,2,3},
+  yticklabels={{Verbatim claims\\(should admit)},{Paraphrases\\(must reject)},{Negation traps\\(must reject)}},
+  yticklabel style={align=right, font=\scriptsize},
+  ticklabel style={font=\scriptsize},
+  bar width=6pt, enlarge y limits=0.28,
+  legend style={font=\scriptsize, at={(0.5,1.03)}, anchor=south, legend columns=2, draw=none},
+  reverse legend,
+  nodes near coords, nodes near coords style={font=\tiny, anchor=west},
+  point meta=explicit symbolic,
+  xmajorgrids, grid style={gray!25}]
+\addplot[fill=gray!35, draw=gray] coordinates {(99.18,1)[99.18\%] (100,2)[100\%] (100,3)[100\%]};
+\addplot[fill=blue!45, draw=blue!60!black] coordinates {(100,1)[100\%] (100,2)[100\%] (100,3)[100\%]};
+\legend{Before fix, After fix}
+\end{axis}
+\end{tikzpicture}
+\caption{Grounding-gate evaluation before and after the clause-splitter fix.
+The axis is truncated at 98.5\% to make the verbatim-admission defect visible;
+$n=51{,}761$ verbatim claims, $48{,}149$ paraphrases, $51{,}761$ negation traps.}
+\label{fig:gateeval}
+\end{figure}
+
+The initial run showed a 0.82\% false-rejection rate: 425 of 51,761 genuine
+claims discarded, every one containing a period-bearing token (\code{Node.js},
+\code{asp.net}, \code{Python 3.9}). The clause splitter treated every period as
+a terminal, so ``Node.js.'' split into ``Node'' and ``js.'' and the claim was
+\emph{silently} dropped. Requiring a terminal to be followed by whitespace or
+end-of-string fixed it; since the change only makes clauses longer, it widens
+negation scope and cannot weaken the guard. Verbatim admission rose to 100\%
+with both rejection rates unchanged. No unit test caught this defect; only
+corpus-scale measurement with an explicit true-positive metric did.
+
+The corpus is synthetic and single-generator, so we do not claim 100\%
+extraction coverage in general. The defensible claim concerns the safety
+mechanism: the model selects and never authors.
+
+\section{Machine Learning: What Model Choice Buys}
+ML in CogniHire measures properties of evidence; it is never trained on hiring
+outcomes. To test how much algorithm choice matters in screening, we compared
+nine classifiers from six families on a public r\'esum\'e--posting fit
+benchmark~\cite{cnamuangtoun2024} of 7,910 balanced pairs (643 r\'esum\'es,
+351 postings), using scikit-learn~\cite{pedregosa2011}. The dataset card states
+no description, license, or labeling procedure, which bounds how far any
+result on it generalizes.
+
+\subsection{Protocol and Results}
+Every experiment uses ten-fold \code{GroupKFold} grouped by posting. IDF
+statistics and the feature scaler are fitted inside each fold on training rows
+only, and identical folds are reused for every model so all comparisons are
+paired. Table~\ref{tab:nine} reports the results.
+
+\begin{table}[t]
+\caption{Nine Classifiers, Ten-Fold \code{GroupKFold} by Posting
+(Mean $\pm$ Fold Std.)}
+\label{tab:nine}
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lcccr@{}}
+\toprule
+Model & AUROC & ECE & Lat.\ ($\mu$s) & Size (KB) \\
+\midrule
+MLP                 & \textbf{0.696 $\pm$ 0.031} & 0.057 & 0.5   & 74.7 \\
+Gradient boosting   & 0.689 $\pm$ 0.028 & 0.047 & 1.9   & 393.3 \\
+Random forest       & 0.688 $\pm$ 0.030 & 0.047 & 88.2  & 24,732.6 \\
+SVM (RBF)           & 0.686 $\pm$ 0.028 & 0.053 & 195.0 & 526.8 \\
+Extra trees         & 0.685 $\pm$ 0.030 & \textbf{0.046} & 84.9 & 63,415.9 \\
+$k$-NN              & 0.680 $\pm$ 0.031 & 0.057 & 35.5  & 1,272.8 \\
+Hist.\ grad.\ boost.& 0.679 $\pm$ 0.029 & 0.057 & 7.3   & 591.8 \\
+Gaussian NB         & 0.667 $\pm$ 0.033 & 0.117 & 0.3   & 1.1 \\
+Logistic regression & 0.665 $\pm$ 0.022 & 0.052 & \textbf{0.2} & \textbf{0.9} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The nine span only 0.031 AUROC, comparable to each model's fold-to-fold
+standard deviation. The Friedman test rejects identical performance
+($\chi^2 = 38.35$, $p = 6.5\times10^{-6}$), but under paired Wilcoxon tests
+with Holm correction the leading MLP is \textbf{statistically
+indistinguishable from all four tree ensembles}. A ranked table alone would
+have licensed ``MLP is best''; the significance analysis does not.
+
+\emph{Power.} A null is uninformative unless the protocol can detect a
+difference when one exists. On a synthetic control with a planted generative
+process (Bayes-optimal accuracy 0.925), the same nine models under the
+identical code path separate decisively ($\chi^2 = 55.42$,
+$p = 3.7\times10^{-9}$; Fig.~\ref{fig:folds}). The null is a property of the
+task, not the protocol.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.95\textwidth]{figs/fig4_folds.pdf}
+\caption{Per-fold results over ten grouped folds. (a) Nine models on the real
+screening task (AUROC): boxes overlap almost completely. (b) Same models,
+folds, and code on the synthetic positive control (accuracy), which they
+separate clearly.}
+\label{fig:folds}
+\end{figure*}
+
+\emph{Tuning.} Nested cross-validation with an equal eight-configuration budget
+per model improves no model by more than 0.0077 AUROC, and after tuning the
+leader separates from fewer rivals, not more.
+
+\subsection{Separating Matching From Candidate Quality}
+\label{sec:within}
+A pooled metric rewards two capabilities it cannot distinguish: knowing which
+\emph{r\'esum\'es} tend to be labeled fit, and knowing which \emph{postings} a
+given r\'esum\'e fits. Only the second is matching. We varied the input
+representation under identical folds. The best representation, concatenated
+1536-dimensional r\'esum\'e and posting embeddings, reaches 0.755 AUROC. A
+probe given only the r\'esum\'e embedding---which cannot be matching---reaches
+0.660 AUROC, 87\% of that best score.
+
+This suggested the labels were not relational at all. A direct test refuted
+that: 80.6\% of label variance is within-r\'esum\'e. We therefore evaluate on
+pairs of rows sharing a r\'esum\'e, one positive and one negative, and ask
+whether the model ranks the positive posting higher. Every r\'esum\'e-level
+property cancels, so chance is exactly 0.5.
+
+\begin{table}[t]
+\caption{Pairwise Ranking Accuracy (Random Forest, 4,112 Within-R\'esum\'e
+Pairs, Chance = 0.5)}
+\label{tab:within}
+\centering
+\footnotesize
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Representation & Between & Within & Binomial $p$ \\
+\midrule
+Relational (10-d)     & 0.6905 & \textbf{0.6333} & $3.8\times10^{-66}$ \\
+Interaction (1536-d)  & \textbf{0.7372} & 0.6240 & $2.0\times10^{-57}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Models do match: given one r\'esum\'e and two postings, they pick the fitting
+one about 63\% of the time (Table~\ref{tab:within}). But moving from the
+relational to the 1536-dimensional interaction representation raises pooled
+AUROC by $+0.041$ and between-r\'esum\'e ranking by $+0.047$, while
+within-r\'esum\'e matching changes by $-0.009$ ($p = 0.445$, paired Wilcoxon).
+The improvement a leaderboard would record came from ranking candidates against
+each other, not from matching them to roles. The diagnostic needs no extra
+labels and applies to any paired benchmark with a recurring entity
+(patient--treatment, user--item, query--document). In hiring, it is precisely
+the measurement that distinguishes ranking matches from ranking people---the
+target substitution Raghavan et al.~\cite{raghavan2020} identify.
+
+\subsection{Robustness and Efficiency}
+Table~\ref{tab:splits} varies only the splitting scheme, holding features and
+model fixed: a 300-tree, class-balanced random forest on the relational
+features, configured separately from the Table~\ref{tab:nine} forest. The ungrouped scheme a conventional bake-off would use scores
+0.024 AUROC above the posting-grouped protocol, a modest leakage inflation.
+Closing the r\'esum\'e channel, however, does not collapse performance:
+grouping by r\'esum\'e scores 0.014 \emph{higher}, which refutes a
+strong-memorization account. The ordering tracks which side of the pair is
+novel, and generalizing to a new posting is the harder problem---exactly the
+condition every new requisition presents. Binarization is not hiding signal
+either: the cleanest contrast, Good Fit against No Fit with the ambiguous class
+removed, scores 0.681, no better than the 0.689 of the binarized label.
+
+\begin{table}[t]
+\caption{Split-Scheme Comparison (Random Forest, Relational 10-d
+Features, Identical Throughout; Mean $\pm$ Fold Std.)}
+\label{tab:splits}
+\centering
+\footnotesize
+\begin{tabular}{@{}llc@{}}
+\toprule
+Scheme & Held out & AUROC \\
+\midrule
+$k$-fold, no grouping   & nothing            & 0.714 $\pm$ 0.016 \\
+\code{GroupKFold} by r\'esum\'e & every test r\'esum\'e & 0.703 $\pm$ 0.031 \\
+\code{GroupKFold} by posting    & every test posting    & 0.689 $\pm$ 0.016 \\
+\bottomrule
+\end{tabular}
+
+\end{table}
+
+A learning curve over the same folds rises from 0.651 AUROC at a tenth of the
+data to 0.688 at all of it; doubling from half to full buys only 0.008
+(Fig.~\ref{fig:curve}). The curve flattens well below any useful operating
+point, so the limitation is not sample size.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.85\columnwidth]{figs/fig5_curve.pdf}
+\caption{Learning curve over the same ten folds (mean $\pm$ fold std.).}
+\label{fig:curve}
+\end{figure}
+
+Meanwhile inference latency spans three orders of magnitude (0.2 to
+195.0\,$\mu$s per row) and serialized model size spans 0.9\,KB to 63.4\,MB
+(Table~\ref{tab:nine}), for 0.031 AUROC (Fig.~\ref{fig:latency}); the rational
+choice is the cheapest model not significantly worse.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{semilogxaxis}[
+  width=\columnwidth, height=5.4cm,
+  xmin=0.1, xmax=3000, ymin=0.660, ymax=0.700,
+  xlabel={Inference latency ($\mu$s per row, log scale)},
+  ylabel={AUROC},
+  label style={font=\footnotesize}, ticklabel style={font=\scriptsize},
+  yticklabel style={/pgf/number format/fixed, /pgf/number format/fixed zerofill, /pgf/number format/precision=3},
+  grid=major, grid style={gray!25},
+  nodes near coords, point meta=explicit symbolic,
+  every node near coord/.style={font=\tiny, inner sep=1.5pt}]
+\addplot[only marks, mark=*, mark size=1.6pt, blue!70!black,
+  visualization depends on={value \thisrow{anc}\as\anc},
+  every node near coord/.append style={anchor=\anc}]
+  table[x=lat, y=auc, meta=name]{
+  lat   auc   name                anc
+  0.5   0.696 MLP                 west
+  1.9   0.689 {Gradient boost.}   south
+  88.2  0.688 {Random forest}     south
+  195.0 0.686 {SVM (RBF)}         west
+  84.9  0.685 {Extra trees}       north east
+  35.5  0.680 {$k$-NN}            south
+  7.3   0.679 {Hist.\ grad.\ boost.} north
+  0.3   0.667 {Gaussian NB}       west
+  0.2   0.665 {Logistic reg.}     north west
+  };
+\end{semilogxaxis}
+\end{tikzpicture}
+\caption{AUROC against inference latency (log scale). Three orders of
+magnitude of latency buy 0.031 AUROC.}
+\label{fig:latency}
+\end{figure}
+
+\section{Deep Learning: Calibrating Identity}
+Face detection uses SCRFD~\cite{guo2022} and embedding uses
+ArcFace~\cite{deng2019}; both are frozen. Retraining on project-scale data
+would be worse and would introduce demographic bias we cannot audit. The vendor
+pack's age and gender classifier is excluded by a loader allow-list.
+
+The system originally used an authored cosine-similarity threshold of 0.50,
+reasoned and documented but flagged as uncalibrated. An equal-error-rate sweep
+on 2,200 LFW~\cite{huang2007} training pairs, evaluated on 1,000 held-out
+pairs, gives Table~\ref{tab:face}.
+
+\begin{table}[t]
+\caption{Face-Verification Threshold Before and After Calibration on LFW
+(1,000 Held-Out Pairs)}
+\label{tab:face}
+\centering
+\footnotesize
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+Threshold & FAR & FRR & Acc. & AUC \\
+\midrule
+\textbf{0.1266} (calibrated) & 0.030 & \textbf{0.034} & \textbf{0.968} & 0.9785 \\
+0.50 (authored)              & 0.000 & 0.414 & 0.793 & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The authored value would have falsely rejected 41.4\% of genuine matches.
+Because the system correctly refuses to treat an unmeasured check as a pass,
+roughly two in five legitimate candidates would have accumulated integrity
+flags for being themselves. Calibration cut false rejection twelvefold at a
+false-acceptance cost of 3.0\%. In security-adjacent systems, \emph{reasoned}
+and \emph{correct} are different properties, and only one can be demonstrated.
+
+The identity result type is three-valued. \code{Unchecked} carries a reason and
+has no similarity field at all---not 0.0, not null---so no downstream
+comparison can read a failed measurement as a low-but-real one, in the spirit
+of distribution-free abstention~\cite{vovk2005}. LFW is a public-figure
+benchmark, not our candidate population; population-specific recalibration
+requires consented candidate data we have not collected.
+
+\begin{table*}[t]
+\caption{Mapping Regulatory Obligations Onto Architectural Mechanisms}
+\label{tab:reg}
+\centering
+\footnotesize
+\begin{tabular}{@{}p{0.17\textwidth}p{0.27\textwidth}p{0.48\textwidth}@{}}
+\toprule
+Obligation & Instrument & Mechanism in CogniHire \\
+\midrule
+Bias audit of the tool & NYC Local Law 144~\cite{nycll144} & No composite score to audit; the audited object is the per-claim verdict distribution \\
+Candidate notification & NYC Local Law 144~\cite{nycll144}; Illinois AI Video Interview Act~\cite{ilaivia} & Consent captured per session with a recorded consent version \\
+Human oversight & EU AI Act, Annex III high-risk~\cite{euaiact} & Report generation is a deterministic transform containing no code that could emit a recommendation \\
+Explanation and contestability & EU AI Act~\cite{euaiact}; Illinois HB 3773~\cite{ilhb3773} & Every verdict carries its evidence and character offsets into the candidate's own words \\
+Non-discrimination & Illinois Human Rights Act as amended by HB 3773~\cite{ilhb3773} & No demographic inference, no outcome labels, no historical decision pattern to inherit \\
+Traceability & All & Append-only event store; sessions reconstructible turn by turn \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\section{Integration, Compliance, and Limitations}
+Each family alone leaves a gap. Grounding guarantees claims are the candidate's
+own words but not that a session gathered enough evidence to judge them; ML
+measures evidence sufficiency but, without grounding, would measure text a
+model may have invented; DL supplies identity continuity but no verdict.
+Together they close a loop that terminates in a human reviewer, not an
+aggregate.
+
+This design maps directly onto regulation (Table~\ref{tab:reg}). The
+instruments share a direction: an automated employment decision must be
+explicable and contestable. A system architected around a scalar faces a
+retrofit its own architecture resists, since the explanatory information was
+discarded at design time. The mapping in Table~\ref{tab:reg} is possible only
+because CogniHire declines to produce an aggregate: a bias audit of a composite
+score must explain the score, whereas a bias audit of a claim audit examines
+the distribution of verdicts and the evidence attached to each---a smaller and
+better-posed question.
+
+\emph{Lessons from a reference implementation.} Before building, we audited a
+comparable open system in full. Its computer-vision core was sound, but its
+decision layer was largely fabricated. An object detector configured with an
+invalid model name never ran once; a luminance heuristic filled the gap and
+logged window glare as \emph{camera-verified} phone detections, which fed an
+escalating penalty system, while a status string reading \emph{engine ready}
+was never rendered anywhere. The identity endpoint returned a 0.98-confidence
+match when no enrolled face existed at all, and a r\'esum\'e analyzer returned
+a hardcoded skill list on zero keyword matches. The defects share one root
+cause: a fallback that fabricates a measurement is worse than an outage.
+CogniHire's responses---a value-free type for failed measurements, component
+health surfaced to a human, every output traceable to a source span---follow
+directly. For the same reason we deliberately do \emph{not} build affect,
+stress, or deception estimation: none has defensible ground truth on a diverse
+candidate pool, and a stress percentage that silently changes which questions
+a candidate is asked is itself a hidden score.
+
+\emph{Limitations.} We state three gaps openly. Identity matching is
+implemented and tested but is currently only a presence gate on the production
+path, so continuous identity verification is not yet deployed. The face
+threshold is calibrated on a public benchmark, not candidates. And no
+structured recruiter validation study has been conducted, so the premise that
+reviewers prefer a claim audit to a score is untested; a controlled comparison
+measuring inter-reviewer agreement is the most valuable next study. Finally, a
+r\'esum\'e--posting fit model from an earlier iteration of this work (0.657
+AUROC) is deliberately not deployed: Section~\ref{sec:within} shows that
+pooled fit scores on this benchmark largely reward ranking candidates rather
+than matching them.
+
+\section{Conclusion}
+CogniHire replaces the composite hiring score with a per-claim audit whose
+guarantees are enforced by architecture rather than by prompt discipline.
+Three findings stand out. The grounding gate rejected every meaning-preserving
+paraphrase and negation trap across ${\sim}$100,000 trials while admitting
+every verbatim claim. A carefully reasoned similarity constant would have
+falsely rejected 41.4\% of genuine identity matches; measurement reduced that
+to 3.4\%. And nine classifiers proved statistically indistinguishable at the
+top of a public screening benchmark, while a within-query diagnostic showed
+that the pooled metric's apparent gains came from ranking candidates rather
+than matching them. That last finding overturned our own initial hypothesis;
+we report the sequence because a diagnostic proves its power only when it
+refutes something.
+
+\section*{Data Availability}
+Analysis code, per-fold results, and figure sources are available from the
+author on request. % AUTHOR: replace with a public repository URL or DOI if you have one.
+The face study uses the public LFW benchmark and the grounding evaluation a
+synthetic corpus; no human subjects were involved.
+
+\begin{thebibliography}{99}
+
+\bibitem{raghavan2020}
+M.~Raghavan, S.~Barocas, J.~Kleinberg, and K.~Levy, ``Mitigating bias in
+algorithmic hiring: Evaluating claims and practices,'' in \emph{Proc. Conf.
+Fairness, Accountability, and Transparency (FAT* '20)}, Barcelona, Spain,
+2020, pp.~469--481.
+
+\bibitem{dacrema2019}
+M.~Ferrari Dacrema, P.~Cremonesi, and D.~Jannach, ``Are we really making much
+progress? A worrying analysis of recent neural recommendation approaches,'' in
+\emph{Proc. 13th ACM Conf. Recommender Systems (RecSys '19)}, Copenhagen,
+Denmark, 2019, pp.~101--109.
+
+\bibitem{musgrave2020}
+K.~Musgrave, S.~Belongie, and S.-N. Lim, ``A metric learning reality check,''
+in \emph{Computer Vision -- ECCV 2020}, ser. LNCS, vol.~12370. Cham,
+Switzerland: Springer, 2020, pp.~681--699.
+
+\bibitem{grinsztajn2022}
+L.~Grinsztajn, E.~Oyallon, and G.~Varoquaux, ``Why do tree-based models still
+outperform deep learning on typical tabular data?'' in \emph{Advances in
+Neural Information Processing Systems (NeurIPS), Datasets and Benchmarks
+Track}, 2022.
+
+\bibitem{demsar2006}
+J.~Dem\v{s}ar, ``Statistical comparisons of classifiers over multiple data
+sets,'' \emph{J. Mach. Learn. Res.}, vol.~7, pp.~1--30, 2006.
+
+\bibitem{nadeau2003}
+C.~Nadeau and Y.~Bengio, ``Inference for the generalization error,''
+\emph{Mach. Learn.}, vol.~52, no.~3, pp.~239--281, 2003.
+
+\bibitem{gorman2019}
+K.~Gorman and S.~Bedrick, ``We need to talk about standard splits,'' in
+\emph{Proc. 57th Annu. Meeting Assoc. Comput. Linguistics (ACL)}, Florence,
+Italy, 2019, pp.~2786--2791.
+
+\bibitem{kapoor2023}
+S.~Kapoor and A.~Narayanan, ``Leakage and the reproducibility crisis in
+machine-learning-based science,'' \emph{Patterns}, vol.~4, no.~9, Art.
+no.~100804, 2023.
+
+\bibitem{guo2022}
+J.~Guo, J.~Deng, A.~Lattas, and S.~Zafeiriou, ``Sample and computation
+redistribution for efficient face detection,'' in \emph{Proc. Int. Conf.
+Learning Representations (ICLR)}, 2022.
+
+\bibitem{deng2019}
+J.~Deng, J.~Guo, N.~Xue, and S.~Zafeiriou, ``ArcFace: Additive angular margin
+loss for deep face recognition,'' in \emph{Proc. IEEE/CVF Conf. Computer
+Vision and Pattern Recognition (CVPR)}, 2019, pp.~4690--4699.
+
+\bibitem{huang2007}
+G.~B. Huang, M.~Ramesh, T.~Berg, and E.~Learned-Miller, ``Labeled Faces in the
+Wild: A database for studying face recognition in unconstrained
+environments,'' Univ. Massachusetts, Amherst, MA, USA, Tech. Rep. 07-49,
+Oct. 2007.
+
+\bibitem{platt1999}
+J.~Platt, ``Probabilistic outputs for support vector machines and comparisons
+to regularized likelihood methods,'' in \emph{Advances in Large Margin
+Classifiers}. Cambridge, MA, USA: MIT Press, 1999, pp.~61--74.
+
+\bibitem{vovk2005}
+V.~Vovk, A.~Gammerman, and G.~Shafer, \emph{Algorithmic Learning in a Random
+World}. New York, NY, USA: Springer, 2005.
+
+\bibitem{cnamuangtoun2024}
+cnamuangtoun, ``resume-job-description-fit,'' Hugging Face Datasets, 2024.
+[Online]. Available:
+\url{https://huggingface.co/datasets/cnamuangtoun/resume-job-description-fit}
+
+\bibitem{pedregosa2011}
+F.~Pedregosa \emph{et al.}, ``Scikit-learn: Machine learning in Python,''
+\emph{J. Mach. Learn. Res.}, vol.~12, pp.~2825--2830, 2011.
+
+\bibitem{nycll144}
+New York City Council, ``Local Law 144 of 2021: Automated employment decision
+tools,'' N.Y.C. Admin. Code \S\S~20-870--20-874, 2021.
+
+\bibitem{ilaivia}
+Illinois General Assembly, ``Artificial Intelligence Video Interview Act,''
+820 ILCS 42, 2019.
+
+\bibitem{ilhb3773}
+Illinois General Assembly, ``HB 3773: Amendment to the Illinois Human Rights
+Act (artificial intelligence in employment),'' Public Act 103-0804, 2024.
+
+\bibitem{euaiact}
+European Parliament and Council of the European Union, ``Regulation (EU)
+2024/1689 laying down harmonised rules on artificial intelligence (Artificial
+Intelligence Act),'' \emph{Official J. European Union}, L series, Jul. 2024.
+
+\end{thebibliography}
+
+\end{document}
