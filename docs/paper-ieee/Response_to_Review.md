@@ -71,7 +71,7 @@ This review was of the earlier 8-page version. Two new experiments were run for 
 | 11 | Injection beyond text templates | Tested zero-width characters, Cyrillic homoglyphs, split instructions, HTML hidden text and Spanish, Hindi, Chinese and French instructions: 0 fabricated outputs admitted. Image and PDF-metadata vectors are stated as untested. | Sec. IV-D |
 | 12 | Dataset provenance | The missing licence and labeling procedure are stated, the labels are treated as an unvalidated proxy, and the benchmark is used only diagnostically | Sec. V-A |
 | 13 | Latency incomplete | Extraction and gate timings reported; untimed stages are stated; end-to-end timing is future work | Sec. V-D |
-| 14 | Code only on request | Pending the author's decision on a public repository | Data Availability |
+| 14 | Code only on request | All code, per-fold results, evaluation harnesses and figure sources are now public at https://github.com/devesh-386/cognihire- | Data Availability |
 | 15 | Rhetorical language | The opening anecdote, the anecdote about another system and "a fallback ... is worse than an outage" were removed; "overwhelmingly" was softened in the abstract | Abstract, Sec. I, Sec. VII |
 
 ## Minor comments
