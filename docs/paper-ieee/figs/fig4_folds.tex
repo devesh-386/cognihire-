@@ -1,0 +1,30 @@
+\begin{tikzpicture}
+\begin{axis}[boxplot/draw direction=x, clip=false, width=0.47\textwidth, height=5.6cm, ytick={9,8,7,6,5,4,3,2,1}, ymin=0.4, ymax=9.6, ticklabel style={font=\footnotesize}, label style={font=\footnotesize}, title style={font=\footnotesize}, xmajorgrids, grid style={gray!25}, mark options={mark size=1pt, black!60}, yticklabels={{MLP},{Gradient boosting},{Random forest},{SVM (RBF)},{Extra trees},{$k$-NN},{Hist.\ grad.\ boosting},{Gaussian NB},{Logistic regression}}, xmin=0.49, xmax=0.77, xlabel={AUROC}, title={(a) R\'esum\'e--posting fit (real)},
+  xticklabel style={/pgf/number format/fixed, /pgf/number format/precision=2}]
+\draw[dashed, gray] (axis cs:0.5,0.4) -- (axis cs:0.5,9.6) node[pos=0.03, right, font=\scriptsize, text=gray] {chance};
+\addplot+[boxplot prepared={draw position=9,lower whisker=0.6456,lower quartile=0.6756,median=0.6870,upper quartile=0.7162,upper whisker=0.7592},draw=black!70,fill=blue!12,solid] coordinates {};
+\addplot+[boxplot prepared={draw position=8,lower whisker=0.6392,lower quartile=0.6740,median=0.6900,upper quartile=0.7030,upper whisker=0.7343},draw=black!70,fill=blue!12,solid] coordinates {};
+\addplot+[boxplot prepared={draw position=7,lower whisker=0.6572,lower quartile=0.6759,median=0.6921,upper quartile=0.7023,upper whisker=0.7350},draw=black!70,fill=blue!12,solid] coordinates {(0,0.6266)};
+\addplot+[boxplot prepared={draw position=6,lower whisker=0.6338,lower quartile=0.6706,median=0.6852,upper quartile=0.7012,upper whisker=0.7420},draw=black!70,fill=blue!12,solid] coordinates {};
+\addplot+[boxplot prepared={draw position=5,lower whisker=0.6333,lower quartile=0.6680,median=0.6816,upper quartile=0.7039,upper whisker=0.7364},draw=black!70,fill=blue!12,solid] coordinates {};
+\addplot+[boxplot prepared={draw position=4,lower whisker=0.6232,lower quartile=0.6622,median=0.6799,upper quartile=0.6991,upper whisker=0.7325},draw=black!70,fill=blue!12,solid] coordinates {};
+\addplot+[boxplot prepared={draw position=3,lower whisker=0.6281,lower quartile=0.6575,median=0.6814,upper quartile=0.7011,upper whisker=0.7261},draw=black!70,fill=blue!12,solid] coordinates {};
+\addplot+[boxplot prepared={draw position=2,lower whisker=0.6607,lower quartile=0.6623,median=0.6748,upper quartile=0.6849,upper whisker=0.7141},draw=black!70,fill=blue!12,solid] coordinates {(0,0.6154) (0,0.6013)};
+\addplot+[boxplot prepared={draw position=1,lower whisker=0.6262,lower quartile=0.6562,median=0.6689,upper quartile=0.6824,upper whisker=0.6912},draw=black!70,fill=blue!12,solid] coordinates {};
+\end{axis}
+\end{tikzpicture}\hfill
+\begin{tikzpicture}
+\begin{axis}[boxplot/draw direction=x, clip=false, width=0.47\textwidth, height=5.6cm, ytick={9,8,7,6,5,4,3,2,1}, ymin=0.4, ymax=9.6, ticklabel style={font=\footnotesize}, label style={font=\footnotesize}, title style={font=\footnotesize}, xmajorgrids, grid style={gray!25}, mark options={mark size=1pt, black!60}, yticklabels={}, xmin=0.80, xmax=0.935, xlabel={Accuracy}, title={(b) Synthetic control (planted signal)},
+  xticklabel style={/pgf/number format/fixed, /pgf/number format/precision=2}]
+\draw[dashed, red!70!black] (axis cs:0.9247,0.4) -- (axis cs:0.9247,9.6) node[pos=0.5, rotate=90, anchor=south, font=\scriptsize, text=red!70!black] {Bayes-optimal 0.925};
+\addplot+[boxplot prepared={draw position=9,lower whisker=0.8533,lower quartile=0.8633,median=0.8767,upper quartile=0.8908,upper whisker=0.9033},draw=black!70,fill=blue!12,solid] coordinates {};
+\addplot+[boxplot prepared={draw position=8,lower whisker=0.8333,lower quartile=0.8475,median=0.8600,upper quartile=0.8700,upper whisker=0.8800},draw=black!70,fill=blue!12,solid] coordinates {};
+\addplot+[boxplot prepared={draw position=7,lower whisker=0.8267,lower quartile=0.8375,median=0.8417,upper quartile=0.8658,upper whisker=0.8800},draw=black!70,fill=blue!12,solid] coordinates {};
+\addplot+[boxplot prepared={draw position=6,lower whisker=0.8433,lower quartile=0.8550,median=0.8683,upper quartile=0.8858,upper whisker=0.8900},draw=black!70,fill=blue!12,solid] coordinates {};
+\addplot+[boxplot prepared={draw position=5,lower whisker=0.8400,lower quartile=0.8583,median=0.8650,upper quartile=0.8742,upper whisker=0.8833},draw=black!70,fill=blue!12,solid] coordinates {};
+\addplot+[boxplot prepared={draw position=4,lower whisker=0.8133,lower quartile=0.8300,median=0.8367,upper quartile=0.8425,upper whisker=0.8567},draw=black!70,fill=blue!12,solid] coordinates {};
+\addplot+[boxplot prepared={draw position=3,lower whisker=0.8300,lower quartile=0.8350,median=0.8433,upper quartile=0.8458,upper whisker=0.8567},draw=black!70,fill=blue!12,solid] coordinates {(0,0.8133) (0,0.8700)};
+\addplot+[boxplot prepared={draw position=2,lower whisker=0.8567,lower quartile=0.8708,median=0.8783,upper quartile=0.8833,upper whisker=0.8933},draw=black!70,fill=blue!12,solid] coordinates {};
+\addplot+[boxplot prepared={draw position=1,lower whisker=0.8367,lower quartile=0.8567,median=0.8667,upper quartile=0.8725,upper whisker=0.8833},draw=black!70,fill=blue!12,solid] coordinates {};
+\end{axis}
+\end{tikzpicture}

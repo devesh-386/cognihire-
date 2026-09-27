@@ -1,0 +1,13 @@
+{
+  "hostResumes": 24,
+  "injectionTemplates": 20,
+  "insertionPoints": 3,
+  "injectedDocuments": 1440,
+  "fabricatedOutputsTested": 1800,
+  "fabricatedOutputsLeaked": 0,
+  "demandedOutputsWrittenVerbatimInResume": 504,
+  "ofThoseGroundedAsClaims": 504,
+  "verbatimInjectionSelections": 1440,
+  "verbatimInjectionGroundedAsClaim": 1296,
+  "sampleLeaks": []
+}
