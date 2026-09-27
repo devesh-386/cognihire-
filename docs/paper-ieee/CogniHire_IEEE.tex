@@ -32,7 +32,7 @@ deveshsv.386@gmail.com}}
 \maketitle
 
 \begin{abstract}
-Automated hiring systems overwhelmingly emit a score: a scalar that ranks a
+Automated hiring systems typically emit a score: a scalar that ranks a
 candidate against others. Such scores resist explanation, give a candidate
 nothing specific to contest, and carry growing regulatory exposure under New
 York City Local Law~144, the Illinois Human Rights Act as amended by HB~3773,
@@ -59,14 +59,11 @@ threshold calibration
 \end{IEEEkeywords}
 
 \section{Introduction}
-A technical interview ends with a form: ``Strong communication. Good Flutter
-knowledge. 8.7/10.'' Six months later nobody can reconstruct which answer moved
-the score from 8.4 to 8.7; the candidate cannot appeal it and the recruiter
-cannot defend it. Automated platforms reproduce this failure at
-scale~\cite{bogen2018}, and the industry's response has been a more
-sophisticated scalar rather than a different output~\cite{raghavan2020}.
+Interview assessments are commonly summarized as a single score, which records
+neither which answer produced it nor how it could be contested. Automated
+screening platforms inherit this limitation~\cite{bogen2018,raghavan2020}.
 
-We take the opposite position: the useful output of automated screening is an
+We propose that the useful output of automated screening is an
 audit of the claims a candidate has made, not a judgment of the candidate. Each
 resume claim is probed, each probe yields evidence, and the verdicts, with
 evidence attached, go to a human who decides about the person. Grounding
@@ -95,7 +92,30 @@ Explanations should let the affected person contest a decision~\cite{wachter2018
 the property a per-claim audit is built to provide. Language models produce
 fluent text unsupported by their input~\cite{ji2023}, and instructions hidden in
 retrieved content can redirect them~\cite{greshake2023}; we constrain the
-first by construction and measure the second.
+first by construction and measure the second. Table~\ref{tab:novelty}
+positions the grounding gate against neighboring techniques: none combines
+verbatim span admission, assertion-level negation and hedge checks, and an
+architectural boundary that keeps model text out of verdicts.
+
+\begin{table}[b]
+\caption{Grounding Gate Compared With Related Techniques}
+\label{tab:novelty}
+\centering
+\footnotesize
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Technique & Verbatim & Negation/ & Output \\
+          & span     & hedge     & reaches \\
+\midrule
+Retrieval-augmented generation & No  & No  & Text \\
+Citation/provenance generation & Partial & No & Text \\
+Hallucination detection~\cite{ji2023} & No & No & Score \\
+Extractive information extraction & Yes & No & Field \\
+Injection filtering~\cite{greshake2023} & No & No & Prompt \\
+This work (gate) & Yes & Yes & Question \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 On evaluation, published gains often fail to survive controlled
 re-evaluation~\cite{dacrema2019,musgrave2020}, tree ensembles still rival deep
@@ -285,7 +305,8 @@ synthetic resumes spanning eight fields and four seniority levels. No
 language-model key is needed, so the result is reproducible.
 Table~\ref{tab:gate} summarizes the result: across roughly 100,000 trials the
 gate rejected all 48,149 meaning-preserving paraphrases and all 51,761
-negation traps, before and after the fix described below.
+negation traps, before and after the fix described below. These rates hold for
+the generator's paraphrase and negation patterns, not arbitrary real phrasing.
 
 \begin{table}[t]
 \caption{Grounding-Gate Correct-Decision Rate Before and After the Clause-Splitter Fix}
@@ -378,8 +399,10 @@ Every experiment uses ten-fold grouped cross-validation. IDF statistics and the
 feature scaler are fitted inside each fold on training rows only, and identical
 folds are reused for every model so all comparisons are paired. We compared
 nine classifiers from six families using scikit-learn~\cite{pedregosa2011};
-Table~\ref{tab:nine} gives each model's mean AUROC, calibration error
-(ECE)~\cite{guo2017}, inference latency and model size.
+Table~\ref{tab:nine} gives each model's mean AUROC (area under the ROC curve;
+0.5 is chance), expected calibration error (ECE, the mean gap between predicted
+probability and observed frequency over ten bins)~\cite{guo2017}, latency and
+model size.
 
 \begin{table}[t]
 \caption{Nine Classifiers, Ten-Fold Cross-Validation Grouped by Posting
@@ -485,7 +508,7 @@ Three further checks support the null result. Varying only the splitting
 scheme (all 8,000 rows, a class-weighted random forest), the ungrouped scheme
 scores 0.714 AUROC against 0.689 grouped by posting, a modest leakage
 inflation; grouping by resume scores 0.703, which refutes a
-strong-memorization account. Removing the ambiguous class scores 0.681, no
+strong-memorization account; fully entity-disjoint folds are future work. Removing the ambiguous class scores 0.681, no
 better than the binarized label. A learning curve rises from 0.651 AUROC at a
 tenth of the data to 0.688 at all of it, flattening well below any useful
 operating point, so the limitation is not sample size.
@@ -504,9 +527,12 @@ Face detection (SCRFD~\cite{guo2022}) and embedding
 classifier is excluded by a loader allow-list.
 
 The system originally used an authored cosine-similarity threshold of 0.50,
-reasoned and documented but flagged as uncalibrated. We ran an equal-error-rate
-sweep on 2,200 LFW~\cite{huang2007} training pairs and evaluated the chosen
-threshold on 1,000 held-out pairs. Table~\ref{tab:face} compares the
+reasoned and documented but flagged as uncalibrated. FAR is the fraction of
+different-person pairs accepted and FRR the fraction of same-person pairs
+rejected. We chose the equal-error-rate threshold, where the two are equal,
+because no validated cost ratio between them exists for this use; it was fitted
+on the 2,200 pairs of the LFW~\cite{huang2007} development training split and
+tested on its 1,000 held-out pairs. Table~\ref{tab:face} compares the
 calibrated and authored thresholds; the embedding's AUC on the held-out pairs
 is 0.9785 at any threshold.
 
@@ -544,7 +570,8 @@ measure evidence sufficiency but, without grounding, would measure text a model
 may have invented; DL supplies identity continuity but no verdict. Together
 they close a loop that ends in a human reviewer, not an aggregate.
 
-This design maps onto the regulations named in the introduction. Bias audits
+The design corresponds architecturally to current regulation; whether it
+achieves legal compliance is outside this paper's scope. Bias audits
 and candidate notification (NYC Local Law 144~\cite{nycll144}, the Illinois AI
 Video Interview Act~\cite{ilaivia} and HB~3773~\cite{ilhb3773}) are served by
 per-session consent and by auditing the per-claim verdict distribution rather
@@ -553,25 +580,23 @@ AI Act Arts.~14, 86 and 12~\cite{euaiact}) are served by reviewer-set verdicts,
 evidence attached to every verdict with character offsets, and an append-only
 event store.
 
-Before building, we audited a comparable open system and found its decision
-layer largely fabricated: a detector that never ran, replaced by a heuristic
-that logged window glare as phone detections, and an identity endpoint that
-reported a 0.98 match with no enrolled face. A fallback that fabricates a
-measurement is worse than an outage, which is why CogniHire uses a value-free
-type for failed measurements and builds no affect, stress or deception
-estimation.
+For the same reason CogniHire uses a value-free type for failed measurements
+and builds no affect, stress or deception estimation.
 
 \emph{Limitations.}\label{sec:limits} An earlier version of the web report
 showed, beside the per-claim audit, the mean model confidence across answered
 topics: a session-level aggregate a recruiter could read as a candidate score.
 It was removed during this revision, from both the report service and the
 portal; the report now shows only per-answer judgments and process counts.
+Each judgment carries a model confidence in $[0,1]$ with one use: below 0.6 the
+topic gets a follow-up question. It is not calibrated and never aggregated.
 Identity matching is implemented and tested but is currently only
 a presence gate on the production path, so continuous identity verification is
 not yet deployed. The face threshold is calibrated on a public benchmark, not
 candidates. No structured recruiter study has been conducted, so the premise
 that reviewers prefer a claim audit to a score is untested. The injection
-evaluation uses 24 host resumes and hand-written templates. An earlier fit
+evaluation uses 24 host resumes and hand-written templates, not attacks observed in the wild, and no ablation
+isolates each gate check. An earlier fit
 model (0.657 AUROC) is deliberately not deployed, for the reasons in
 Section~\ref{sec:within}.
 
@@ -591,7 +616,9 @@ on the candidate population; and that the system's regulatory mapping would
 satisfy an auditor. These are the next steps: a controlled recruiter study
 comparing inter-reviewer agreement on a claim audit against a composite score,
 recalibration of the face threshold on consented candidate data, end-to-end
-timing of the interview stage, and continuous identity verification on the
+timing and validation of the interview stage, a per-check gate ablation,
+real-world injection corpora, entity-disjoint cross-validation, demographically
+stratified face evaluation, and continuous identity verification on the
 production path.
 
 \section*{Data Availability}
