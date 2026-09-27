@@ -1,6 +1,6 @@
 ---
 title: "CogniHire IEEE Paper — Response to Review"
-author: "Devesh S V, Department of Computer Science and Engineering, SRM Institute of Science and Technology"
+author: "Devesh S V, Department of Computing Technologies, SRM Institute of Science and Technology, Kattankalathur, Chennai"
 date: "24 September 2026"
 ---
 
