@@ -8,7 +8,7 @@ date: "24 September 2026"
 
 Thank you for the detailed review. Every comment has been addressed in the revised paper. New material comes from the project's own code and saved results; one new experiment was run (a prompt-injection evaluation, comment 4). The paper is now 8 pages with 29 references, and it compiles without errors or bitmap fonts.
 
-While answering comment 2, the check against the code found one real gap: the web report shows the mean model confidence across answers. The paper now states this openly (Table II and Limitations) instead of claiming that nothing is aggregated.
+While answering comment 2, the check against the code found one real gap: the web report showed the mean model confidence across answers, a single number a recruiter could read as a score. That figure has now been removed from the system itself (report service and portal), and the paper records the change in its Limitations section.
 
 Section, table and figure numbers below refer to the revised paper.
 
@@ -29,7 +29,7 @@ Section, table and figure numbers below refer to the revised paper.
 | # | Comment | Response | Where |
 |---|---|---|---|
 | 1 | State which mechanisms are novel | The introduction now says the audit-not-score philosophy is a design stance, not the novelty, and lists three specific novel mechanisms: the assertion-scoped grounding gate, the value-free result type for failed measurements, and the within-query diagnostic. The other contributions are labeled empirical. | Sec. I |
-| 2 | Clarify the ML role and whether outputs can become a hidden score | New Table II lists every component output, whether it is deployed, what reaches the recruiter, and whether it can act as a hidden score. Verdicts are set by a person, and no model sets one. The sufficiency model is diagnostic only: it is fitted on synthetic data, and the code cannot present it as a finding about a real person. The fit classifiers are not deployed. Identity is a presence gate whose mismatches are logged for review. The remaining gap, the mean-confidence figure in the web report, is disclosed. | Sec. III, Table II, Sec. VII |
+| 2 | Clarify the ML role and whether outputs can become a hidden score | New Table II lists every component output, whether it is deployed, what reaches the recruiter, and whether it can act as a hidden score. Verdicts are set by a person, and no model sets one. The sufficiency model is diagnostic only: it is fitted on synthetic data, and the code cannot present it as a finding about a real person. The fit classifiers are not deployed. Identity is a presence gate whose mismatches are logged for review. The one aggregate that could act as a score, a mean-confidence figure in the web report, has been removed from the system. | Sec. III, Table II, Sec. VII |
 | 3 | Define selection versus generation | Formal Definition 1: a claim is selected only if it matches a single-clause span of the résumé exactly, up to case and whitespace, and the rest of that clause has no negation or hedge. Anything else is generation and is discarded. | Sec. IV-A |
 | 4 | No prompt-injection evaluation | New evaluation: 20 injection templates at 3 positions in 24 real résumés (1,440 documents), with a fully compromised model that obeys every injection. 0 of 1,800 fabricated claims were admitted. Text the attacker writes into the résumé can become a claim to be questioned, but never a verdict; this limit is stated. | Sec. IV-C, Table V |
 | 5 | Dataset card has no licence or labeling procedure | Stated explicitly. The labels are treated as an unvalidated proxy, and the benchmark is used only diagnostically. | Sec. V-A |
@@ -52,6 +52,7 @@ Section, table and figure numbers below refer to the revised paper.
 
 # Open items
 
-1. The conference's required page size (A4 or US Letter).
-2. The access date of the dataset in reference [19].
-3. Whether 8 pages is within the conference limit.
+1. The access date of the dataset in reference [19].
+2. Whether 8 pages is within the conference limit.
+
+The paper is now set in A4.

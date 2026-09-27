@@ -1,4 +1,4 @@
-\documentclass[conference]{IEEEtran}
+\documentclass[conference,a4paper]{IEEEtran}
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage{amsmath,amssymb,amsthm}
@@ -234,7 +234,7 @@ benchmark that no runtime module imports.
 Output & Produced by & Status & Reaches the recruiter as & Can it act as a hidden score? \\
 \midrule
 Grounded claims & LLM + grounding gate & Operational & The list of claims to audit, with character offsets & No: text only, and only text already in the r\'esum\'e \\
-Per-answer judgment & LLM (answer analysis) & Operational & Supported or not, a confidence, a one-sentence reason and a verbatim quote from the answer & Partly: it never sets a verdict, but the web report also shows the mean confidence across answers, a session-level aggregate (Section~\ref{sec:limits}) \\
+Per-answer judgment & LLM (answer analysis) & Operational & Supported or not, a confidence, a one-sentence reason and a verbatim quote from the answer & No: it chooses follow-up questions but never sets a verdict, and no session-level average of it is computed or shown (Section~\ref{sec:limits}) \\
 Claim verdicts & Human reviewer & Operational & The four-valued verdict per claim & No: set by a person, not orderable, never aggregated \\
 Identity check & DL (SCRFD + ArcFace) & Presence gate only & Matched, mismatched, or unchecked, per check & No: mismatches are logged events for a person to review, not inputs to any verdict \\
 Integrity events & Rule-based log & Operational & A time-ordered list of events & No: the earlier 0--100 risk score was removed from the code \\
@@ -256,8 +256,7 @@ DL layer checks at intervals that the same person is present and logs the
 result as a matched, mismatched or unchecked event. The reviewer sees the
 claim, the question, the quoted answer and the identity log, and sets the
 verdict. The verdict is the only judgment made about the claim, and a person
-makes it; the one session-level number the current report still shows is
-discussed in Section~\ref{sec:limits}.
+makes it; no number about the candidate is computed.
 
 Table~\ref{tab:policies} lists the policies the system converts into
 structures. Each turns a claim that requires trust into one a skeptical
@@ -781,13 +780,12 @@ stress or deception estimation: none has defensible ground truth on a diverse
 candidate pool, and a stress percentage that silently changes which questions a
 candidate is asked is itself a hidden score.
 
-\emph{Limitations.}\label{sec:limits} The most important gap is in the
-implementation, not the design. The web report currently shows, beside the
-per-claim audit, the mean model confidence across answered topics and the
-share of planned topics covered. The first is a session-level aggregate that a
-recruiter could read as a candidate score, which conflicts with the principle
-this paper argues for; removing it, and leaving only the per-answer judgments,
-is the most direct next change. Identity matching is implemented and tested but is currently only
+\emph{Limitations.}\label{sec:limits} An earlier version of the web report
+showed, beside the per-claim audit, the mean model confidence across answered
+topics: a session-level aggregate a recruiter could read as a candidate score.
+It was removed during this revision, from both the report service and the
+portal; the report now shows only per-answer judgments and process counts.
+Identity matching is implemented and tested but is currently only
 a presence gate on the production path, so continuous identity verification is
 not yet deployed. The face threshold is calibrated on a public benchmark, not
 candidates. No structured recruiter study has been conducted, so the premise

@@ -160,7 +160,6 @@ type Transparency = {
   topics_with_direct_evidence: number
   supported: number
   not_supported: number
-  mean_confidence: number | null
   topics_graded_by_heuristic: number
   claims_truncated: boolean
   topics_truncated: boolean
@@ -192,12 +191,12 @@ function TransparencyPanel({ t }: { t: Transparency }) {
       hint: 'Examined topics with a verbatim evidence quote',
     },
     {
-      label: 'Mean confidence',
-      value: t.mean_confidence != null ? `${Math.round(t.mean_confidence * 100)}%` : '—',
+      label: 'Graded by fallback',
+      value: `${t.topics_graded_by_heuristic} / ${t.topics_examined}`,
       hint:
         t.topics_graded_by_heuristic > 0
-          ? `Model confidence across examined topics — excludes ${t.topics_graded_by_heuristic} graded by the deterministic fallback while the model was unavailable`
-          : 'Model confidence across examined topics',
+          ? 'Topics graded by the deterministic fallback while the model was unavailable'
+          : 'Every examined topic was graded by the model',
     },
   ]
 

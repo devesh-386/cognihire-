@@ -86,17 +86,15 @@ class TransparencyMetrics:
 
     supported: int
     not_supported: int
-    # Mean of GENUINE model confidence across examined topics that a model
-    # actually graded — None if none were. Heuristic-graded topics are
-    # deliberately excluded: averaging a cosine-similarity score in with
-    # real model certainty would let a degraded, unverified measurement
-    # quietly pull this number around as if it were the same kind of thing.
-    # A number the reader can discount by, not one that stands in for a
-    # decision.
-    mean_confidence: float | None
+    # There is deliberately no session-level mean of model confidence here.
+    # Averaging per-answer confidence into one number per candidate produced a
+    # figure a reader could take as a score, which the no-composite rule
+    # forbids; per-answer confidence stays on each TopicReport, beside the
+    # quote and reason it belongs to.
+    #
     # How many examined topics were graded by the heuristic fallback rather
-    # than a model — surfaced so the reader knows `mean_confidence` doesn't
-    # cover the whole interview when this is nonzero.
+    # than a model, so the reader knows some verdicts came from the degraded
+    # path.
     topics_graded_by_heuristic: int
 
     # Truncation disclosure (§4.5): true when the candidate had more usable
@@ -218,11 +216,6 @@ def _transparency(plan: QuestionPlan, topics: list[TopicReport]) -> Transparency
     """Derive the process-disclosure metrics from the plan's provenance and the
     already-built topic reports. Pure counting — no re-judging."""
     examined = [t for t in topics if t.outcome is not None]
-    # Only genuine model confidence, never the heuristic stand-in — see
-    # TopicReport.heuristic_similarity's own comment on why the two must
-    # not be averaged together.
-    confidences = [t.confidence for t in examined if t.confidence is not None]
-
     planned = len(plan.topics)
     rejected = len(plan.rejected_ungrounded)
     proposed = planned + rejected
@@ -241,9 +234,6 @@ def _transparency(plan: QuestionPlan, topics: list[TopicReport]) -> Transparency
         topics_with_direct_evidence=sum(1 for t in examined if t.evidence_quote),
         supported=sum(1 for t in examined if t.outcome == "supported"),
         not_supported=sum(1 for t in examined if t.outcome == "not_supported"),
-        mean_confidence=(
-            round(sum(confidences) / len(confidences), 3) if confidences else None
-        ),
         topics_graded_by_heuristic=sum(1 for t in examined if t.heuristic_similarity is not None),
         claims_truncated=plan.claims_truncated,
         topics_truncated=plan.topics_truncated,

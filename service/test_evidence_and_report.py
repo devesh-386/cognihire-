@@ -138,17 +138,16 @@ def test_transparency_metrics_reflect_provenance_and_grounding():
     assert t.supported == 2
     assert t.not_supported == 0
     assert t.topics_with_direct_evidence == 2
-    # Mean of React 0.9 and leadership's last attempt 0.8 = 0.85.
-    assert t.mean_confidence == 0.85
+    # No session-level mean of confidence is reported: one number per
+    # candidate would read as a score.
+    assert not hasattr(t, "mean_confidence")
     assert t.topics_graded_by_heuristic == 0
 
 
-def test_heuristic_graded_topics_have_no_confidence_and_dont_pull_the_mean():
+def test_heuristic_graded_topics_have_no_confidence():
     """§4.4: an unverified cosine-similarity score standing in for a real
-    model's confidence must never display as `confidence`, and must never
-    be averaged into `mean_confidence` alongside genuine model judgements —
-    that would let a degraded measurement quietly pull a real number
-    around, with nothing marking the difference to a reader."""
+    model's confidence must never display as `confidence`, with nothing
+    marking the difference to a reader."""
     events = [
         _event(1, "session_started", {"role_title": "Backend Engineer"}),
         _event(2, "question", {"topic": "React dashboard", "question": "Tell me about the dashboard."}),
@@ -178,9 +177,6 @@ def test_heuristic_graded_topics_have_no_confidence_and_dont_pull_the_mean():
     assert leadership_topic.confidence is None
     assert leadership_topic.heuristic_similarity == 0.55
 
-    # Mean of ONLY the genuine model confidence (0.9) — the heuristic 0.55
-    # must not be folded in (a naive average of both would read 0.725).
-    assert report.transparency.mean_confidence == 0.9
     assert report.transparency.topics_graded_by_heuristic == 1
 
 
@@ -211,8 +207,6 @@ def test_transparency_metrics_flag_the_deterministic_fallback():
     assert t is not None
     assert t.used_ai_planner is False
     assert t.planning_degraded_reason == "the provider was unreachable"
-    # Nothing examined yet → no mean confidence, not a fabricated 0.
-    assert t.mean_confidence is None
     # Nothing was rejected, so grounding is vacuously perfect rather than 0/0.
     assert t.grounding_rate == 1.0
 
