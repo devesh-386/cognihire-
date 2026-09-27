@@ -471,8 +471,7 @@ class _InterviewSessionDetailScreenState
                     const SizedBox(height: Spacing.xs),
                     Text(
                       '${topic.reason ?? ''} · ${topic.attempts} attempt'
-                      '${topic.attempts == 1 ? '' : 's'}'
-                      '${topic.confidence == null ? '' : ' · confidence ${(topic.confidence! * 100).round()}%'}',
+                      '${topic.attempts == 1 ? '' : 's'}',
                       style: theme.textTheme.bodySmall,
                     ),
                   ],
