@@ -50,9 +50,6 @@ Section, table and figure numbers below refer to the revised paper.
 | The legal table cited the wrong EU AI Act provisions and overstated HB 3773; it now cites Arts. 12, 14 and 86. | Table XI |
 | Figures rebuilt as vector graphics, removing the bitmap fonts that IEEE PDF eXpress rejects. | All figures |
 
-# Open items
+# Formatting
 
-1. The access date of the dataset in reference [19].
-2. Whether 8 pages is within the conference limit.
-
-The paper is now set in A4.
+The paper is set in A4 and runs to 8 pages, within the conference limit.
