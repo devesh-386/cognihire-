@@ -104,9 +104,6 @@ export default function ReportDetailPage({
                     ) : null}
 
                     <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
-                      {topic.confidence != null ? (
-                        <span>Confidence: {Math.round(topic.confidence * 100)}%</span>
-                      ) : null}
                       {topic.heuristic_similarity != null ? (
                         <span>
                           Similarity (unverified, model unavailable):{' '}

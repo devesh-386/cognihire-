@@ -1,0 +1,200 @@
+{
+  "hostResumes": 24,
+  "trialCounts": {
+    "verbatim": 950,
+    "negation": 947,
+    "hedge": 947,
+    "paraphrase": 344,
+    "cross_clause": 955,
+    "injection": 1800
+  },
+  "ablation": {
+    "full": {
+      "verbatim": {
+        "admitted": 950,
+        "n": 950,
+        "correctPct": 100.0
+      },
+      "negation": {
+        "admitted": 0,
+        "n": 947,
+        "correctPct": 100.0
+      },
+      "hedge": {
+        "admitted": 0,
+        "n": 947,
+        "correctPct": 100.0
+      },
+      "paraphrase": {
+        "admitted": 0,
+        "n": 344,
+        "correctPct": 100.0
+      },
+      "cross_clause": {
+        "admitted": 0,
+        "n": 955,
+        "correctPct": 100.0
+      },
+      "injection": {
+        "admitted": 0,
+        "n": 1800,
+        "correctPct": 100.0
+      }
+    },
+    "no_negation": {
+      "verbatim": {
+        "admitted": 950,
+        "n": 950,
+        "correctPct": 100.0
+      },
+      "negation": {
+        "admitted": 947,
+        "n": 947,
+        "correctPct": 0.0
+      },
+      "hedge": {
+        "admitted": 947,
+        "n": 947,
+        "correctPct": 0.0
+      },
+      "paraphrase": {
+        "admitted": 0,
+        "n": 344,
+        "correctPct": 100.0
+      },
+      "cross_clause": {
+        "admitted": 0,
+        "n": 955,
+        "correctPct": 100.0
+      },
+      "injection": {
+        "admitted": 0,
+        "n": 1800,
+        "correctPct": 100.0
+      }
+    },
+    "no_clause": {
+      "verbatim": {
+        "admitted": 584,
+        "n": 950,
+        "correctPct": 61.47
+      },
+      "negation": {
+        "admitted": 0,
+        "n": 947,
+        "correctPct": 100.0
+      },
+      "hedge": {
+        "admitted": 0,
+        "n": 947,
+        "correctPct": 100.0
+      },
+      "paraphrase": {
+        "admitted": 0,
+        "n": 344,
+        "correctPct": 100.0
+      },
+      "cross_clause": {
+        "admitted": 565,
+        "n": 955,
+        "correctPct": 40.84
+      },
+      "injection": {
+        "admitted": 0,
+        "n": 1800,
+        "correctPct": 100.0
+      }
+    },
+    "substring": {
+      "verbatim": {
+        "admitted": 950,
+        "n": 950,
+        "correctPct": 100.0
+      },
+      "negation": {
+        "admitted": 947,
+        "n": 947,
+        "correctPct": 0.0
+      },
+      "hedge": {
+        "admitted": 947,
+        "n": 947,
+        "correctPct": 0.0
+      },
+      "paraphrase": {
+        "admitted": 0,
+        "n": 344,
+        "correctPct": 100.0
+      },
+      "cross_clause": {
+        "admitted": 955,
+        "n": 955,
+        "correctPct": 0.0
+      },
+      "injection": {
+        "admitted": 0,
+        "n": 1800,
+        "correctPct": 100.0
+      }
+    },
+    "no_gate": {
+      "verbatim": {
+        "admitted": 950,
+        "n": 950,
+        "correctPct": 100.0
+      },
+      "negation": {
+        "admitted": 947,
+        "n": 947,
+        "correctPct": 0.0
+      },
+      "hedge": {
+        "admitted": 947,
+        "n": 947,
+        "correctPct": 0.0
+      },
+      "paraphrase": {
+        "admitted": 344,
+        "n": 344,
+        "correctPct": 0.0
+      },
+      "cross_clause": {
+        "admitted": 955,
+        "n": 955,
+        "correctPct": 0.0
+      },
+      "injection": {
+        "admitted": 1800,
+        "n": 1800,
+        "correctPct": 0.0
+      }
+    }
+  },
+  "extendedInjection": {
+    "zero_width": {
+      "documents": 1440,
+      "fabricatedTested": 2304,
+      "fabricatedAdmitted": 0
+    },
+    "homoglyph": {
+      "documents": 1440,
+      "fabricatedTested": 2304,
+      "fabricatedAdmitted": 0
+    },
+    "split_lines": {
+      "documents": 1440,
+      "fabricatedTested": 1800,
+      "fabricatedAdmitted": 0
+    },
+    "html_hidden": {
+      "documents": 1440,
+      "fabricatedTested": 1800,
+      "fabricatedAdmitted": 0
+    },
+    "multilingual": {
+      "documents": 288,
+      "fabricatedTested": 576,
+      "fabricatedAdmitted": 0
+    }
+  }
+}
